@@ -148,6 +148,12 @@ atl conf diff "$ATL_WORKSPACE_ROOT" -o text
 список идентификаторов; ограниченные вложения описаны в
 [Confluence mirrors](docs/reference/cli/confluence-mirrors.md).
 
+Для полного проекта Jira используйте `jira pull --complete --project KEY
+--max-issues N`: он так же выполняет возобновляемый двухпроходный отбор и
+может хранить строгие ограниченные receipts комментариев и вложений, включая
+body по allowlist. Точные флаги описаны в
+[Jira mirrors](docs/reference/cli/jira-mirrors.md#atl-jira-pull).
+
 Файл `.csf` содержит точный native body Confluence. Соседний `.md` — производное
 представление для чтения и поддерживаемых staging-правок. После изменения
 Markdown:

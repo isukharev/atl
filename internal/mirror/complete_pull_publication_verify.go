@@ -47,9 +47,14 @@ func (m *Mirror) verifyCommittedPublication(checkpoint CompletePullCheckpoint, i
 		if position < 0 || position >= len(journal.Entries) || !reflect.DeepEqual(journal.Entries[position], intent.Entry) {
 			return fmt.Errorf("%w: committed complete-pull publication differs from accepted journal evidence", domain.ErrCheckFailed)
 		}
-		if intent.Service == CompletePullServiceConfluence {
+		switch intent.Service {
+		case CompletePullServiceConfluence:
 			if _, verifyErr := m.verifyConfluenceCompletePullAttachmentArtifacts(intent.Entry, true); verifyErr != nil {
 				return fmt.Errorf("%w: committed complete-pull attachment artifacts do not match their accepted evidence", domain.ErrCheckFailed)
+			}
+		case CompletePullServiceJira:
+			if verifyErr := m.verifyJiraCompletePullOptionalArtifacts(intent.Entry); verifyErr != nil {
+				return fmt.Errorf("%w: committed complete-pull Jira optional artifacts do not match their accepted evidence", domain.ErrCheckFailed)
 			}
 		}
 	} else {

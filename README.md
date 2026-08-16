@@ -123,7 +123,7 @@ and every write.
 
 ### 2. Mirror and review locally
 
-Keep a mirror outside a source repository and pass its root explicitly:
+Keep mirrors outside source repositories and pass roots explicitly:
 
 ```sh
 export ATL_READ_ONLY=1
@@ -134,9 +134,11 @@ atl conf status --into "$ATL_WORKSPACE_ROOT"
 atl conf diff "$ATL_WORKSPACE_ROOT" -o text
 ```
 
-`conf pull --complete --space KEY` qualifies a large-space bootstrap twice;
-[Confluence mirrors](docs/reference/cli/confluence-mirrors.md) describes bounded
-attachments.
+`conf pull --complete --space KEY` uses a two-pass bootstrap; [Confluence
+mirrors](docs/reference/cli/confluence-mirrors.md) covers attachments.
+
+Complete Jira mirrors and qualified optional evidence: [Jira
+mirrors](docs/reference/cli/jira-mirrors.md#atl-jira-pull).
 
 `.csf` is the native body; `.md` is its derived staging view. After editing
 Markdown:

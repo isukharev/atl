@@ -92,6 +92,28 @@ func (budget *corpusAttachmentCaptureBudget) remaining() int64 {
 	return budget.maximum - budget.reserved
 }
 
+// restoreVerifiedUsage incorporates a durable per-service prefix into a
+// capture budget without discarding evidence already charged by another
+// service in the same corpus generation. A direct complete-pull resume starts
+// at zero and adopts its verified prefix. A corpus build shares one budget
+// across Confluence and Jira, so a later service whose own prefix is smaller
+// must never reset the aggregate back to zero.
+func (budget *corpusAttachmentCaptureBudget) restoreVerifiedUsage(usage int64) bool {
+	if budget == nil || usage < 0 {
+		return false
+	}
+	budget.mu.Lock()
+	defer budget.mu.Unlock()
+	if usage > budget.maximum {
+		return false
+	}
+	if budget.reserved == 0 {
+		budget.reserved = usage
+		return true
+	}
+	return budget.reserved >= usage
+}
+
 type corpusPullEvidenceOptions struct {
 	binding corpusEvidenceBinding
 	budget  *corpusAttachmentCaptureBudget

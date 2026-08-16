@@ -398,6 +398,14 @@ func (s *JiraService) pullJiraComplete(ctx context.Context, opts JiraPullOpts) (
 	if err := prepareMirrorBackendPopulation(root, "jira", s.baseURL, wikiExt, opts.DryRun); err != nil {
 		return res, err
 	}
+	// A dry run deliberately does not create a backend binding file, yet it
+	// qualifies and encodes the same sidecars as a committing complete pull.
+	// Derive the immutable origin from the configured backend once rather than
+	// reading a binding that cannot exist in that mode.
+	backend, err := backendBinding("jira", s.baseURL)
+	if err != nil {
+		return res, err
+	}
 	settings, warnings := resolveRenderExact(s.cfg, root, opts.Render, "jira", opts.exactRender)
 	settings, err = s.resolveRenderFieldSelectors(ctx, settings)
 	if err != nil {
@@ -443,6 +451,9 @@ func (s *JiraService) pullJiraComplete(ctx context.Context, opts JiraPullOpts) (
 		return res, err
 	}
 	res.Complete = selection.result
+	if err := restoreJiraCompleteAttachmentBudget(m, &opts, selection.checkpoint); err != nil {
+		return res, err
+	}
 	if !opts.DryRun && selection.result.Source != "resumed" {
 		if err := m.SaveCompletePullCheckpoint(selection.checkpoint); err != nil {
 			return res, err
@@ -501,7 +512,19 @@ func (s *JiraService) pullJiraComplete(ctx context.Context, opts JiraPullOpts) (
 		if selectedKey := selection.keys[identity]; selectedKey != "" && selectedKey != issue.Key {
 			return res, fmt.Errorf("%w: Jira issue key changed after the qualified selection passes", domain.ErrCheckFailed)
 		}
-		issue, fetchErr = limitJiraCompleteIssueProjection(issue, opts.exactFields)
+		// Evidence-enabled complete pulls extend an internal exact projection with
+		// the immutable parent revision. Limit an explicitly exact response to
+		// that effective projection rather than the caller's original slice,
+		// otherwise an explicitly requested exact field set can successfully fetch
+		// `updated` only for the subsequent projection to discard it before
+		// evidence is qualified. A nil projection is the compatibility path: its
+		// backend response remains unrestricted even though `fields` names the
+		// requested query fields.
+		projection := opts.exactFields
+		if projection != nil && jiraPullEvidenceRequested(opts) {
+			projection = fields
+		}
+		issue, fetchErr = limitJiraCompleteIssueProjection(issue, projection)
 		if fetchErr != nil {
 			return res, fetchErr
 		}
@@ -549,20 +572,6 @@ func (s *JiraService) pullJiraComplete(ctx context.Context, opts JiraPullOpts) (
 		if prepareErr != nil {
 			return res, prepareErr
 		}
-		evidence, evidenceErr := s.captureJiraCorpusEvidence(ctx, m, issue, paths, opts.evidence)
-		if evidenceErr != nil {
-			return res, evidenceErr
-		}
-		if err := revalidatePullFile(root, paths.wiki, qualified.localWiki, qualified.nativeExisted, paths.keySeg, "native substrate"); err != nil {
-			return res, err
-		}
-		if err := revalidatePullFile(root, paths.markdown, qualified.qualifiedView, qualified.viewExisted, paths.keySeg, "derived view"); err != nil {
-			return res, err
-		}
-		artifacts, prepareErr = finalizeJiraCorpusEvidence(m, issue, paths, state, artifacts, evidence)
-		if prepareErr != nil {
-			return res, prepareErr
-		}
 		var relocation *mirror.JiraIssueRelocation
 		if trackedFound && tracked.State.ID != paths.keySeg {
 			oldMD, oldErr := jiraCompleteOldView(m, tracked)
@@ -576,6 +585,32 @@ func (s *JiraService) pullJiraComplete(ctx context.Context, opts JiraPullOpts) (
 			if relocation == nil {
 				return res, fmt.Errorf("%w: Jira key relocation lost its tracked predecessor", domain.ErrCheckFailed)
 			}
+		}
+		artifacts, prepareErr = s.captureJiraCompleteEvidence(ctx, m, backend.OriginSHA256, opts.DryRun, issue, paths, state, artifacts, relocation, opts.evidence)
+		if prepareErr != nil {
+			return res, prepareErr
+		}
+		if err := revalidatePullFile(root, paths.wiki, qualified.localWiki, qualified.nativeExisted, paths.keySeg, "native substrate"); err != nil {
+			return res, err
+		}
+		if err := revalidatePullFile(root, paths.markdown, qualified.qualifiedView, qualified.viewExisted, paths.keySeg, "derived view"); err != nil {
+			return res, err
+		}
+		if relocation == nil {
+			metadata, metadataErr := completePullArtifactData(artifacts, paths.snapshotRel.String())
+			if metadataErr != nil {
+				return res, metadataErr
+			}
+			commentRetirements, retirementErr := m.PlanJiraCommentCaptureRetirements(identity, state, metadata, artifacts, true)
+			if retirementErr != nil {
+				return res, retirementErr
+			}
+			attachmentRetirements, retirementErr := m.PlanJiraAttachmentCaptureRetirements(identity, state, metadata, artifacts, true)
+			if retirementErr != nil {
+				return res, retirementErr
+			}
+			artifacts = append(artifacts, commentRetirements...)
+			artifacts = append(artifacts, attachmentRetirements...)
 		}
 		status := ""
 		stashPath := ""
@@ -635,8 +670,19 @@ func (s *JiraService) pullJiraComplete(ctx context.Context, opts JiraPullOpts) (
 }
 
 func jiraCompletePullFields(opts JiraPullOpts, extra []string, settings RenderSettings) []string {
+	var fields []string
 	if opts.exactFields != nil {
-		return append([]string(nil), opts.exactFields...)
+		fields = append([]string(nil), opts.exactFields...)
+	} else {
+		fields = jiraPullFields(extra, settings)
 	}
-	return jiraPullFields(extra, settings)
+	if !jiraPullEvidenceRequested(opts) {
+		return fields
+	}
+	for _, field := range fields {
+		if field == "updated" {
+			return fields
+		}
+	}
+	return append(fields, "updated")
 }

@@ -143,6 +143,11 @@ func (s *JiraService) pullJiraIssue(ctx context.Context, req jiraPullIssueReques
 	if early != nil {
 		return *early, nil
 	}
+	if !req.opts.Complete {
+		if err := preflightJiraQualifiedEvidenceInvalidation(req.mirror, qualified); err != nil {
+			return jiraPullIssueOutcome{}, err
+		}
+	}
 	if req.opts.DryRun {
 		out := jiraPullIssueOutcome{issue: qualified.pulled("would_pull")}
 		if qualified.nativeAction != nil {
@@ -177,6 +182,37 @@ func (s *JiraService) pullJiraIssue(ctx context.Context, req jiraPullIssueReques
 		return jiraPullIssueOutcome{actions: staged.actions, assetsSkipped: fetched.assetsSkipped}, err
 	}
 	return out, nil
+}
+
+// preflightJiraQualifiedEvidenceInvalidation refuses an ordinary write that
+// would change a primary issue while leaving a previously qualified private
+// comments or attachment receipt at the same path. Complete pulls can retire
+// those receipts atomically; the established ordinary path cannot, so it stops
+// before native or derived bytes are written.
+func preflightJiraQualifiedEvidenceInvalidation(m *mirror.Mirror, qualified *jiraPullQualifiedIssue) error {
+	if m == nil || qualified == nil || !canonicalPositiveNumericString(qualified.identity) {
+		return nil
+	}
+	snapshot, err := jiraPullSnapshotBytes(qualified.request.issue)
+	if err != nil {
+		return err
+	}
+	next := mirror.SyncState{
+		ID: qualified.paths.keySeg, Identity: qualified.identity, Version: 0,
+		Hash: mirror.Hash([]byte(qualified.request.issue.Body)), Path: qualified.paths.wikiRel.String(),
+	}
+	commentRetirements, err := m.PlanJiraCommentCaptureRetirements(qualified.identity, next, snapshot, nil, false)
+	if err != nil {
+		return err
+	}
+	attachmentRetirements, err := m.PlanJiraAttachmentCaptureRetirements(qualified.identity, next, snapshot, nil, false)
+	if err != nil {
+		return err
+	}
+	if len(commentRetirements) != 0 || len(attachmentRetirements) != 0 {
+		return fmt.Errorf("%w: ordinary Jira pull would invalidate prior qualified comment or attachment evidence; rerun with --complete to retire it atomically", domain.ErrCheckFailed)
+	}
+	return nil
 }
 
 func (s *JiraService) qualifyJiraPullIssue(req jiraPullIssueRequest) (*jiraPullQualifiedIssue, *jiraPullIssueOutcome, error) {

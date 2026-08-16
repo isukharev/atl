@@ -74,6 +74,51 @@ func captureCorpusAttachmentsWithBodyLimit(
 	enforceBodyByteLimit bool,
 	open corpusAttachmentOpen,
 ) (corpusAttachmentCapture, error) {
+	return captureCorpusAttachmentsWithBodyLimitMode(
+		ctx, root, service, parentID, stem, inventory, options,
+		bodyLimit, enforceBodyLimit, bodyByteLimit, enforceBodyByteLimit, false, open,
+	)
+}
+
+// captureCorpusAttachmentsWithBodyLimitInMemory is the write-free counterpart
+// used by complete-pull dry runs. Its bounded in-memory reader preserves the
+// same byte/hash qualification as staging while never creating a target-root
+// directory or private staging residue.
+func captureCorpusAttachmentsWithBodyLimitInMemory(
+	ctx context.Context,
+	root string,
+	service string,
+	parentID string,
+	stem string,
+	inventory domain.AttachmentInventory,
+	options *corpusPullEvidenceOptions,
+	bodyLimit int,
+	enforceBodyLimit bool,
+	bodyByteLimit int64,
+	enforceBodyByteLimit bool,
+	open corpusAttachmentOpen,
+) (corpusAttachmentCapture, error) {
+	return captureCorpusAttachmentsWithBodyLimitMode(
+		ctx, root, service, parentID, stem, inventory, options,
+		bodyLimit, enforceBodyLimit, bodyByteLimit, enforceBodyByteLimit, true, open,
+	)
+}
+
+func captureCorpusAttachmentsWithBodyLimitMode(
+	ctx context.Context,
+	root string,
+	service string,
+	parentID string,
+	stem string,
+	inventory domain.AttachmentInventory,
+	options *corpusPullEvidenceOptions,
+	bodyLimit int,
+	enforceBodyLimit bool,
+	bodyByteLimit int64,
+	enforceBodyByteLimit bool,
+	inMemory bool,
+	open corpusAttachmentOpen,
+) (corpusAttachmentCapture, error) {
 	if options == nil || !options.binding.Attachments || ctx == nil || options.binding.AttachmentBodies && options.budget == nil {
 		return corpusAttachmentCapture{}, fmt.Errorf("%w: attachment capture policy is unavailable", domain.ErrCheckFailed)
 	}
@@ -86,8 +131,13 @@ func captureCorpusAttachmentsWithBodyLimit(
 	// before planning or opening a binary body. A late failure here would make a
 	// strict pull consume remote evidence that cannot join its atomic page
 	// transaction.
-	if service == mirror.CorpusSnapshotConfluence {
+	switch service {
+	case mirror.CorpusSnapshotConfluence:
 		if err := validateConfluenceAttachmentCapturePreflight(parentID, stem, inventory, options); err != nil {
+			return corpusAttachmentCapture{}, err
+		}
+	case mirror.CorpusSnapshotJira:
+		if err := validateJiraAttachmentCapturePreflight(parentID, "", stem, inventory, options); err != nil {
 			return corpusAttachmentCapture{}, err
 		}
 	}
@@ -240,7 +290,14 @@ func captureCorpusAttachmentsWithBodyLimit(
 			capture.records = append(capture.records, record)
 			continue
 		}
-		data, digest, readErr := streamCorpusAttachment(ctx, root, parentID, attachment.ID, attachment.FileSize, reader)
+		var data []byte
+		var digest string
+		var readErr error
+		if inMemory {
+			data, digest, readErr = streamCorpusAttachmentInMemory(ctx, parentID, attachment.ID, attachment.FileSize, reader)
+		} else {
+			data, digest, readErr = streamCorpusAttachment(ctx, root, parentID, attachment.ID, attachment.FileSize, reader)
+		}
 		closeErr := reader.Close()
 		if readErr != nil || closeErr != nil {
 			releaseReserved(attachment.FileSize)
@@ -272,6 +329,79 @@ func captureCorpusAttachmentsWithBodyLimit(
 	}
 	sort.Slice(capture.partialReasons, func(i, j int) bool { return capture.partialReasons[i] < capture.partialReasons[j] })
 	return capture, nil
+}
+
+// validateJiraAttachmentCapturePreflight validates the durable Jira sidecar
+// and streamed-body identity intersection before the first revalidation or
+// binary request. The read-only attachment field accepts broader provider
+// identifiers than the content-addressed capture layout, so this boundary
+// rejects an unrepresentable inventory rather than downloading bytes that can
+// never join the complete-pull transaction.
+func validateJiraAttachmentCapturePreflight(
+	parentID, parentRevision, stem string,
+	inventory domain.AttachmentInventory,
+	options *corpusPullEvidenceOptions,
+) error {
+	if options == nil || !options.binding.Attachments || !canonicalPositiveNumericString(parentID) {
+		return fmt.Errorf("%w: Jira attachment capture identity is invalid", domain.ErrCheckFailed)
+	}
+	if parentRevision == "" {
+		// Generic capture tests and compatibility callers do not carry an issue
+		// revision. Production Jira complete pulls pass the exact validated value
+		// below before any body request.
+		parentRevision = "revision"
+	}
+	if !domain.ValidJiraEvidenceParentRevision(parentRevision) {
+		return fmt.Errorf("%w: Jira attachment capture parent revision is invalid", domain.ErrCheckFailed)
+	}
+	capture := corpusAttachmentCapture{
+		inventoryComplete: inventory.Complete,
+		inventoryReason:   inventory.PartialReason,
+		bodiesState:       mirror.AttachmentBodiesNotRequested,
+		records:           make([]mirror.AttachmentSidecarRecord, 0, len(inventory.Attachments)),
+		partialReasons:    []mirror.AttachmentPartialReason{},
+	}
+	if !inventory.Complete {
+		reason := corpusAttachmentInventoryPartialReason(mirror.CorpusSnapshotJira, inventory.PartialReason)
+		if reason == "" {
+			return fmt.Errorf("%w: Jira attachment capture inventory reason is invalid", domain.ErrCheckFailed)
+		}
+		capture.partialReasons = append(capture.partialReasons, reason)
+	}
+	if options.binding.AttachmentBodies {
+		capture.bodiesState = mirror.AttachmentBodiesComplete
+		if !inventory.Complete {
+			capture.bodiesState = mirror.AttachmentBodiesPartial
+		}
+	}
+	for _, attachment := range inventory.Attachments {
+		if !canonicalPositiveNumericString(attachment.ID) {
+			return fmt.Errorf("%w: Jira attachment capture requires canonical positive attachment identities", domain.ErrCheckFailed)
+		}
+		record := corpusAttachmentRecord(mirror.CorpusSnapshotJira, attachment)
+		if options.binding.AttachmentBodies {
+			bodyPath, err := mirror.NewPublicArtifactPath(stem + ".attachments/" + attachment.ID + ".body")
+			if err != nil {
+				return fmt.Errorf("%w: Jira attachment body destination is invalid", domain.ErrCheckFailed)
+			}
+			record.Body = mirror.AttachmentSidecarBody{State: mirror.AttachmentBodyCaptured, Path: bodyPath.String(), Size: attachment.FileSize, SHA256: mirror.Hash(nil)}
+		} else {
+			record.Body = mirror.AttachmentSidecarBody{State: mirror.AttachmentBodyNotRequested}
+		}
+		capture.records = append(capture.records, record)
+	}
+	provisional := mirror.AttachmentSidecarV1{
+		SchemaVersion: mirror.AttachmentSidecarSchemaV1,
+		Service:       mirror.CorpusSnapshotJira, OriginSHA256: "sha256:" + mirror.Hash(nil),
+		ParentID: parentID, ParentRevision: parentRevision, NativeSHA256: mirror.Hash(nil), MetadataSHA256: mirror.Hash(nil),
+		InventoryComplete: capture.inventoryComplete, InventoryPartialReason: capture.inventoryReason,
+		BodiesState: capture.bodiesState, Complete: capture.inventoryComplete && capture.bodiesState != mirror.AttachmentBodiesPartial,
+		Count: len(capture.records), PartialReasons: capture.partialReasons, Attachments: capture.records,
+	}
+	if _, err := mirror.EncodeAttachmentSidecarV1(provisional); err != nil {
+		return fmt.Errorf("%w: Jira attachment capture sidecar is invalid", domain.ErrCheckFailed)
+	}
+	return nil
 }
 
 // validateConfluenceAttachmentCapturePreflight validates the subset of an
@@ -530,4 +660,22 @@ func streamCorpusAttachment(ctx context.Context, root, parentID, attachmentID st
 		return nil, "", err
 	}
 	return staged, mirror.Hash(staged), nil
+}
+
+func streamCorpusAttachmentInMemory(ctx context.Context, parentID, attachmentID string, declaredSize int64, source io.Reader) ([]byte, string, error) {
+	if ctx == nil || declaredSize < 0 || !canonicalPositiveNumericString(parentID) || !canonicalPositiveNumericString(attachmentID) {
+		return nil, "", fmt.Errorf("%w: attachment stream identity is invalid", domain.ErrCheckFailed)
+	}
+	reader := &corpusAttachmentBoundedReader{source: source, hash: sha256.New(), remaining: declaredSize}
+	data, err := io.ReadAll(reader)
+	if err == nil && (int64(len(data)) != declaredSize || reader.remaining != 0) {
+		err = errCorpusAttachmentSizeMismatch
+	}
+	if ctxErr := ctx.Err(); err == nil && ctxErr != nil {
+		err = ctxErr
+	}
+	if err != nil {
+		return nil, "", err
+	}
+	return data, mirror.Hash(data), nil
 }

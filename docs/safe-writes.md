@@ -31,8 +31,11 @@ Service-qualified complete-pull recovery never relaxes the established
 Confluence page/version/`.csf` rules to admit Jira. Jira uses its own durable
 variant, which binds immutable issue identity, mutable key and `.wiki` path,
 pristine base, raw snapshot, derived view, and the reviewed auxiliary roles.
-Legacy Jira schema-3 bytes stay readable; schema 4 adds the sidecar-stable
-numeric identity and an exact predecessor for key relocation. Recovery writes
+Legacy Jira schema-3 bytes stay readable. Current schema 6 retains schema 4's
+sidecar-stable numeric identity and exact predecessor for key relocation, adds
+schema 5's bounded retirement pre-images, and binds selected optional
+comments/attachment receipts by exact hash (including an explicit absence
+assertion). Recovery writes
 the new artifacts, atomically replaces the old sidecar key, and only then
 removes hash-matched old artifacts. Unknown, changed, partially present, or
 unowned files stop retirement and remain available for manual reconciliation.

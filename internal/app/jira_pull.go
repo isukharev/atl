@@ -21,6 +21,9 @@ func (s *JiraService) Pull(ctx context.Context, opts JiraPullOpts) (*JiraPullRes
 	if opts.OverwriteLocal && opts.StashLocal {
 		return nil, fmt.Errorf("%w: --overwrite-local and --stash-local are mutually exclusive", domain.ErrUsage)
 	}
+	if err := prepareJiraPullOptionalArtifacts(&opts); err != nil {
+		return nil, err
+	}
 	if opts.Complete {
 		return s.pullJiraComplete(ctx, opts)
 	}

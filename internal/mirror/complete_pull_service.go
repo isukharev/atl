@@ -38,14 +38,14 @@ func validCompletePullService(service CompletePullService) bool {
 
 func completePullJournalSchemaFor(service CompletePullService) int {
 	if service == CompletePullServiceJira {
-		return completePullJiraJournalSchema4
+		return completePullJiraJournalSchema6
 	}
 	return completePullConfluenceJournalSchema6
 }
 
 func completePullPublicationSchemaFor(service CompletePullService) int {
 	if service == CompletePullServiceJira {
-		return completePullJiraPublicationSchema4
+		return completePullJiraPublicationSchema6
 	}
 	return completePullConfluencePublicationSchema7
 }
@@ -53,6 +53,9 @@ func completePullPublicationSchemaFor(service CompletePullService) int {
 func completePullJournalSchemaForEntry(service CompletePullService, entry CompletePullJournalEntry) int {
 	if service == CompletePullServiceJira && entry.State.Identity == "" && entry.Previous == nil {
 		return completePullJiraJournalSchema
+	}
+	if service == CompletePullServiceJira && entry.JiraOptionalEvidence != nil {
+		return completePullJiraJournalSchema6
 	}
 	if service == CompletePullServiceConfluence && entry.Includes == nil {
 		return completePullJournalSchema
@@ -66,9 +69,32 @@ func completePullJournalSchemaForEntry(service CompletePullService, entry Comple
 	return completePullJournalSchemaFor(service)
 }
 
+// completePullJournalSchemaForPublication preserves a recovered intent's
+// durable Jira generation. Schema 4 and 5 intents predate the schema-6
+// optional-evidence receipt, so upgrading their journal solely because they
+// are being recovered would make valid interrupted pulls unreadable.
+func completePullJournalSchemaForPublication(service CompletePullService, publicationSchema int, entry CompletePullJournalEntry) int {
+	if service == CompletePullServiceJira {
+		switch publicationSchema {
+		case completePullJiraPublicationSchema:
+			return completePullJiraJournalSchema
+		case completePullJiraPublicationSchema4:
+			return completePullJiraJournalSchema4
+		case completePullJiraPublicationSchema5:
+			return completePullJiraJournalSchema5
+		case completePullJiraPublicationSchema6:
+			return completePullJiraJournalSchema6
+		}
+	}
+	return completePullJournalSchemaForEntry(service, entry)
+}
+
 func completePullPublicationSchemaForEntry(service CompletePullService, entry CompletePullJournalEntry) int {
 	if service == CompletePullServiceJira && entry.State.Identity == "" && entry.Previous == nil {
 		return completePullJiraPublicationSchema
+	}
+	if service == CompletePullServiceJira && entry.JiraOptionalEvidence != nil {
+		return completePullJiraPublicationSchema6
 	}
 	if service == CompletePullServiceConfluence && entry.Includes == nil {
 		return completePullPublicationSchema
@@ -93,7 +119,7 @@ func completePullEntryHasAttachmentEvidence(entry CompletePullJournalEntry) bool
 
 func validCompletePullJournalSchema(service CompletePullService, schema int) bool {
 	if service == CompletePullServiceJira {
-		return schema == completePullJiraJournalSchema || schema == completePullJiraJournalSchema4
+		return schema == completePullJiraJournalSchema || schema == completePullJiraJournalSchema4 || schema == completePullJiraJournalSchema5 || schema == completePullJiraJournalSchema6
 	}
 	return service == CompletePullServiceConfluence && (schema == completePullJournalSchema ||
 		schema == completePullConfluenceJournalSchema || schema == completePullConfluenceJournalSchema6)
@@ -101,7 +127,7 @@ func validCompletePullJournalSchema(service CompletePullService, schema int) boo
 
 func validCompletePullPublicationSchema(service CompletePullService, schema int) bool {
 	if service == CompletePullServiceJira {
-		return schema == completePullJiraPublicationSchema || schema == completePullJiraPublicationSchema4
+		return schema == completePullJiraPublicationSchema || schema == completePullJiraPublicationSchema4 || schema == completePullJiraPublicationSchema5 || schema == completePullJiraPublicationSchema6
 	}
 	return service == CompletePullServiceConfluence && (schema == completePullPublicationSchema ||
 		schema == completePullConfluencePublicationSchema || schema == completePullConfluencePublicationSchema6 ||
@@ -143,14 +169,21 @@ func validateCompletePullConfluenceEntrySchema(schema int, entry CompletePullJou
 
 func validateCompletePullJiraEntrySchema(schema int, entry CompletePullJournalEntry) error {
 	if schema == completePullJiraJournalSchema || schema == completePullJiraPublicationSchema {
-		if entry.State.Identity != "" || entry.Previous != nil {
+		if entry.State.Identity != "" || entry.Previous != nil || entry.JiraOptionalEvidence != nil {
 			return fmt.Errorf("%w: legacy Jira complete-pull schema contains future identity or relocation state", domain.ErrCheckFailed)
 		}
 		return nil
 	}
-	if schema == completePullJiraJournalSchema4 || schema == completePullJiraPublicationSchema4 {
-		if entry.State.Identity != entry.Identity {
+	if schema == completePullJiraJournalSchema4 || schema == completePullJiraPublicationSchema4 ||
+		schema == completePullJiraJournalSchema5 || schema == completePullJiraPublicationSchema5 {
+		if entry.State.Identity != entry.Identity || entry.JiraOptionalEvidence != nil {
 			return fmt.Errorf("%w: Jira complete-pull stable sidecar identity does not match its selected identity", domain.ErrCheckFailed)
+		}
+		return nil
+	}
+	if schema == completePullJiraJournalSchema6 || schema == completePullJiraPublicationSchema6 {
+		if entry.State.Identity != entry.Identity || !validCompletePullJiraOptionalEvidence(entry.JiraOptionalEvidence) {
+			return fmt.Errorf("%w: Jira complete-pull optional evidence is invalid", domain.ErrCheckFailed)
 		}
 		return nil
 	}
@@ -203,7 +236,7 @@ func validateCompletePullJournalEntry(service CompletePullService, entry Complet
 	}
 	switch service {
 	case CompletePullServiceConfluence:
-		if entry.Identity != "" || state.Identity != "" || entry.Previous != nil || !positiveDecimalIdentity(state.ID) || state.Version <= 0 || !strings.HasSuffix(state.Path, ".csf") {
+		if entry.Identity != "" || state.Identity != "" || entry.Previous != nil || entry.JiraOptionalEvidence != nil || !positiveDecimalIdentity(state.ID) || state.Version <= 0 || !strings.HasSuffix(state.Path, ".csf") {
 			return fmt.Errorf("%w: complete-pull Confluence journal state is invalid", domain.ErrCheckFailed)
 		}
 	case CompletePullServiceJira:
@@ -241,6 +274,15 @@ func validateCompletePullArtifactRole(service CompletePullService, entry Complet
 	state := entry.State
 	stem := strings.TrimSuffix(state.Path, ".wiki")
 	rel := qualified.String()
+	// Current-path qualified-evidence retirements are the only non-relocation
+	// removals permitted by a Jira complete publication. Their private
+	// sidecar/body ownership and exact pre-image are proved by the caller before
+	// staging; keeping them in the same transaction prevents stale comments or
+	// attachment captures after a later exact pull disables that evidence.
+	if remove && entry.Previous == nil && role == CompletePullArtifactRoleAuxiliary && qualified.class == artifactPathClassPublic &&
+		mode == 0 && !bestEffort && (rel == stem+".comments.json" || rel == stem+".attachments.json" || strings.HasPrefix(rel, stem+".attachments/")) {
+		return nil
+	}
 	if remove && entry.Previous != nil {
 		previous := entry.Previous.State
 		previousStem := strings.TrimSuffix(previous.Path, ".wiki")
@@ -380,10 +422,12 @@ func validateCompletePullPublication(intent completePullPublicationIntent, check
 	tempNameBytes := len(completePullJournalTemp(intent.WriteToken)) + len(completePullSidecarTemp(intent.WriteToken)) + len(completePullProgressTemp(intent.WriteToken))
 	writeIndex := 0
 	validate := func(artifact completePullPublicationArtifact) error {
-		if artifact.PreSize != nil && intent.SchemaVersion != completePullConfluencePublicationSchema7 {
-			return fmt.Errorf("bounded publication pre-image requires current Confluence schema")
+		boundedPreimages := intent.SchemaVersion == completePullConfluencePublicationSchema7 ||
+			(intent.Service == CompletePullServiceJira && (intent.SchemaVersion == completePullJiraPublicationSchema5 || intent.SchemaVersion == completePullJiraPublicationSchema6))
+		if artifact.PreSize != nil && !boundedPreimages {
+			return fmt.Errorf("bounded publication pre-image requires a current publication schema")
 		}
-		if intent.SchemaVersion == completePullConfluencePublicationSchema7 && artifact.Pre.Present && artifact.PreSize == nil {
+		if boundedPreimages && artifact.Pre.Present && artifact.PreSize == nil {
 			return fmt.Errorf("current publication artifact omits its bounded pre-image")
 		}
 		if err := validatePublicationArtifact(intent.Service, intent.Entry, artifact, stageDir, true, intent.WriteToken, writeIndex); err != nil {

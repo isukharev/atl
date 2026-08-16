@@ -21,6 +21,9 @@ func (j *Jira) ListJiraCommentsQualified(ctx context.Context, issueID string, op
 	if strings.TrimSpace(issueID) == "" {
 		return domain.JiraCommentInventory{}, fmt.Errorf("%w: Jira comment read requires an issue id", domain.ErrUsage)
 	}
+	if options.MaxBytes == 0 {
+		options.MaxBytes = domain.JiraCommentReadMaxBytes
+	}
 	if err := domain.ValidateJiraCommentReadOptions(options); err != nil {
 		return domain.JiraCommentInventory{}, err
 	}
@@ -29,6 +32,7 @@ func (j *Jira) ListJiraCommentsQualified(ctx context.Context, issueID string, op
 	expectedTotal := -1
 	out := []domain.Comment{}
 	seenIDs := make(map[string]struct{})
+	var encodedBytes int64
 	for page := 0; page < options.MaxPages; page++ {
 		remaining := options.MaxItems - len(out)
 		if remaining <= 0 {
@@ -88,12 +92,28 @@ func (j *Jira) ListJiraCommentsQualified(ctx context.Context, issueID string, op
 			if !valid {
 				return domain.JiraCommentInventory{}, fmt.Errorf("%w: Jira comment body is malformed", domain.ErrCheckFailed)
 			}
-			seenIDs[value.ID] = struct{}{}
-			out = append(out, domain.Comment{
+			parentID := value.ParentID
+			if parentID == "0" {
+				parentID = ""
+			}
+			comment := domain.Comment{
 				ID: value.ID, Author: nestedDisplay(value.Author), AuthorName: nestedName(value.Author),
 				AuthorKey: nestedKey(value.Author), Created: value.Created, Updated: value.Updated,
-				ParentID: value.ParentID, Body: body,
-			})
+				ParentID: parentID, Body: body,
+			}
+			if !domain.ValidJiraCommentEvidenceRecord(comment) {
+				return domain.JiraCommentInventory{}, fmt.Errorf("%w: Jira comment cannot be represented in qualified evidence", domain.ErrCheckFailed)
+			}
+			footprint, bounded := jiraCommentConservativeEncodedBytes(comment)
+			if !bounded || footprint > options.MaxBytes-encodedBytes {
+				return validatedJiraCommentInventory(domain.JiraCommentInventory{
+					Comments: out, PartialReason: domain.JiraCommentPartialByteLimit,
+					Total: total, TotalKnown: true, PageCount: pageCount,
+				})
+			}
+			seenIDs[value.ID] = struct{}{}
+			out = append(out, comment)
+			encodedBytes += footprint
 		}
 
 		decision := cursor.advance(len(response.Comments), &total)
@@ -124,6 +144,28 @@ func (j *Jira) ListJiraCommentsQualified(ctx context.Context, issueID string, op
 		}
 	}
 	panic("unreachable")
+}
+
+// jiraCommentConservativeEncodedBytes returns a strict upper bound for one
+// sidecar record's JSON representation. Every UTF-8 byte may need a six-byte
+// JSON escape; the fixed reserve covers member names, quotes, punctuation, and
+// numeric/object framing. Callers use the bound before retaining a page member
+// so a bounded complete-pull transaction cannot discover an oversized comments
+// sidecar only after collecting many remote pages.
+func jiraCommentConservativeEncodedBytes(comment domain.Comment) (int64, bool) {
+	const recordOverhead int64 = 256
+	bytes := recordOverhead
+	for _, value := range []string{
+		comment.ID, comment.Author, comment.AuthorName, comment.AuthorKey,
+		comment.Created, comment.Updated, comment.ParentID, comment.Body,
+	} {
+		length := int64(len(value))
+		if length > (domain.JiraCommentReadMaxBytes-bytes)/6 {
+			return 0, false
+		}
+		bytes += length * 6
+	}
+	return bytes, true
 }
 
 func validatedJiraCommentInventory(inventory domain.JiraCommentInventory) (domain.JiraCommentInventory, error) {
@@ -200,4 +242,31 @@ func validatedJiraAttachmentInventory(inventory domain.JiraAttachmentInventory) 
 		return domain.JiraAttachmentInventory{}, err
 	}
 	return inventory, nil
+}
+
+// RevalidateJiraAttachmentDownload re-reads the exact parent attachment field
+// and returns one stable attachment record immediately before a binary GET.
+// The qualified field inventory is bounded by the public maximum; an
+// incomplete response never authorizes a body selector.
+func (j *Jira) RevalidateJiraAttachmentDownload(ctx context.Context, issueID, attachmentID string) (domain.JiraAttachmentDownloadEvidence, error) {
+	if strings.TrimSpace(issueID) == "" || strings.TrimSpace(attachmentID) == "" {
+		return domain.JiraAttachmentDownloadEvidence{}, fmt.Errorf("%w: Jira attachment revalidation requires stable identities", domain.ErrUsage)
+	}
+	inventory, err := j.ListJiraAttachmentsQualified(ctx, issueID, domain.JiraAttachmentReadOptions{MaxItems: domain.JiraAttachmentReadMaxItems})
+	if err != nil {
+		return domain.JiraAttachmentDownloadEvidence{}, err
+	}
+	if !inventory.Complete {
+		return domain.JiraAttachmentDownloadEvidence{}, fmt.Errorf("%w: Jira attachment revalidation is incomplete", domain.ErrCheckFailed)
+	}
+	for _, attachment := range inventory.Attachments {
+		if attachment.ID != attachmentID {
+			continue
+		}
+		if strings.TrimSpace(attachment.DownPath) == "" {
+			return domain.JiraAttachmentDownloadEvidence{}, fmt.Errorf("%w: Jira attachment download reference is unavailable", domain.ErrCheckFailed)
+		}
+		return domain.JiraAttachmentDownloadEvidence{ParentID: issueID, Attachment: attachment}, nil
+	}
+	return domain.JiraAttachmentDownloadEvidence{}, fmt.Errorf("%w: Jira attachment disappeared during revalidation", domain.ErrCheckFailed)
 }

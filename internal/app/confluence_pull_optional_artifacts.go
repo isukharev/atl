@@ -183,9 +183,8 @@ func restoreConfluenceCompleteAttachmentBudget(m *mirror.Mirror, opts *PullOpts,
 	if err != nil || actual != usage {
 		return fmt.Errorf("%w: complete-pull attachment body usage does not match its durable sidecars", domain.ErrCheckFailed)
 	}
-	opts.evidence.budget = &corpusAttachmentCaptureBudget{
-		maximum:  opts.evidence.binding.MaxTotalAttachmentBytes,
-		reserved: usage,
+	if !opts.evidence.budget.restoreVerifiedUsage(usage) {
+		return fmt.Errorf("%w: complete-pull attachment body usage conflicts with the active aggregate budget", domain.ErrCheckFailed)
 	}
 	return nil
 }

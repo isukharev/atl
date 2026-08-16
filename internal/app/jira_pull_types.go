@@ -18,22 +18,34 @@ type JiraPulled struct {
 // JiraPullOpts selects either the established JQL path or the explicit
 // complete-project path. Complete-only fields are rejected by ordinary Pull.
 type JiraPullOpts struct {
-	JQL             string
-	Project         string
-	Into            string
-	Limit           int
-	MaxIssues       int
-	Fields          []string
-	Assets          bool
-	Complete        bool
-	RestartComplete bool
-	DryRun          bool
-	OverwriteLocal  bool
-	StashLocal      bool
-	Render          config.RenderService
-	exactRender     *RenderSettings
-	exactFields     []string
-	evidence        *corpusPullEvidenceOptions
+	JQL       string
+	Project   string
+	Into      string
+	Limit     int
+	MaxIssues int
+	Fields    []string
+	Assets    bool
+	// Comments and Attachments select bounded, provenance-bound evidence only
+	// for a qualified complete pull. They deliberately do not alter the
+	// established ordinary --assets best-effort mirror layout.
+	Comments                bool
+	MaxCommentPagesPerItem  int
+	MaxCommentsPerItem      int
+	Attachments             bool
+	AttachmentBodies        bool
+	AttachmentMediaTypes    []string
+	MaxAttachmentsPerItem   int
+	MaxAttachmentBytes      int64
+	MaxTotalAttachmentBytes int64
+	Complete                bool
+	RestartComplete         bool
+	DryRun                  bool
+	OverwriteLocal          bool
+	StashLocal              bool
+	Render                  config.RenderService
+	exactRender             *RenderSettings
+	exactFields             []string
+	evidence                *corpusPullEvidenceOptions
 }
 
 // JiraPullResult is the pull summary. Optional fields preserve the ordinary

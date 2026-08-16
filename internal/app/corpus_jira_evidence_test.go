@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/isukharev/atl/internal/corpus"
 	"github.com/isukharev/atl/internal/domain"
@@ -27,11 +28,12 @@ type jiraCorpusEvidenceTracker struct {
 	attachmentReads int
 	bodyReads       int
 	driftAfterRead  bool
+	checkBudgets    bool
 }
 
 func (tracker *jiraCorpusEvidenceTracker) ListJiraCommentsQualified(_ context.Context, issueID string, options domain.JiraCommentReadOptions) (domain.JiraCommentInventory, error) {
 	tracker.commentReads++
-	if (issueID != "9" && issueID != "10") || options.MaxPages != 2 || options.MaxItems != 10 {
+	if (issueID != "9" && issueID != "10") || options.MaxPages != 2 || options.MaxItems != 10 || options.MaxBytes <= 0 {
 		return domain.JiraCommentInventory{}, errors.New("unexpected comment qualification")
 	}
 	inventory := tracker.comments
@@ -56,10 +58,60 @@ func (tracker *jiraCorpusEvidenceTracker) ListJiraAttachmentsQualified(_ context
 	return inventory, tracker.attachmentErr
 }
 
-func (tracker *jiraCorpusEvidenceTracker) StreamAttachment(_ context.Context, path string) (io.ReadCloser, error) {
+func (tracker *jiraCorpusEvidenceTracker) RevalidateJiraAttachmentDownload(ctx context.Context, issueID, attachmentID string) (domain.JiraAttachmentDownloadEvidence, error) {
+	if issueID != "9" && issueID != "10" {
+		return domain.JiraAttachmentDownloadEvidence{}, errors.New("unexpected attachment parent")
+	}
+	if tracker.checkBudgets {
+		if !domain.SingleAttempt(ctx) {
+			return domain.JiraAttachmentDownloadEvidence{}, errors.New("missing single-attempt attachment metadata context")
+		}
+		deadline, hasDeadline := ctx.Deadline()
+		if !hasDeadline || time.Until(deadline) <= 0 || time.Until(deadline) > jiraAttachmentCaptureMetadataDeadline {
+			return domain.JiraAttachmentDownloadEvidence{}, errors.New("missing bounded attachment metadata deadline")
+		}
+		budget := domain.ReadBudgetFromContext(ctx)
+		if budget == nil || budget.TakeAttempt() != nil {
+			return domain.JiraAttachmentDownloadEvidence{}, errors.New("missing bounded attachment metadata request budget")
+		}
+		remaining, finish, err := budget.BeginResponse(ctx)
+		if err != nil || remaining != jiraAttachmentCaptureMetadataResponseBytes {
+			return domain.JiraAttachmentDownloadEvidence{}, errors.New("unexpected attachment metadata response budget")
+		}
+		finish(0)
+	}
+	inventory := tracker.attachments
+	inventory.Attachments = append([]domain.Attachment{}, inventory.Attachments...)
+	if issueID == "10" && len(inventory.Attachments) > 0 {
+		inventory.Attachments[0].ID = "8"
+		inventory.Attachments[0].DownPath = "/secure/attachment/8/a.bin"
+	}
+	for _, attachment := range inventory.Attachments {
+		if attachment.ID == attachmentID {
+			return domain.JiraAttachmentDownloadEvidence{ParentID: issueID, Attachment: attachment}, nil
+		}
+	}
+	return domain.JiraAttachmentDownloadEvidence{}, domain.ErrNotFound
+}
+
+func (tracker *jiraCorpusEvidenceTracker) StreamAttachment(ctx context.Context, path string) (io.ReadCloser, error) {
 	tracker.bodyReads++
 	if path != "/secure/attachment/7/a.bin" && path != "/secure/attachment/8/a.bin" {
 		return nil, errors.New("unexpected attachment reference")
+	}
+	if tracker.checkBudgets {
+		if !domain.NoReplayRetries(ctx) || domain.SingleAttempt(ctx) {
+			return nil, errors.New("missing no-replay attachment body context")
+		}
+		budget := domain.ReadBudgetFromContext(ctx)
+		if budget == nil || budget.TakeAttempt() != nil {
+			return nil, errors.New("missing bounded attachment body request budget")
+		}
+		remaining, finish, err := budget.BeginResponse(ctx)
+		if err != nil || remaining != 4 {
+			return nil, errors.New("unexpected attachment body response budget")
+		}
+		finish(0)
 	}
 	return io.NopCloser(strings.NewReader(tracker.body)), nil
 }
@@ -94,10 +146,10 @@ func newJiraCorpusEvidenceTracker() *jiraCorpusEvidenceTracker {
 
 func TestJiraCorpusEvidenceReaderQualificationMatrix(t *testing.T) {
 	legacy := &JiraService{tr: newCompleteJiraTracker(), baseURL: jiraMirrorTestBackendURL}
-	if _, err := legacy.captureJiraCorpusComments(t.Context(), "9", "revision", jiraCorpusEvidenceOptions(false)); !errors.Is(err, domain.ErrCheckFailed) {
+	if _, err := legacy.captureJiraCorpusComments(t.Context(), "9", "revision", jiraCorpusEvidenceOptions(false), domain.JiraCommentReadMaxBytes); !errors.Is(err, domain.ErrCheckFailed) {
 		t.Fatalf("strict legacy comments error=%v", err)
 	}
-	comments, err := legacy.captureJiraCorpusComments(t.Context(), "9", "revision", jiraCorpusEvidenceOptions(true))
+	comments, err := legacy.captureJiraCorpusComments(t.Context(), "9", "revision", jiraCorpusEvidenceOptions(true), domain.JiraCommentReadMaxBytes)
 	if err != nil || comments.Complete || comments.PartialReason != mirror.JiraCommentsPartialUnsupported || comments.Comments == nil {
 		t.Fatalf("comments=%+v error=%v", comments, err)
 	}
@@ -113,7 +165,7 @@ func TestJiraCorpusEvidenceReaderQualificationMatrix(t *testing.T) {
 	tracker.commentErr = domain.ErrForbidden
 	tracker.attachmentErr = domain.ErrForbidden
 	service := &JiraService{tr: tracker, baseURL: jiraMirrorTestBackendURL}
-	comments, err = service.captureJiraCorpusComments(t.Context(), "9", "revision", jiraCorpusEvidenceOptions(true))
+	comments, err = service.captureJiraCorpusComments(t.Context(), "9", "revision", jiraCorpusEvidenceOptions(true), domain.JiraCommentReadMaxBytes)
 	if err != nil || comments.PartialReason != mirror.JiraCommentsPartialForbidden {
 		t.Fatalf("forbidden comments=%+v error=%v", comments, err)
 	}
@@ -121,7 +173,7 @@ func TestJiraCorpusEvidenceReaderQualificationMatrix(t *testing.T) {
 	if err != nil || attachments.PartialReason != mirror.AttachmentInventoryForbidden {
 		t.Fatalf("forbidden attachments=%+v error=%v", attachments, err)
 	}
-	if _, err := service.captureJiraCorpusComments(t.Context(), "9", "revision", jiraCorpusEvidenceOptions(false)); !errors.Is(err, domain.ErrForbidden) {
+	if _, err := service.captureJiraCorpusComments(t.Context(), "9", "revision", jiraCorpusEvidenceOptions(false), domain.JiraCommentReadMaxBytes); !errors.Is(err, domain.ErrForbidden) {
 		t.Fatalf("strict forbidden comments error=%v", err)
 	}
 	if _, err := service.readJiraCorpusAttachments(t.Context(), "9", jiraCorpusEvidenceOptions(false)); !errors.Is(err, domain.ErrForbidden) {
@@ -133,13 +185,13 @@ func TestCaptureJiraCorpusCommentsNormalizesReplyRootAndRejectsIncomplete(t *tes
 	tracker := newJiraCorpusEvidenceTracker()
 	tracker.comments.Comments[0].ParentID = "0"
 	service := &JiraService{tr: tracker, baseURL: jiraMirrorTestBackendURL}
-	comments, err := service.captureJiraCorpusComments(t.Context(), "9", "revision", jiraCorpusEvidenceOptions(false))
+	comments, err := service.captureJiraCorpusComments(t.Context(), "9", "revision", jiraCorpusEvidenceOptions(false), domain.JiraCommentReadMaxBytes)
 	if err != nil || !comments.Complete || len(comments.Comments) != 1 || comments.Comments[0].ParentID != "" {
 		t.Fatalf("comments=%+v error=%v", comments, err)
 	}
 	tracker.comments.Complete = false
 	tracker.comments.PartialReason = domain.JiraCommentPartialItemLimit
-	if _, err := service.captureJiraCorpusComments(t.Context(), "9", "revision", jiraCorpusEvidenceOptions(false)); !errors.Is(err, domain.ErrCheckFailed) {
+	if _, err := service.captureJiraCorpusComments(t.Context(), "9", "revision", jiraCorpusEvidenceOptions(false), domain.JiraCommentReadMaxBytes); !errors.Is(err, domain.ErrCheckFailed) {
 		t.Fatalf("incomplete comments error=%v", err)
 	}
 }
@@ -159,7 +211,10 @@ func TestJiraCompletePullPublishesQualifiedCorpusEvidence(t *testing.T) {
 	tracker := newJiraCorpusEvidenceTracker()
 	result, err := (&JiraService{tr: tracker, baseURL: jiraMirrorTestBackendURL}).Pull(t.Context(), JiraPullOpts{
 		Complete: true, Project: "PROJ", MaxIssues: 2, Into: root,
-		exactFields: []string{"summary", "description", "project", "updated", "issuelinks"},
+		// `updated` is an evidence-only field. An internal exact caller need not
+		// name it: jiraCompletePullFields adds it and the effective projection
+		// must retain it for the sidecars below.
+		exactFields: []string{"summary", "description", "project", "issuelinks"},
 		evidence:    jiraCorpusEvidenceOptions(false),
 	})
 	if err != nil {
@@ -202,6 +257,184 @@ func TestJiraCompletePullPublishesQualifiedCorpusEvidence(t *testing.T) {
 	}
 }
 
+func jiraPublicCompleteEvidenceOptions(root string, totalBytes int64) JiraPullOpts {
+	return JiraPullOpts{
+		Complete: true, Project: "PROJ", MaxIssues: 2, Into: root,
+		Comments: true, MaxCommentPagesPerItem: 2, MaxCommentsPerItem: 10,
+		Attachments: true, MaxAttachmentsPerItem: 10,
+		AttachmentBodies: true, AttachmentMediaTypes: []string{"application/octet-stream"},
+		MaxAttachmentBytes: 4, MaxTotalAttachmentBytes: totalBytes,
+	}
+}
+
+func jiraPublicCompleteCommentOptions(root string) JiraPullOpts {
+	return JiraPullOpts{
+		Complete: true, Project: "PROJ", MaxIssues: 2, Into: root,
+		Comments: true, MaxCommentPagesPerItem: 2, MaxCommentsPerItem: 10,
+	}
+}
+
+func TestJiraCompletePullPublicEvidenceCapturesAndRetiresBodies(t *testing.T) {
+	root := t.TempDir()
+	tracker := newJiraCorpusEvidenceTracker()
+	tracker.checkBudgets = true
+	service := &JiraService{tr: tracker, baseURL: jiraMirrorTestBackendURL}
+	if result, err := service.Pull(t.Context(), jiraPublicCompleteEvidenceOptions(root, 64)); err != nil || result.Complete == nil || !result.Complete.Complete {
+		t.Fatalf("first result=%+v error=%v", result, err)
+	}
+	if tracker.commentReads != 2 || tracker.attachmentReads != 2 || tracker.bodyReads != 2 {
+		t.Fatalf("first reads comments/attachments/bodies=%d/%d/%d", tracker.commentReads, tracker.attachmentReads, tracker.bodyReads)
+	}
+	for _, rel := range []string{"PROJ/PROJ-9.attachments/7.body", "PROJ/PROJ-10.attachments/8.body"} {
+		if info, err := os.Stat(filepath.Join(root, filepath.FromSlash(rel))); err != nil || info.Mode().Perm() != 0o600 {
+			t.Fatalf("captured body %s info=%v error=%v", rel, info, err)
+		}
+	}
+
+	// Keep the public options hash identical but make the second exact
+	// inventory proven empty. The new sidecar replaces the old receipt and the
+	// complete transaction must retire old private bodies rather than leaving a
+	// stale capture readable beside the current snapshot.
+	tracker.attachments = domain.JiraAttachmentInventory{Complete: true, Attachments: []domain.Attachment{}}
+	if result, err := service.Pull(t.Context(), jiraPublicCompleteEvidenceOptions(root, 64)); err != nil || result.Complete == nil || !result.Complete.Complete {
+		t.Fatalf("second result=%+v error=%v", result, err)
+	}
+	for _, rel := range []string{"PROJ/PROJ-9.attachments/7.body", "PROJ/PROJ-10.attachments/8.body"} {
+		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(rel))); !os.IsNotExist(err) {
+			t.Fatalf("stale captured body %s error=%v", rel, err)
+		}
+	}
+	for _, key := range []string{"PROJ-9", "PROJ-10"} {
+		data, err := os.ReadFile(filepath.Join(root, "PROJ", key+".attachments.json"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		sidecar, err := mirror.DecodeAttachmentSidecarV1(data)
+		if err != nil || sidecar.Count != 0 || !sidecar.Complete || sidecar.BodiesState != mirror.AttachmentBodiesComplete {
+			t.Fatalf("sidecar %s=%+v error=%v", key, sidecar, err)
+		}
+	}
+}
+
+func TestJiraCompletePullDryRunQualifiesEvidenceWithoutMirrorWrites(t *testing.T) {
+	parent := t.TempDir()
+	root := filepath.Join(parent, "mirror")
+	tracker := newJiraCorpusEvidenceTracker()
+	service := &JiraService{tr: tracker, baseURL: jiraMirrorTestBackendURL}
+	options := jiraPublicCompleteEvidenceOptions(root, 64)
+	options.DryRun = true
+	result, err := service.Pull(t.Context(), options)
+	if err != nil || result.Complete == nil || !result.Complete.Complete || result.Complete.Completed != 2 ||
+		tracker.commentReads != 2 || tracker.attachmentReads != 2 || tracker.bodyReads != 2 {
+		t.Fatalf("result=%+v error=%v reads=%d/%d/%d", result, err, tracker.commentReads, tracker.attachmentReads, tracker.bodyReads)
+	}
+	if _, statErr := os.Stat(root); !os.IsNotExist(statErr) {
+		t.Fatalf("dry run created a mirror root: %v", statErr)
+	}
+}
+
+func TestJiraCompletePullRetiresQualifiedEvidenceWhenDisabled(t *testing.T) {
+	root := t.TempDir()
+	tracker := newJiraCorpusEvidenceTracker()
+	service := &JiraService{tr: tracker, baseURL: jiraMirrorTestBackendURL}
+	if _, err := service.Pull(t.Context(), jiraPublicCompleteEvidenceOptions(root, 64)); err != nil {
+		t.Fatal(err)
+	}
+	if result, err := service.Pull(t.Context(), JiraPullOpts{Complete: true, Project: "PROJ", MaxIssues: 2, Into: root}); err != nil || result.Complete == nil || !result.Complete.Complete {
+		t.Fatalf("disabled result=%+v error=%v", result, err)
+	}
+	for _, rel := range []string{
+		"PROJ/PROJ-9.comments.json", "PROJ/PROJ-10.comments.json",
+		"PROJ/PROJ-9.attachments.json", "PROJ/PROJ-10.attachments.json",
+		"PROJ/PROJ-9.attachments/7.body", "PROJ/PROJ-10.attachments/8.body",
+	} {
+		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(rel))); !os.IsNotExist(err) {
+			t.Fatalf("disabled evidence remains at %s: %v", rel, err)
+		}
+	}
+}
+
+func TestOrdinaryJiraPullRefusesQualifiedAttachmentKeyRelocationBeforeWrite(t *testing.T) {
+	root := t.TempDir()
+	tracker := newJiraCorpusEvidenceTracker()
+	service := &JiraService{tr: tracker, baseURL: jiraMirrorTestBackendURL}
+	if _, err := service.Pull(t.Context(), jiraPublicCompleteEvidenceOptions(root, 64)); err != nil {
+		t.Fatal(err)
+	}
+
+	// A stable issue ID can change its mutable key. The ordinary path has no
+	// transaction that can prove/retire the old private sidecar and body files,
+	// so it must stop before publishing the new key rather than stranding them.
+	moved := *tracker.getIssues["9"]
+	moved.Key = "PROJ-99"
+	paths, err := qualifyJiraPullIssuePaths(root, &moved)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = preflightJiraQualifiedEvidenceInvalidation(mirror.New(root), &jiraPullQualifiedIssue{
+		request: jiraPullIssueRequest{issue: &moved}, paths: paths, identity: moved.ID,
+	})
+	if !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("relocation error=%v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "PROJ", "PROJ-9.attachments", "7.body")); err != nil {
+		t.Fatalf("old qualified body should remain intact: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "PROJ", "PROJ-99.wiki")); !os.IsNotExist(err) {
+		t.Fatalf("ordinary relocation wrote a new key: %v", err)
+	}
+}
+
+func TestOrdinaryJiraPullRefusesQualifiedCommentRefreshBeforeWrite(t *testing.T) {
+	root := t.TempDir()
+	tracker := newJiraCorpusEvidenceTracker()
+	service := &JiraService{tr: tracker, baseURL: jiraMirrorTestBackendURL}
+	if _, err := service.Pull(t.Context(), jiraPublicCompleteCommentOptions(root)); err != nil {
+		t.Fatal(err)
+	}
+
+	updated := *tracker.getIssues["9"]
+	updated.Body = "changed native nine"
+	updated.Fields = maps.Clone(updated.Fields)
+	updated.Fields["description"] = updated.Body
+	paths, err := qualifyJiraPullIssuePaths(root, &updated)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = preflightJiraQualifiedEvidenceInvalidation(mirror.New(root), &jiraPullQualifiedIssue{
+		request: jiraPullIssueRequest{issue: &updated}, paths: paths, identity: updated.ID,
+	})
+	if !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("refresh error=%v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "PROJ", "PROJ-9.comments.json")); err != nil {
+		t.Fatalf("old qualified comments should remain intact: %v", err)
+	}
+}
+
+func TestJiraCompletePullPublicEvidenceRestoresAggregateBodyBudgetBeforeRead(t *testing.T) {
+	root := t.TempDir()
+	tracker := newJiraCorpusEvidenceTracker()
+	tracker.getErrorAt = "10"
+	service := &JiraService{tr: tracker, baseURL: jiraMirrorTestBackendURL}
+	options := jiraPublicCompleteEvidenceOptions(root, 4)
+	first, err := service.Pull(t.Context(), options)
+	if err == nil || first == nil || first.Complete == nil || first.Complete.Completed != 1 {
+		t.Fatalf("first result=%+v error=%v", first, err)
+	}
+	if tracker.bodyReads != 1 {
+		t.Fatalf("first body reads=%d", tracker.bodyReads)
+	}
+	tracker.getErrorAt = ""
+	second, err := service.Pull(t.Context(), options)
+	if !errors.Is(err, domain.ErrCheckFailed) || second == nil || second.Complete == nil || second.Complete.Completed != 1 {
+		t.Fatalf("resume result=%+v error=%v", second, err)
+	}
+	if tracker.bodyReads != 1 {
+		t.Fatalf("resume opened a body after exhausted aggregate budget: reads=%d", tracker.bodyReads)
+	}
+}
+
 func TestJiraCorpusEvidenceParentDriftPreventsPublication(t *testing.T) {
 	root := t.TempDir()
 	tracker := newJiraCorpusEvidenceTracker()
@@ -217,6 +450,37 @@ func TestJiraCorpusEvidenceParentDriftPreventsPublication(t *testing.T) {
 	if _, statErr := os.Stat(filepath.Join(root, "PROJ", "PROJ-9.comments.json")); !os.IsNotExist(statErr) {
 		t.Fatalf("drift published evidence: %v", statErr)
 	}
+}
+
+func TestJiraCompleteEvidenceRejectsUnrepresentableInputsBeforeAttachmentReads(t *testing.T) {
+	t.Run("parent revision", func(t *testing.T) {
+		root := t.TempDir()
+		tracker := newJiraCorpusEvidenceTracker()
+		tracker.getIssues["9"].Fields["updated"] = strings.Repeat("r", domain.JiraCommentEvidenceMetadataMaxBytes+1)
+		result, err := (&JiraService{tr: tracker, baseURL: jiraMirrorTestBackendURL}).Pull(t.Context(), jiraPublicCompleteEvidenceOptions(root, 64))
+		if !errors.Is(err, domain.ErrCheckFailed) || result == nil || result.Complete == nil || result.Complete.Completed != 0 {
+			t.Fatalf("result=%+v error=%v", result, err)
+		}
+		if tracker.commentReads != 0 || tracker.attachmentReads != 0 || tracker.bodyReads != 0 {
+			t.Fatalf("unrepresentable parent revision opened optional evidence: comments/attachments/bodies=%d/%d/%d", tracker.commentReads, tracker.attachmentReads, tracker.bodyReads)
+		}
+	})
+
+	t.Run("comment record", func(t *testing.T) {
+		root := t.TempDir()
+		tracker := newJiraCorpusEvidenceTracker()
+		tracker.comments.Comments[0].ID = "opaque-comment"
+		result, err := (&JiraService{tr: tracker, baseURL: jiraMirrorTestBackendURL}).Pull(t.Context(), jiraPublicCompleteEvidenceOptions(root, 64))
+		if !errors.Is(err, domain.ErrCheckFailed) || result == nil || result.Complete == nil || result.Complete.Completed != 0 {
+			t.Fatalf("result=%+v error=%v", result, err)
+		}
+		if tracker.commentReads != 1 || tracker.attachmentReads != 0 || tracker.bodyReads != 0 {
+			t.Fatalf("unrepresentable comment opened attachment evidence: comments/attachments/bodies=%d/%d/%d", tracker.commentReads, tracker.attachmentReads, tracker.bodyReads)
+		}
+		if _, statErr := os.Stat(filepath.Join(root, "PROJ", "PROJ-9.comments.json")); !os.IsNotExist(statErr) {
+			t.Fatalf("unrepresentable comment published a sidecar: %v", statErr)
+		}
+	})
 }
 
 func TestJiraCorpusEvidencePartialPolicyIsExplicit(t *testing.T) {

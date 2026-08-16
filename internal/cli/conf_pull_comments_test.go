@@ -301,7 +301,7 @@ func TestConfPullCompleteAttachmentsCapturesBoundedArtifact(t *testing.T) {
 	// uniquely matched without echoing totalCount. The adapter must preserve
 	// the exact selector gate without treating that optional aggregate as a
 	// prerequisite for the binary GET.
-	cs.attachmentRevalidation = `{"results":[{"id":"21","type":"attachment","title":"manual.txt","container":{"id":"100","type":"page"},"extensions":{"fileSize":3},"version":{"number":1}}],"start":0,"limit":200,"size":1,"_links":{}}`
+	cs.attachmentRevalidation = `{"results":[{"id":"21","type":"attachment","title":"manual.txt","container":{"id":"100","type":"page"},"extensions":{"fileSize":3},"version":{"number":1}}],"start":0,"limit":2,"size":1,"totalCount":1,"_links":{}}`
 	cs.attachmentBodies = map[string]string{"/download/attachments/100/manual.txt": "abc"}
 
 	into := t.TempDir()

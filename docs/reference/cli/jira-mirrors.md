@@ -38,6 +38,14 @@ atl jira pull --jql "project=PROJ" --into my-jira-mirror --dry-run
 # prove and resume one complete project snapshot (the cap is mandatory)
 atl jira pull --complete --project PROJ --max-issues 5000 \
   --into my-jira-mirror
+# include strict, qualified comments and attachment bodies in that same
+# per-issue transaction; every bound is explicit
+atl jira pull --complete --project PROJ --max-issues 5000 \
+  --into my-jira-mirror \
+  --comments --max-comment-pages-per-issue 20 --max-comments-per-issue 1000 \
+  --attachments --max-attachments-per-issue 500 \
+  --attachment-bodies --attachment-media-type application/pdf \
+  --max-attachment-bytes 8388608 --max-total-attachment-bytes 67108864
 ```
 
 Flags:
@@ -53,6 +61,15 @@ Flags:
 | `--limit` | max issues (0 = all; default 100) |
 | `--fields` | extra comma-separated fields to include in JSON snapshots; core fields needed for rendering are always included |
 | `--assets` | also download each issue's image attachments into a per-issue `<KEY>.assets/` directory and link them from the `.md` (opt-in; off by default) |
+| `--comments` | in `--complete` mode, capture one bounded, qualified Jira comments sidecar per issue; requires both comment bounds below |
+| `--max-comment-pages-per-issue` | required positive page cap for each complete-pull comment inventory (maximum 100) |
+| `--max-comments-per-issue` | required positive item cap for each complete-pull comment inventory (maximum 10,000) |
+| `--attachments` | in `--complete` mode, capture one bounded, qualified attachment inventory sidecar per issue; requires `--max-attachments-per-issue` |
+| `--max-attachments-per-issue` | required positive attachment-inventory cap for each complete-pull issue (maximum 10,000) |
+| `--attachment-bodies` | capture attachment bodies as private `<KEY>.attachments/<id>.body` files; requires `--attachments`, exact MIME allowlist, and both byte bounds below |
+| `--attachment-media-type` | repeatable exact allowed MIME type for `--attachment-bodies` (for example `application/pdf`; wildcards are rejected) |
+| `--max-attachment-bytes` | required maximum size of one captured attachment body (maximum 64 MiB) |
+| `--max-total-attachment-bytes` | required maximum captured attachment-body bytes across the whole complete pull (maximum 256 MiB; each issue transaction remains independently bounded) |
 | `--dry-run` | select and qualify issues without writing mirror files, state, or stashes |
 | `--overwrite-local` | explicitly replace a qualified locally edited native `.wiki`; never bypasses derived-view or baseline-integrity failures |
 | `--stash-local` | preserve qualified local `.wiki` bytes in immutable `.atl/stash/` storage before replacement; mutually exclusive with `--overwrite-local` |
@@ -117,15 +134,36 @@ GET. `--restart-complete` never skips recovery of that owned transaction.
 `--dry-run` performs the same selection, payload, path, local-edit, and
 relocation qualification without writing mirror/checkpoint/stash state.
 
-The first complete-project slice intentionally rejects `--assets` and the
-opt-in `epic_children` render section because their independent pagination and
-binary evidence are not yet part of this completeness receipt. Ordinary pulls
-retain both behaviors unchanged. `ATL_READ_ONLY=1` permits complete pull: it
-performs backend reads and local mirror writes only; apply/push and every remote
-mutation remain prohibited. Complete-selector evidence is also distinct from
-`jira snapshot` integrity: the former proves remote project membership for one
-selection, while the latter proves the consistency of local files already on
-disk.
+Complete mode can additionally capture bounded comments and attachment
+evidence, but only through the explicit flags above. Comments use the qualified
+dedicated endpoint and are conservatively capped to the remaining atomic
+publication capacity before the first page is retained. Attachment bodies are
+admitted only after the issue field has been re-read for that exact attachment
+ID and all durable metadata still matches the inventory; each binary request
+is single-attempt, MIME-allowlisted, and size-bounded. The public CLI has no
+partial-evidence escape hatch: an incomplete inventory, a changed parent
+revision, a changed selector, an oversized comments receipt, or an unreadable
+requested body aborts the whole issue transaction rather than publishing a
+prefix. Aggregate body use is rebuilt from accepted private sidecars on resume,
+so an interrupted run cannot obtain a second fresh byte budget.
+
+The resulting `<KEY>.comments.json`, `<KEY>.attachments.json`, and captured
+`<KEY>.attachments/*.body` files are mode `0600`. Their sidecars bind the
+backend population, immutable issue ID, `updated` revision, native hash, and
+raw-snapshot hash; body paths, byte counts, and hashes are bound by the
+attachment sidecar. A later complete pull replaces or atomically retires any
+same-path receipt it owns. Running complete mode without a previously selected
+optional kind retires that kind's owned receipt; an ordinary JQL pull refuses
+before changing native or view bytes if it would invalidate such evidence.
+
+Complete mode still intentionally rejects `--assets` and the opt-in
+`epic_children` render section because their independent evidence is not yet
+part of this completeness receipt. Ordinary pulls retain both behaviors
+unchanged. `ATL_READ_ONLY=1` permits complete pull: it performs backend reads
+and local mirror writes only; apply/push and every remote mutation remain
+prohibited. Complete-selector evidence is also distinct from `jira snapshot`
+integrity: the former proves remote project membership for one selection, while
+the latter proves the consistency of local files already on disk.
 
 Output layout:
 
@@ -135,6 +173,10 @@ mirror-jira/
     PROJ-1.wiki             # native Jira wiki body, verbatim — the editable source
     PROJ-1.md               # derived staging view; edit supported sections, then jira apply
     PROJ-1.json
+    PROJ-1.comments.json    # only with complete --comments; qualified private sidecar (0600)
+    PROJ-1.attachments.json # only with complete --attachments; qualified private sidecar (0600)
+    PROJ-1.attachments/     # only with complete --attachment-bodies; private bodies (0600)
+      10001.body
     PROJ-1.assets/          # only with --assets, when the issue has images
       10001-screenshot.png
     PROJ-2.wiki

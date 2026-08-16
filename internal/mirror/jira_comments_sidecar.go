@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
-	"strings"
 	"unicode/utf8"
 
 	"github.com/isukharev/atl/internal/domain"
@@ -12,8 +11,8 @@ import (
 
 const (
 	JiraCommentsSidecarSchemaV1     = 1
-	maxJiraCommentsSidecarTextBytes = 64 << 20
-	maxJiraCommentsMetadataBytes    = 64 << 10
+	maxJiraCommentsSidecarTextBytes = domain.JiraCommentEvidenceBodyMaxBytes
+	maxJiraCommentsMetadataBytes    = domain.JiraCommentEvidenceMetadataMaxBytes
 
 	JiraCommentsPartialForbidden   = "forbidden"
 	JiraCommentsPartialUnsupported = "unsupported"
@@ -77,6 +76,9 @@ func canonicalJiraCommentsSidecar(value JiraCommentsSidecarV1) (JiraCommentsSide
 		!validCorpusSnapshotDigest(value.MetadataSHA256) || value.Count != len(value.Comments) || value.Comments == nil {
 		return JiraCommentsSidecarV1{}, jiraCommentsSidecarError("invalid schema or parent binding")
 	}
+	if len(value.Comments) > domain.JiraCommentReadMaxItems {
+		return JiraCommentsSidecarV1{}, jiraCommentsSidecarError("comment collection exceeds the supported bound")
+	}
 	comments := make([]domain.Comment, 0, len(value.Comments))
 	for _, comment := range value.Comments {
 		if !validCorpusProviderID(comment.ID) || !validJiraCommentsMetadata(comment.AuthorKey, true) ||
@@ -109,10 +111,7 @@ func canonicalJiraCommentsSidecar(value JiraCommentsSidecarV1) (JiraCommentsSide
 }
 
 func validJiraCommentsMetadata(value string, optional bool) bool {
-	if value == "" {
-		return optional
-	}
-	return strings.TrimSpace(value) != "" && len(value) <= maxJiraCommentsMetadataBytes && utf8.ValidString(value)
+	return domain.ValidJiraCommentEvidenceMetadata(value, optional)
 }
 
 func jiraCommentsSidecarError(reason string) error {

@@ -242,6 +242,210 @@ func TestJiraCompletePullJournalRejectsTamperedSnapshotIdentity(t *testing.T) {
 	}
 }
 
+// jiraCompletePullCurrentEvidenceFixture makes the current Jira durable entry
+// shape explicit: unlike the schema-3 compatibility fixture above, it has the
+// stable identity required for an exact optional-evidence receipt.
+func jiraCompletePullCurrentEvidenceFixture(t *testing.T) (*Mirror, CompletePullCheckpoint, CompletePullJournalEntry, []CompletePullArtifact) {
+	t.Helper()
+	m, checkpoint, entry, artifacts := jiraCompletePullFixture(t)
+	entry.State.Identity = entry.Identity
+	origin := "sha256:" + strings.Repeat("a", 64)
+	if _, err := m.BindBackend(BackendBinding{Service: CorpusSnapshotJira, OriginSHA256: origin}); err != nil {
+		t.Fatal(err)
+	}
+	metadata := []byte("{\n  \"key\": \"PROJ-1\",\n  \"id\": \"10001\",\n  \"fields\": {\"updated\": \"2026-01-01\"}\n}\n")
+	artifacts[1].Data = metadata
+	comments, err := EncodeJiraCommentsSidecarV1(JiraCommentsSidecarV1{
+		SchemaVersion: JiraCommentsSidecarSchemaV1, Service: CorpusSnapshotJira, OriginSHA256: origin,
+		ParentID: entry.Identity, ParentRevision: "2026-01-01", NativeSHA256: entry.State.Hash, MetadataSHA256: Hash(metadata),
+		Complete: true, Count: 0, Total: 0, TotalKnown: true, PageCount: 1, Comments: []JiraCommentsSidecarComment{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	attachments, err := EncodeAttachmentSidecarV1(AttachmentSidecarV1{
+		SchemaVersion: AttachmentSidecarSchemaV1, Service: CorpusSnapshotJira, OriginSHA256: origin,
+		ParentID: entry.Identity, ParentRevision: "2026-01-01", NativeSHA256: entry.State.Hash, MetadataSHA256: Hash(metadata),
+		InventoryComplete: true, BodiesState: AttachmentBodiesNotRequested, Complete: true,
+		Count: 0, PartialReasons: []AttachmentPartialReason{}, Attachments: []AttachmentSidecarRecord{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifacts = append(artifacts,
+		CompletePullArtifact{Path: mustArtifactPath("PROJ/PROJ-1.comments.json"), Role: CompletePullArtifactRoleAuxiliary, Data: comments, Mode: 0o600},
+		CompletePullArtifact{Path: mustArtifactPath("PROJ/PROJ-1.attachments.json"), Role: CompletePullArtifactRoleAuxiliary, Data: attachments, Mode: 0o600},
+	)
+	return m, checkpoint, entry, artifacts
+}
+
+func TestJiraCompletePullJournalCurrentOptionalEvidenceRejectsMissingOrChangedReceipt(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		mutate func(t *testing.T, m *Mirror)
+	}{
+		{
+			name: "missing comments receipt",
+			mutate: func(t *testing.T, m *Mirror) {
+				t.Helper()
+				if err := os.Remove(filepath.Join(m.Root, "PROJ", "PROJ-1.comments.json")); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		{
+			name: "changed attachment receipt",
+			mutate: func(t *testing.T, m *Mirror) {
+				t.Helper()
+				path := filepath.Join(m.Root, "PROJ", "PROJ-1.attachments.json")
+				data, err := os.ReadFile(path)
+				if err != nil {
+					t.Fatal(err)
+				}
+				sidecar, err := DecodeAttachmentSidecarV1(data)
+				if err != nil {
+					t.Fatal(err)
+				}
+				sidecar.InventoryComplete = false
+				sidecar.InventoryPartialReason = domain.JiraAttachmentPartialFieldUnavailable
+				sidecar.BodiesState = AttachmentBodiesPartial
+				sidecar.Complete = false
+				sidecar.PartialReasons = []AttachmentPartialReason{AttachmentReasonInventoryField}
+				changed, err := EncodeAttachmentSidecarV1(sidecar)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if Hash(changed) == Hash(data) {
+					t.Fatal("attachment receipt mutation did not change its content address")
+				}
+				if err := os.WriteFile(path, changed, 0o600); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m, checkpoint, entry, artifacts := jiraCompletePullCurrentEvidenceFixture(t)
+			if err := m.PrepareCompletePullPublication(checkpoint, 0, entry, true, artifacts, nil); err != nil {
+				t.Fatal(err)
+			}
+			if err := m.RecoverCompletePullPublication(checkpoint.SelectorSHA256, checkpoint, true); err != nil {
+				t.Fatal(err)
+			}
+			journal, found, err := m.loadCompletePullJournal(checkpoint.SelectorSHA256)
+			if err != nil || !found || journal.SchemaVersion != completePullJiraJournalSchema6 || len(journal.Entries) != 1 || journal.Entries[0].JiraOptionalEvidence == nil {
+				t.Fatalf("current Jira journal=%+v found=%t err=%v", journal, found, err)
+			}
+			if journal.Entries[0].JiraOptionalEvidence.CommentsSHA256 == "" || journal.Entries[0].JiraOptionalEvidence.AttachmentsSHA256 == "" {
+				t.Fatalf("journal lacks optional receipt hashes: %+v", journal.Entries[0].JiraOptionalEvidence)
+			}
+			tc.mutate(t, m)
+			if _, err := m.RecoverCompletePullJournal(checkpoint.SelectorSHA256, checkpoint, true); !errors.Is(err, domain.ErrCheckFailed) {
+				t.Fatalf("recover journal error=%v", err)
+			}
+			covered := checkpoint
+			covered.NextIndex = 1
+			if err := m.RetireCompletePullJournal(covered); !errors.Is(err, domain.ErrCheckFailed) {
+				t.Fatalf("retire journal error=%v", err)
+			}
+			loaded, found, err := m.CompletePullCheckpoint(checkpoint.SelectorSHA256)
+			if err != nil || !found || loaded.NextIndex != 0 {
+				t.Fatalf("checkpoint advanced after optional receipt change: %+v found=%t err=%v", loaded, found, err)
+			}
+			if _, found, err := m.loadCompletePullJournal(checkpoint.SelectorSHA256); err != nil || !found {
+				t.Fatalf("journal was retired after optional receipt change: found=%t err=%v", found, err)
+			}
+		})
+	}
+}
+
+func TestJiraCompletePullLegacyStableIdentityJournalsRemainReadable(t *testing.T) {
+	for _, schema := range []int{completePullJiraJournalSchema4, completePullJiraJournalSchema5} {
+		t.Run(fmt.Sprintf("schema-%d", schema), func(t *testing.T) {
+			m, checkpoint, entry, artifacts := jiraCompletePullFixture(t)
+			entry.State.Identity = entry.Identity
+			if err := m.PrepareCompletePullPublication(checkpoint, 0, entry, true, artifacts, nil); err != nil {
+				t.Fatal(err)
+			}
+			if err := m.RecoverCompletePullPublication(checkpoint.SelectorSHA256, checkpoint, true); err != nil {
+				t.Fatal(err)
+			}
+			if err := m.removeCompletePullJournal(checkpoint.SelectorSHA256); err != nil {
+				t.Fatal(err)
+			}
+			journal := completePullJournal{
+				SchemaVersion: schema, Service: CompletePullServiceJira,
+				SelectorSHA256: checkpoint.SelectorSHA256, OptionsSHA256: checkpoint.OptionsSHA256,
+				SelectionSHA256: checkpoint.SelectionSHA256, StartIndex: 0,
+				Entries: []CompletePullJournalEntry{entry}, WriteToken: completePullTestWriteToken,
+			}
+			data, err := json.MarshalIndent(journal, "", "  ")
+			if err != nil {
+				t.Fatal(err)
+			}
+			path, err := m.completePullJournalPath(checkpoint.SelectorSHA256)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := m.writeCompletePullOwned(path, completePullJournalTemp(completePullTestWriteToken), append(data, '\n'), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := m.RecoverCompletePullJournal(checkpoint.SelectorSHA256, checkpoint, true); err != nil {
+				t.Fatalf("legacy schema %d recovery: %v", schema, err)
+			}
+		})
+	}
+}
+
+func TestJiraCompletePullLegacyStableIdentityPublicationIntentsRecover(t *testing.T) {
+	for _, schema := range []int{completePullJiraPublicationSchema4, completePullJiraPublicationSchema5} {
+		t.Run(fmt.Sprintf("schema-%d", schema), func(t *testing.T) {
+			m, checkpoint, entry, artifacts := jiraCompletePullFixture(t)
+			entry.State.Identity = entry.Identity
+			if err := m.PrepareCompletePullPublication(checkpoint, 0, entry, true, artifacts, nil); err != nil {
+				t.Fatal(err)
+			}
+			dir, err := m.completePullPublicationDir(checkpoint.SelectorSHA256)
+			if err != nil {
+				t.Fatal(err)
+			}
+			intentPath := filepath.Join(dir, "intent.json")
+			encoded, err := os.ReadFile(intentPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var intent completePullPublicationIntent
+			if err := decodeCompletePullJSON("intent.json", encoded, &intent); err != nil {
+				t.Fatal(err)
+			}
+			intent.SchemaVersion = schema
+			intent.Entry.JiraOptionalEvidence = nil
+			if schema == completePullJiraPublicationSchema4 {
+				for index := range intent.Artifacts {
+					intent.Artifacts[index].PreSize = nil
+				}
+			}
+			rewritten, err := json.MarshalIndent(intent, "", "  ")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(intentPath, append(rewritten, '\n'), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := m.RecoverCompletePullPublication(checkpoint.SelectorSHA256, checkpoint, true); err != nil {
+				t.Fatalf("recover schema %d intent: %v", schema, err)
+			}
+			journal, found, err := m.loadCompletePullJournal(checkpoint.SelectorSHA256)
+			if err != nil || !found || journal.SchemaVersion != schema || len(journal.Entries) != 1 || journal.Entries[0].JiraOptionalEvidence != nil {
+				t.Fatalf("journal=%+v found=%t error=%v", journal, found, err)
+			}
+			if _, err := m.RecoverCompletePullJournal(checkpoint.SelectorSHA256, checkpoint, true); err != nil {
+				t.Fatalf("recover schema %d journal: %v", schema, err)
+			}
+		})
+	}
+}
+
 func TestJiraCompletePullRecoveryRejectsTamperedDurableVariants(t *testing.T) {
 	t.Run("intent", func(t *testing.T) {
 		for _, tc := range []struct {
