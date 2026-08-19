@@ -309,7 +309,7 @@ const (
             if git diff --quiet "$BASE_SHA" "$GITHUB_SHA" -- \
               go.mod go.sum Makefile .golangci.yml .github \
               .claude-plugin .mcp.json cmd internal scripts \
-              skills skills-src plugins/atl benchmarks/agent-eval; then
+              skills skills-src plugins/atl benchmarks; then
               mode=compat
             fi
           fi
