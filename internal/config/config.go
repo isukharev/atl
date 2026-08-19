@@ -176,16 +176,104 @@ func saveConfigBytes(c *Config) error {
 	return safepath.WriteFileAtomic(path(), append(b, '\n'), 0o600)
 }
 
+// NormalizeBackendURL supplies https for an unambiguous schemeless backend
+// host. It deliberately leaves an explicit scheme unchanged so CheckSecureURL
+// can reject an explicit insecure transport rather than silently changing it.
+func NormalizeBackendURL(raw string) (string, error) {
+	normalized := strings.TrimSpace(raw)
+	if normalized == "" || strings.HasPrefix(normalized, "//") {
+		return "", invalidBackendURLError(raw)
+	}
+	if strings.Contains(normalized, "://") {
+		return normalized, nil
+	}
+	if schemeLikeWithoutAuthority(normalized) {
+		return "", invalidBackendURLError(raw)
+	}
+	u, err := url.Parse("https://" + normalized)
+	if err != nil || u.Host == "" || u.Hostname() == "" || u.User != nil ||
+		u.RawQuery != "" || u.ForceQuery || u.Fragment != "" {
+		return "", invalidBackendURLError(raw)
+	}
+	return u.String(), nil
+}
+
+// schemeLikeWithoutAuthority rejects a malformed scheme such as https:/host
+// while preserving ordinary host:port input, including single-label hosts.
+func schemeLikeWithoutAuthority(raw string) bool {
+	colon := strings.IndexByte(raw, ':')
+	if colon <= 0 || !validScheme(raw[:colon]) {
+		return false
+	}
+	rest := raw[colon+1:]
+	if strings.HasPrefix(rest, "//") {
+		return false
+	}
+	port := rest
+	if slash := strings.IndexByte(port, '/'); slash >= 0 {
+		port = port[:slash]
+	}
+	if port != "" && allASCIIDigits(port) && !webScheme(raw[:colon]) {
+		return false
+	}
+	return true
+}
+
+func validScheme(value string) bool {
+	for i := range value {
+		c := value[i]
+		if (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') && (i == 0 || (c < '0' || c > '9') && c != '+' && c != '-' && c != '.') {
+			return false
+		}
+	}
+	return true
+}
+
+func allASCIIDigits(value string) bool {
+	for i := range value {
+		if value[i] < '0' || value[i] > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func webScheme(value string) bool {
+	return strings.EqualFold(value, "http") || strings.EqualFold(value, "https")
+}
+
+func invalidBackendURLError(raw string) error {
+	return &secureURLError{message: fmt.Sprintf("invalid backend URL %q", raw)}
+}
+
+// NormalizeAndCheckBackendURL applies the shared input and PAT transport
+// policies before a backend URL is persisted or used for authentication.
+func NormalizeAndCheckBackendURL(raw string) (string, error) {
+	normalized, err := NormalizeBackendURL(raw)
+	if err != nil {
+		return "", err
+	}
+	if err := CheckSecureURL(normalized); err != nil {
+		return "", err
+	}
+	return normalized, nil
+}
+
 // CheckSecureURL rejects a backend base URL that would transmit the PAT in
-// cleartext: any non-https scheme for a non-loopback host. Loopback hosts (test
-// servers) are always allowed, and ATL_ALLOW_INSECURE=1 overrides the check for
-// an internal http-only instance the operator explicitly trusts.
+// cleartext: HTTP is accepted only for a loopback host or with the explicit
+// ATL_ALLOW_INSECURE=1 override for an internal HTTP-only instance.
 func CheckSecureURL(raw string) error {
 	u, err := url.Parse(raw)
 	if err != nil {
 		return &secureURLError{message: fmt.Sprintf("invalid URL %q: %v", raw, err)}
 	}
-	if u.Scheme == "https" || isLoopbackHost(u.Hostname()) || os.Getenv("ATL_ALLOW_INSECURE") != "" {
+	if u.Scheme == "" || u.Host == "" || u.Hostname() == "" {
+		return invalidBackendURLError(raw)
+	}
+	if strings.EqualFold(u.Scheme, "https") {
+		return nil
+	}
+	if strings.EqualFold(u.Scheme, "http") && (isLoopbackHost(u.Hostname()) || os.Getenv("ATL_ALLOW_INSECURE") != "") {
 		return nil
 	}
 	return &secureURLError{message: fmt.Sprintf(

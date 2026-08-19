@@ -211,6 +211,11 @@ to **stderr** as a `warning:` line and ignored — never applied.
 Persist backend URLs, or a dotted `render.*` key, to the config file
 (`~/.config/atl/config.json`).
 
+For `--jira-url` and `--confluence-url`, an unambiguous hostname (optionally
+with a port and base path) without a scheme is stored as `https://…`. An
+explicit `http://…` URL is still refused unless the existing insecure-transport
+override is set; ambiguous input is rejected rather than guessed.
+
 ```
 atl config set --confluence-url https://confluence.example.com
 atl config set --jira-url https://jira.example.com
@@ -444,7 +449,9 @@ never stored in the mirror or the repository.
 
 Run without flags for an interactive setup wizard (like `gh auth login`). For each
 service it asks for the base URL and PAT, validates the PAT against the backend, and
-stores both. Any service can be skipped. Requires a terminal.
+stores both. Any service can be skipped. Requires a terminal. A hostname entered
+without a scheme is treated as `https://…`; an explicit `http://…` URL remains
+subject to the normal insecure-transport refusal.
 
 ```sh
 atl auth login

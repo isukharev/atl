@@ -44,6 +44,8 @@ func TestCheckSecureURL(t *testing.T) {
 		"http://confluence.example.com",
 		"http://jira.internal",
 		"ftp://example.com",
+		"https://",
+		"https:jira.example.com",
 	}
 	for _, u := range bad {
 		if err := CheckSecureURL(u); err == nil {
@@ -54,10 +56,34 @@ func TestCheckSecureURL(t *testing.T) {
 	}
 }
 
+func TestNormalizeBackendURL(t *testing.T) {
+	valid := map[string]string{
+		"jira.example.com":              "https://jira.example.com",
+		"jira.example.com:8443/jira":    "https://jira.example.com:8443/jira",
+		"[::1]:8443/jira":               "https://[::1]:8443/jira",
+		"https://jira.example.com/jira": "https://jira.example.com/jira",
+		"http://jira.example.com":       "http://jira.example.com",
+	}
+	for raw, want := range valid {
+		got, err := NormalizeBackendURL(raw)
+		if err != nil || got != want {
+			t.Errorf("NormalizeBackendURL(%q) = %q, %v; want %q, nil", raw, got, err, want)
+		}
+	}
+	for _, raw := range []string{"", "//jira.example.com", "/jira", "http:jira.example.com", "https:/jira.example.com", "http:/jira.example.com", "user@jira.example.com", "jira.example.com?debug=1"} {
+		if _, err := NormalizeAndCheckBackendURL(raw); err == nil || !IsSecureURLError(err) {
+			t.Errorf("NormalizeAndCheckBackendURL(%q) error = %v, want secure URL error", raw, err)
+		}
+	}
+}
+
 func TestCheckSecureURLAllowInsecureOptOut(t *testing.T) {
 	t.Setenv("ATL_ALLOW_INSECURE", "1")
 	if err := CheckSecureURL("http://confluence.internal"); err != nil {
 		t.Errorf("with ATL_ALLOW_INSECURE set, http should be allowed, got %v", err)
+	}
+	if err := CheckSecureURL("ftp://localhost"); err == nil {
+		t.Error("with ATL_ALLOW_INSECURE set, ftp should still be rejected")
 	}
 }
 

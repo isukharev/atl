@@ -152,11 +152,7 @@ func configureService(ctx context.Context, wz wizardIO, sp svcSpec, res *svcResu
 	}
 }
 
-// promptURL asks for the base URL (defaulting to the stored one) and loops
-// until it passes the https check. On EOF (Ctrl+D / exhausted stdin) it accepts
-// a stored default only when that default is itself secure; an empty or insecure
-// default aborts rather than re-prompting forever with an unusable value (a
-// non-TTY caller cannot supply more input, so re-prompting would busy-loop).
+// promptURL asks for the base URL and rejects an unusable default on EOF.
 func promptURL(wz wizardIO, sp svcSpec, cfg *config.Config) (string, error) {
 	cur := sp.getURL(cfg)
 	for {
@@ -172,14 +168,15 @@ func promptURL(wz wizardIO, sp svcSpec, cfg *config.Config) (string, error) {
 			fmt.Fprintln(wz.out, "  ! a URL is required")
 			continue
 		}
-		if verr := config.CheckSecureURL(u); verr != nil {
+		normalized, verr := config.NormalizeAndCheckBackendURL(u)
+		if verr != nil {
 			if eof {
 				return "", usageErr("%v", verr)
 			}
 			fmt.Fprintf(wz.out, "  ! %v\n", verr)
 			continue
 		}
-		return u, nil
+		return normalized, nil
 	}
 }
 
