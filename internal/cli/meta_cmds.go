@@ -209,16 +209,18 @@ func runSetGlobal(cmd *cobra.Command, key, value string, hasKV bool, confluenceU
 	// Reject an insecure (cleartext) backend URL at set time, not only at run
 	// time, so a PAT-leaking URL is never silently persisted.
 	if confluenceURL != "" {
-		if err := config.CheckSecureURL(confluenceURL); err != nil {
+		normalized, err := config.NormalizeAndCheckBackendURL(confluenceURL)
+		if err != nil {
 			return usageErr("%v", err)
 		}
-		cfg.ConfluenceURL = confluenceURL
+		cfg.ConfluenceURL = normalized
 	}
 	if jiraURL != "" {
-		if err := config.CheckSecureURL(jiraURL); err != nil {
+		normalized, err := config.NormalizeAndCheckBackendURL(jiraURL)
+		if err != nil {
 			return usageErr("%v", err)
 		}
-		cfg.JiraURL = jiraURL
+		cfg.JiraURL = normalized
 	}
 	if updateURL != "" {
 		cfg.UpdateBaseURL = updateURL

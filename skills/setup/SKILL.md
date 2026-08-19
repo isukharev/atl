@@ -85,8 +85,10 @@ fails with "command not found".
 
 ## 3. Configure backend URLs
 
-Ask the user for their Confluence and Jira base URLs (they must be `https://`). Set whichever they
-use — both is typical:
+Ask the user for their Confluence and Jira base URLs. An unambiguous hostname (optionally with a
+port and base path) may omit `https://`; `atl config set` stores it as HTTPS. An explicit
+`http://` URL remains refused unless the user explicitly enables the documented insecure-transport
+override. Set whichever service they use — both is typical:
 
 ```bash
 atl config set --confluence-url https://confluence.example.com --jira-url https://jira.example.com

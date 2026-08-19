@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- `atl auth login` and global `atl config set` now treat an unambiguous
+  schemeless backend hostname as HTTPS while retaining the explicit HTTP
+  transport refusal.
+
 ### Added
 
 - Added qualified identity-ordered content pagination for complete Confluence

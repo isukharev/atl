@@ -83,12 +83,11 @@ export ATL_READ_ONLY=1
 atl jira issue search --jql 'order by updated DESC' --limit 5
 ```
 
-`auth login` reads the PAT from a no-echo prompt, stdin, or file—not argv.
-`doctor --service jira|confluence` scopes health and stays offline without
-`--remote`, which makes bounded body-free product/version probes. `safety`
-reports configured/effective read-only state and source
-`flag|environment|configuration|none`. JSON defaults to stdout; diagnostics use
-stderr.
+`auth login` reads PAT from hidden prompt/stdin/file—not argv. Its wizard and
+`config set` treat a bare hostname as HTTPS; explicit HTTP needs the override.
+`doctor --service jira|confluence` scopes offline health; `--remote` makes
+bounded body-free version probes. `safety` reports read-only state/source.
+JSON uses stdout; diagnostics stderr.
 
 For Confluence:
 

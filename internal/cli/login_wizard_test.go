@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/isukharev/atl/internal/config"
 )
 
 // whoamiServer replies with a fixed display name on any path.
@@ -137,6 +139,22 @@ func TestWizardURLPromptEOFDoesNotHang(t *testing.T) {
 	_, err := runLoginWizard(context.Background(), wizardFrom("y\n"))
 	if err == nil {
 		t.Fatalf("expected an error when stdin is exhausted at the URL prompt, got nil")
+	}
+}
+
+func TestPromptURLNormalizesSchemelessBackendHost(t *testing.T) {
+	got, err := promptURL(wizardFrom("jira.example.test:8443/jira\n"), wizardSpecs()[1], &config.Config{})
+	if want := "https://jira.example.test:8443/jira"; err != nil || got != want {
+		t.Fatalf("URL = %q, %v; want %q, nil", got, err, want)
+	}
+}
+
+func TestConfigureServiceRejectsAmbiguousURLBeforePAT(t *testing.T) {
+	cleanAuthEnv(t)
+	wz := wizardFrom("//jira.example.test")
+	wz.readSecret = func() (string, error) { t.Fatal("readSecret called for an invalid URL"); return "", nil }
+	if err := configureService(context.Background(), wz, wizardSpecs()[1], &svcResult{}); err == nil {
+		t.Fatal("configureService succeeded for ambiguous URL")
 	}
 }
 

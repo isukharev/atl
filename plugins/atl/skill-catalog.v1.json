@@ -225,7 +225,7 @@
     },
     {
       "path": "setup/SKILL.md",
-      "sha256": "426bedce7b1977986f3bcf80494af8b2cccd99b718dcb80e2ba6e8022524ff69"
+      "sha256": "aaf0456a4fba7df14b6dea9f7407cc1cd8c167a7542dbeadad973b18a0daa633"
     },
     {
       "path": "setup/agents/openai.yaml",

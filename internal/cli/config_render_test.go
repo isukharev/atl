@@ -8,8 +8,8 @@ import (
 	"testing"
 )
 
-// TestConfigSetRenderGlobal persists a dotted render key to the global config.
-func TestConfigSetRenderGlobal(t *testing.T) {
+// TestConfigSetGlobal persists global settings, including normalized backend URLs.
+func TestConfigSetGlobal(t *testing.T) {
 	cfgDir := t.TempDir()
 	out, code := runCLI(t, map[string]string{"ATL_CONFIG_DIR": cfgDir}, "config", "set", "render.jira.profile", "full")
 	if code != exitOK {
@@ -29,6 +29,14 @@ func TestConfigSetRenderGlobal(t *testing.T) {
 	b, err = os.ReadFile(filepath.Join(cfgDir, "config.json"))
 	if err != nil || !strings.Contains(string(b), `"display_time_zone": "Europe/Moscow"`) {
 		t.Fatalf("global config missing display timezone: %s err=%v", b, err)
+	}
+	out, code = runCLI(t, map[string]string{"ATL_CONFIG_DIR": cfgDir}, "config", "set", "--jira-url", "jira.example.test:8443/jira")
+	if code != exitOK {
+		t.Fatalf("config set: exit %d (out=%q)", code, out)
+	}
+	b, err = os.ReadFile(filepath.Join(cfgDir, "config.json"))
+	if want := `"jira_url": "https://jira.example.test:8443/jira"`; err != nil || !strings.Contains(string(b), want) {
+		t.Fatalf("config did not persist normalized URL %q: %s (err=%v)", want, b, err)
 	}
 }
 
