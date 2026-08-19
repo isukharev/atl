@@ -237,6 +237,16 @@ func TestExportOwnerPrivateGuardsDestinationAndMode(t *testing.T) {
 	if err := os.Mkdir(unsafeRoot, 0o755); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.Chmod(unsafeRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	unsafeInfo, err := os.Stat(unsafeRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unsafeInfo.Mode().Perm() == 0o700 {
+		t.Fatalf("unsafe root mode = %v, want non-private", unsafeInfo.Mode())
+	}
 	request.OwnerPrivateRoot = unsafeRoot
 	requireCode(t, ExportOwnerPrivate(request), ErrorInvalidDestination)
 
@@ -254,6 +264,16 @@ func TestExportOwnerPrivateGuardsDestinationAndMode(t *testing.T) {
 	unsafeParent := filepath.Join(root, "unsafe")
 	if err := os.Mkdir(unsafeParent, 0o755); err != nil {
 		t.Fatal(err)
+	}
+	if err := os.Chmod(unsafeParent, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	unsafeInfo, err = os.Stat(unsafeParent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unsafeInfo.Mode().Perm() == 0o700 {
+		t.Fatalf("unsafe parent mode = %v, want non-private", unsafeInfo.Mode())
 	}
 	request.RelativePath = "unsafe/trajectory-2.json"
 	requireCode(t, ExportOwnerPrivate(request), ErrorInvalidDestination)
