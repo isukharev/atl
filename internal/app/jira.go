@@ -105,10 +105,6 @@ func validateIssueSearchPage(page domain.IssueSearchPage) error {
 	return nil
 }
 
-func (s *JiraService) Create(ctx context.Context, project, issueType, summary string, body []byte, fields map[string]domain.JiraFieldInput) (*domain.Issue, error) {
-	return s.tr.Create(ctx, project, issueType, summary, body, fields)
-}
-
 func (s *JiraService) Update(ctx context.Context, key, summary string, body []byte, fields map[string]domain.JiraFieldInput) error {
 	return s.tr.Update(ctx, key, summary, body, fields)
 }

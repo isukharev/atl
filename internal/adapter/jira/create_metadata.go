@@ -135,24 +135,11 @@ func (j *Jira) ReadCreateMetadata(ctx context.Context, project, selector string)
 	if err != nil {
 		return nil, err
 	}
-	for _, issueType := range types {
-		if issueType.ID == selector {
-			return j.readCreateMetadataFields(ctx, project, issueType)
-		}
+	issueType, err := domain.ResolveJiraIssueType(types, selector)
+	if err != nil {
+		return nil, err
 	}
-	var matches []domain.JiraIssueType
-	for _, issueType := range types {
-		if issueType.Name == selector {
-			matches = append(matches, issueType)
-		}
-	}
-	if len(matches) == 0 {
-		return nil, fmt.Errorf("%w: issue type was not found in project create metadata; run 'atl jira issue types --project PROJECT' and use an exact id or name", domain.ErrNotFound)
-	}
-	if len(matches) != 1 {
-		return nil, fmt.Errorf("%w: issue type selector is ambiguous", domain.ErrCheckFailed)
-	}
-	return j.readCreateMetadataFields(ctx, project, matches[0])
+	return j.readCreateMetadataFields(ctx, project, issueType)
 }
 
 func (j *Jira) readCreateMetadataFields(ctx context.Context, project string, issueType domain.JiraIssueType) (*domain.JiraCreateMetadata, error) {

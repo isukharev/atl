@@ -106,8 +106,6 @@ authorization.go:issueTargets:range:1
 authorization.go:put:for:1
 authorization.go:removeCanonical:range:1
 create_metadata.go:ReadCreateIssueTypes:range:1
-create_metadata.go:ReadCreateMetadata:range:1
-create_metadata.go:ReadCreateMetadata:range:2
 create_metadata.go:readCreateFields:for:1
 create_metadata.go:readCreateIssueTypes:for:1
 create_metadata.go:readCreateMetadataFields:range:1
