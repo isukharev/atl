@@ -19,7 +19,7 @@ func jiraTransitionCmd() *cobra.Command {
 
 func jiraTransitionMutationCmd(applyCapable bool) *cobra.Command {
 	var to, comment string
-	var fieldPairs []string
+	var fieldPairs, fieldJSON []string
 	guardedWrite := guardedWriteFlags{profile: guardedWriteProposal}
 	use, short := "preview <KEY>", "Preview a reviewed Jira transition"
 	if applyCapable {
@@ -40,7 +40,7 @@ func jiraTransitionMutationCmd(applyCapable bool) *cobra.Command {
 			if strings.TrimSpace(to) == "" {
 				return usageErr("--to is required")
 			}
-			fields, err := parseUniqueKV(fieldPairs)
+			fields, err := parseUniqueJiraTransitionFields(fieldPairs, fieldJSON)
 			if err != nil {
 				return err
 			}
@@ -70,30 +70,25 @@ func jiraTransitionMutationCmd(applyCapable bool) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&to, "to", "", "target status or transition name")
 	cmd.Flags().StringVar(&comment, "comment", "", "optional bounded native Jira-wiki comment")
-	cmd.Flags().StringArrayVar(&fieldPairs, "field", nil, "field key=value to set on the transition (repeatable), e.g. resolution={\"name\":\"Fixed\"}")
+	cmd.Flags().StringArrayVar(&fieldPairs, "field", nil, "field key=value to set on the transition (repeatable); JSON objects/arrays are sent as JSON")
+	cmd.Flags().StringArrayVar(&fieldJSON, "field-json", nil, "field key=JSON to set on the transition (repeatable); sends an explicit JSON value including scalars")
 	if applyCapable {
 		guardedWrite.register(cmd)
 	}
 	return cmd
 }
 
-func parseUniqueKV(pairs []string) ([]app.JiraTransitionFieldInput, error) {
-	fields := make([]app.JiraTransitionFieldInput, 0, len(pairs))
-	seen := make(map[string]bool, len(pairs))
-	for _, pair := range pairs {
-		key, value, ok := strings.Cut(pair, "=")
-		if !ok {
-			return nil, usageErr("--field must be key=value, got %q", pair)
-		}
+func parseUniqueJiraTransitionFields(pairs, jsonPairs []string) ([]app.JiraTransitionFieldInput, error) {
+	inputs, err := parseJiraFieldInputs(pairs, jsonPairs, true)
+	if err != nil {
+		return nil, err
+	}
+	fields := make([]app.JiraTransitionFieldInput, 0, len(inputs))
+	for _, pair := range append(append([]string(nil), pairs...), jsonPairs...) {
+		key, _, _ := strings.Cut(pair, "=")
 		key = strings.TrimSpace(key)
-		if key == "" {
-			return nil, usageErr("--field key must not be empty")
-		}
-		if seen[key] {
-			return nil, usageErr("--field key %q is repeated", key)
-		}
-		seen[key] = true
-		fields = append(fields, app.JiraTransitionFieldInput{Field: key, Value: value})
+		value := inputs[key]
+		fields = append(fields, app.JiraTransitionFieldInput{Field: key, Value: value.Value, ExplicitJSON: value.ExplicitJSON})
 	}
 	return fields, nil
 }

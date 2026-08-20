@@ -321,7 +321,7 @@ func (s *JiraService) applyPlanField(ctx context.Context, row JiraPlanApplyResul
 		row.Status = "would_apply"
 		return row
 	}
-	if err := s.Update(ctx, row.Source, "", nil, map[string]string{row.Field: row.Value}); err != nil {
+	if err := s.Update(ctx, row.Source, "", nil, map[string]domain.JiraFieldInput{row.Field: {Value: row.Value}}); err != nil {
 		return failedPlanRow(row, err)
 	}
 	row.Status = "applied"

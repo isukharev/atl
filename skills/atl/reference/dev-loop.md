@@ -112,7 +112,7 @@ env -u ATL_READ_ONLY atl jira issue transition PROJ-123 --to Blocked \
   narrow `--fields` for these routine checks; a bare `get` re-reads the whole comment thread.
 - Discover before writing: `transitions` before the guarded transition preview,
   `field-options` before `--field`, and `link-types` before `link add`.
-- Object-typed `--field` values are JSON: `resolution={"name":"Fixed"}` — a bare string fails.
+- Object-typed `--field` values are JSON: `resolution={"name":"Fixed"}` — a bare string fails. For a number, boolean, or `null`, use `--field-json key=JSON`.
 - Pull fresh right before editing a Confluence page; push the exact bytes you dry-ran.
 - Comment when there is signal (decision, blocker, done), not noise (every commit).
 - Exit codes are the protocol: `5` re-pull & reconcile, `8` fill required fields, `7` run
