@@ -17,13 +17,13 @@ import (
 
 const jiraTransitionProposalSchemaVersion = 1
 
-// JiraTransitionFieldInput preserves one repeated --field entry until the app
-// boundary has rejected empty or duplicate keys. Value follows the legacy Jira
-// transition coercion contract: valid objects/arrays are typed; scalars remain
-// exact strings.
+// JiraTransitionFieldInput preserves one repeated field entry until the app
+// boundary has rejected empty or duplicate keys. Value retains whether the CLI
+// explicitly requested a typed JSON scalar or used legacy field coercion.
 type JiraTransitionFieldInput struct {
-	Field string
-	Value string
+	Field        string
+	Value        string
+	ExplicitJSON bool
 }
 
 type JiraTransitionGuardedOpts struct {
@@ -242,7 +242,10 @@ func prepareJiraTransitionFields(inputs []JiraTransitionFieldInput) ([]jiraTrans
 			return nil, fmt.Errorf("%w: duplicate transition field key %q", domain.ErrUsage, name)
 		}
 		seen[name] = true
-		desired := coerceJiraTransitionField(input.Value)
+		desired, err := coerceJiraTransitionField(input.Value, input.ExplicitJSON)
+		if err != nil {
+			return nil, fmt.Errorf("%w: transition field %q has invalid explicit JSON", domain.ErrUsage, name)
+		}
 		canonical, err := canonicalJiraTransitionValue(desired)
 		if err != nil {
 			return nil, fmt.Errorf("%w: transition field %q has an unsupported value", domain.ErrUsage, name)
@@ -253,20 +256,34 @@ func prepareJiraTransitionFields(inputs []JiraTransitionFieldInput) ([]jiraTrans
 	return prepared, nil
 }
 
-func coerceJiraTransitionField(value string) any {
+func coerceJiraTransitionField(value string, explicitJSON bool) (any, error) {
+	if explicitJSON {
+		return decodeJiraTransitionJSON(value)
+	}
 	trimmed := strings.TrimSpace(value)
 	if strings.HasPrefix(trimmed, "{") || strings.HasPrefix(trimmed, "[") {
-		var decoded any
-		decoder := json.NewDecoder(strings.NewReader(value))
-		decoder.UseNumber()
-		if err := decoder.Decode(&decoded); err == nil {
-			var trailing any
-			if errors.Is(decoder.Decode(&trailing), io.EOF) {
-				return decoded
-			}
+		if decoded, err := decodeJiraTransitionJSON(value); err == nil {
+			return decoded, nil
 		}
 	}
-	return value
+	return value, nil
+}
+
+func decodeJiraTransitionJSON(value string) (any, error) {
+	var decoded any
+	decoder := json.NewDecoder(strings.NewReader(value))
+	decoder.UseNumber()
+	if err := decoder.Decode(&decoded); err != nil {
+		return nil, err
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		if err == nil {
+			return nil, fmt.Errorf("multiple JSON values")
+		}
+		return nil, err
+	}
+	return decoded, nil
 }
 
 func canonicalJiraTransitionValue(value any) (string, error) {

@@ -41,9 +41,11 @@ Jira rejects unknown field ids, status names, and link types — discover the va
 
 ## Setting fields — value shapes matter
 
-`--field key=value` is repeatable on `create`, `update`, and `transition`. The value is sent
+`--field key=value` is repeatable on `create`, `update`, and `transition`. Its value is sent
 **as a string**, unless it starts with `{` or `[` and parses as JSON — then it is sent as that
-JSON object/array. Jira DC is strict about shapes, so pick the right form per field type:
+JSON object/array. Use `--field-json key=JSON` for an explicit typed JSON value, including
+number, boolean, or `null`. The same key cannot appear through both flags. Jira DC is strict
+about shapes, so pick the right form per field type:
 
 | Field type | Shape Jira expects | Example |
 |---|---|---|
@@ -51,13 +53,16 @@ JSON object/array. Jira DC is strict about shapes, so pick the right form per fi
 | Priority, resolution, single-select | object with `name` (or `value` for selects) | `--field 'priority={"name":"High"}'` |
 | Components, fixVersions, versions | **array** of objects | `--field 'components=[{"name":"backend"}]'` |
 | Labels | array of strings | `--field 'labels=["backend","bug"]'` (or use `jira issue labels`) |
-| Number field | plain number as string | `--field customfield_10060=5` |
+| Number field | JSON number | `--field-json customfield_10060=5` |
+| Checkbox / boolean field | JSON boolean | `--field-json customfield_10061=true` |
+| Clearable field | JSON null | `--field-json customfield_10062=null` |
 | Cascading select | nested object | `--field 'customfield_10070={"value":"Hardware","child":{"value":"Laptop"}}'` |
 
 ```bash
 atl jira issue update PROJ-1 --field 'priority={"name":"High"}'
 atl jira issue create --project PROJ --type Task --summary 'X' \
-  --field 'components=[{"name":"backend"}]' --field 'fixVersions=[{"name":"1.2"}]'
+  --field 'components=[{"name":"backend"}]' --field 'fixVersions=[{"name":"1.2"}]' \
+  --field-json customfield_10060=5
 ```
 
 **A bare string where an object is expected fails** (`--field priority=High` → 400). When Jira

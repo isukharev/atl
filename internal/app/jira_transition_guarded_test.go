@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"reflect"
 	"strings"
@@ -195,12 +196,29 @@ func TestTransitionGuardedRejectsDuplicateFieldsAndAmbiguousTransitions(t *testi
 
 func TestTransitionGuardedFieldCoercionKeepsScalarsAndMalformedStructuredTextExact(t *testing.T) {
 	for _, value := range []string{"123", "true", "null", `{"id":"2"} trailing`} {
-		if got := coerceJiraTransitionField(value); got != value {
+		got, err := coerceJiraTransitionField(value, false)
+		if err != nil || got != value {
 			t.Fatalf("value %q was unexpectedly retyped as %#v", value, got)
 		}
 	}
-	if got := coerceJiraTransitionField(`{"id":"2"}`); reflect.ValueOf(got).Kind() != reflect.Map {
+	if got, err := coerceJiraTransitionField(`{"id":"2"}`, false); err != nil || reflect.ValueOf(got).Kind() != reflect.Map {
 		t.Fatalf("valid object was not typed: %#v", got)
+	}
+	for _, tc := range []struct {
+		value string
+		want  any
+	}{
+		{"5", json.Number("5")},
+		{"true", true},
+		{"null", nil},
+	} {
+		got, err := coerceJiraTransitionField(tc.value, true)
+		if err != nil || !reflect.DeepEqual(got, tc.want) {
+			t.Errorf("explicit JSON %q = %#v, %v; want %#v", tc.value, got, err, tc.want)
+		}
+	}
+	if _, err := coerceJiraTransitionField("not-json", true); err == nil {
+		t.Fatal("invalid explicit JSON was accepted")
 	}
 }
 

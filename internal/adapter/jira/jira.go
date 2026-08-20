@@ -248,13 +248,16 @@ func (j *Jira) searchPage(ctx context.Context, jql string, fields []string, limi
 	return page, nil
 }
 
-// Create creates an issue. Each extra field value that parses as valid JSON is
-// sent as the decoded JSON value (so callers can pass objects, arrays or
-// numbers, e.g. priority={"name":"High"}); otherwise it is sent as a string.
-func (j *Jira) Create(ctx context.Context, project, issueType, summary string, body []byte, fields map[string]string) (*domain.Issue, error) {
+// Create creates an issue. Legacy fields preserve the object/array-or-string
+// compatibility contract. Explicit JSON fields are decoded as their requested
+// JSON type, including scalars.
+func (j *Jira) Create(ctx context.Context, project, issueType, summary string, body []byte, fields map[string]domain.JiraFieldInput) (*domain.Issue, error) {
+	typedFields, err := coerceFields(fields)
+	if err != nil {
+		return nil, err
+	}
 	if j.authorizer != nil {
 		if _, overridesProject := fields["project"]; overridesProject {
-			var err error
 			_, err = j.authorizeScopeProblem(ctx, domain.WriteVerbSet{domain.WriteVerbCreate}, domain.WriteScopeContradiction, "project",
 				domain.WriteTarget{Service: "jira", Kind: "issue", Project: strings.ToUpper(strings.TrimSpace(project))})
 			return nil, err
@@ -266,7 +269,6 @@ func (j *Jira) Create(ctx context.Context, project, issueType, summary string, b
 				domain.WriteTarget{Service: "jira", Kind: "issue", Project: project})
 			return nil, err
 		}
-		var err error
 		ctx, err = j.authorize(ctx, domain.WriteVerbSet{domain.WriteVerbCreate}, []domain.WriteTarget{{Service: "jira", Kind: "issue", Project: project}})
 		if err != nil {
 			return nil, err
@@ -280,8 +282,8 @@ func (j *Jira) Create(ctx context.Context, project, issueType, summary string, b
 	if len(body) > 0 {
 		fl["description"] = string(body)
 	}
-	for k, v := range fields {
-		fl[k] = coerceField(v)
+	for k, v := range typedFields {
+		fl[k] = v
 	}
 	var out struct {
 		Key string `json:"key"`
@@ -292,13 +294,22 @@ func (j *Jira) Create(ctx context.Context, project, issueType, summary string, b
 	return &domain.Issue{Key: out.Key, Summary: summary, Project: project, Type: issueType, Body: string(body)}, nil
 }
 
-// Update edits summary/description/extra fields. Extra field values are coerced
-// the same way as in Create (JSON-decoded when valid, else sent as a string).
+// Update edits summary/description/extra fields. Legacy fields preserve the
+// object/array-or-string compatibility contract; explicitly JSON fields retain
+// their requested JSON type.
 //
 // Update is last-writer-wins: it issues a bare PUT with no optimistic version
 // gate. Jira Server/DC has no per-field compare-and-set and exposes no per-issue
 // version counter, so concurrent edits silently overwrite each other.
-func (j *Jira) Update(ctx context.Context, key, summary string, body []byte, fields map[string]string) error {
+func (j *Jira) Update(ctx context.Context, key, summary string, body []byte, fields map[string]domain.JiraFieldInput) error {
+	typedFields, err := coerceFields(fields)
+	if err != nil {
+		return err
+	}
+	return j.updateWithTypedFields(ctx, key, summary, body, typedFields)
+}
+
+func (j *Jira) updateWithTypedFields(ctx context.Context, key, summary string, body []byte, fields map[string]any) error {
 	fl := map[string]any{}
 	if summary != "" {
 		fl["summary"] = summary
@@ -307,14 +318,14 @@ func (j *Jira) Update(ctx context.Context, key, summary string, body []byte, fie
 		fl["description"] = string(body)
 	}
 	for k, v := range fields {
-		fl[k] = coerceField(v)
+		fl[k] = v
 	}
 	if len(fl) == 0 {
 		return fmt.Errorf("%w: nothing to update", domain.ErrUsage)
 	}
 	project, relocates := fields["project"]
 	var err error
-	ctx, err = j.authorizeIssueMutation(ctx, domain.WriteVerbSet{domain.WriteVerbUpdate}, "issue", key, coerceField(project), relocates)
+	ctx, err = j.authorizeIssueMutation(ctx, domain.WriteVerbSet{domain.WriteVerbUpdate}, "issue", key, project, relocates)
 	if err != nil {
 		return err
 	}
@@ -345,8 +356,12 @@ func (j *Jira) SetFields(ctx context.Context, key string, fields map[string]any)
 }
 
 // Transition moves an issue to a target status by name, optionally commenting
-// and setting fields on the transition (coerced like Create/Update fields).
-func (j *Jira) Transition(ctx context.Context, key, to, comment string, fields map[string]string) error {
+// and setting fields on the transition with the Create/Update field contract.
+func (j *Jira) Transition(ctx context.Context, key, to, comment string, fields map[string]domain.JiraFieldInput) error {
+	typedFields, err := coerceFields(fields)
+	if err != nil {
+		return err
+	}
 	trs, err := j.Transitions(ctx, key)
 	if err != nil {
 		return err
@@ -364,12 +379,6 @@ func (j *Jira) Transition(ctx context.Context, key, to, comment string, fields m
 			names[i] = t.Name
 		}
 		return fmt.Errorf("%w: no transition to %q; available: %s", domain.ErrUsage, to, strings.Join(names, ", "))
-	}
-	typedFields := make(map[string]any, len(fields))
-	if len(fields) > 0 {
-		for k, v := range fields {
-			typedFields[k] = coerceField(v)
-		}
 	}
 	return j.TransitionByID(ctx, key, domain.JiraTransitionRequest{ID: id, Fields: typedFields, Comment: []byte(comment)})
 }
@@ -885,24 +894,6 @@ func (j *Jira) Whoami(ctx context.Context) (string, error) {
 		return "", err
 	}
 	return u.DisplayName, nil
-}
-
-// --- small helpers for untyped field access ---
-
-// coerceField decodes an extra --field value. Only a structured value — a JSON
-// object or array — is decoded (that is the case needing a non-string type, e.g.
-// priority={"name":"High"} or labels=["a","b"]). A bare scalar is kept verbatim
-// as a string, so a text/label/version field whose value merely looks like JSON
-// (123, true, null) is NOT silently retyped into a number/bool/null and rejected
-// or mis-stored by Jira.
-func coerceField(v string) any {
-	if t := strings.TrimSpace(v); strings.HasPrefix(t, "{") || strings.HasPrefix(t, "[") {
-		var decoded any
-		if err := json.Unmarshal([]byte(v), &decoded); err == nil {
-			return decoded
-		}
-	}
-	return v
 }
 
 func str(v any) string {

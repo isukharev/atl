@@ -47,13 +47,16 @@ func TestCreateCoercesExtraFieldValues(t *testing.T) {
 	defer srv.Close()
 
 	j := newTestJira(srv)
-	_, err := j.Create(context.Background(), "ABC", "Task", "summary", nil, map[string]string{
-		"priority":    `{"name":"High"}`,
-		"labels":      `["a","b"]`,
-		"storypoints": `5`,
-		"flag":        `true`,
-		"empty":       `null`,
-		"plainword":   "bare",
+	_, err := j.Create(context.Background(), "ABC", "Task", "summary", nil, map[string]domain.JiraFieldInput{
+		"priority":    {Value: `{"name":"High"}`},
+		"labels":      {Value: `["a","b"]`},
+		"storypoints": {Value: `5`},
+		"flag":        {Value: `true`},
+		"empty":       {Value: `null`},
+		"plainword":   {Value: "bare"},
+		"number":      {Value: `5`, ExplicitJSON: true},
+		"boolean":     {Value: `true`, ExplicitJSON: true},
+		"nil":         {Value: `null`, ExplicitJSON: true},
 	})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
@@ -87,6 +90,28 @@ func TestCreateCoercesExtraFieldValues(t *testing.T) {
 			t.Errorf("%s sent as %T (%v), want string %q", k, got[k], got[k], want)
 		}
 	}
+	if got["number"] != float64(5) || got["boolean"] != true {
+		t.Errorf("explicit scalar fields = number:%#v boolean:%#v, want 5/true", got["number"], got["boolean"])
+	}
+	if value, ok := got["nil"]; !ok || value != nil {
+		t.Errorf("explicit null = %#v (present=%v), want null", value, ok)
+	}
+}
+
+func TestExplicitJSONFieldValidationStopsBeforeRequest(t *testing.T) {
+	requests := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		requests++
+	}))
+	defer srv.Close()
+
+	j := newTestJira(srv)
+	_, err := j.Create(context.Background(), "ABC", "Task", "summary", nil, map[string]domain.JiraFieldInput{
+		"storypoints": {Value: `not-json`, ExplicitJSON: true},
+	})
+	if !errors.Is(err, domain.ErrUsage) || requests != 0 {
+		t.Fatalf("Create err=%v requests=%d, want usage error before request", err, requests)
+	}
 }
 
 func TestUpdateCoercesExtraFieldValues(t *testing.T) {
@@ -101,9 +126,9 @@ func TestUpdateCoercesExtraFieldValues(t *testing.T) {
 	defer srv.Close()
 
 	j := newTestJira(srv)
-	err := j.Update(context.Background(), "ABC-1", "", nil, map[string]string{
-		"components": `[{"name":"backend"}]`,
-		"plainword":  "bare",
+	err := j.Update(context.Background(), "ABC-1", "", nil, map[string]domain.JiraFieldInput{
+		"components": {Value: `[{"name":"backend"}]`},
+		"plainword":  {Value: "bare"},
 	})
 	if err != nil {
 		t.Fatalf("Update: %v", err)

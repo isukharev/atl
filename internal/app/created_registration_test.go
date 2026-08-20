@@ -351,7 +351,7 @@ type createdJiraTracker struct {
 	readbackRedacted bool
 }
 
-func (t *createdJiraTracker) Create(ctx context.Context, _ string, _ string, _ string, _ []byte, _ map[string]string) (*domain.Issue, error) {
+func (t *createdJiraTracker) Create(ctx context.Context, _ string, _ string, _ string, _ []byte, _ map[string]domain.JiraFieldInput) (*domain.Issue, error) {
 	t.createCalls++
 	t.createSingle = domain.SingleAttempt(ctx)
 	t.createRedacted = domain.RedactedHTTPTrace(ctx)

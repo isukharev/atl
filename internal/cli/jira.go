@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -83,16 +84,47 @@ func splitFields(s string) []string {
 	return out
 }
 
-func parseKV(pairs []string) (map[string]string, error) {
-	m := map[string]string{}
-	for _, p := range pairs {
-		k, v, ok := strings.Cut(p, "=")
-		if !ok {
-			return nil, usageErr("--field must be key=value, got %q", p)
+// parseJiraFieldInputs keeps legacy --field values distinct from explicit JSON
+// values. The legacy route deliberately preserves object/array-or-string
+// coercion, while --field-json validates every JSON top-level type before any
+// service construction or backend request.
+func parseJiraFieldInputs(fieldPairs, jsonPairs []string, rejectDuplicates bool) (map[string]domain.JiraFieldInput, error) {
+	fields := make(map[string]domain.JiraFieldInput, len(fieldPairs)+len(jsonPairs))
+	for _, pair := range fieldPairs {
+		if err := addJiraFieldInput(fields, pair, "--field", false, rejectDuplicates); err != nil {
+			return nil, err
 		}
-		m[strings.TrimSpace(k)] = v
 	}
-	return m, nil
+	for _, pair := range jsonPairs {
+		if err := addJiraFieldInput(fields, pair, "--field-json", true, rejectDuplicates); err != nil {
+			return nil, err
+		}
+	}
+	return fields, nil
+}
+
+func addJiraFieldInput(fields map[string]domain.JiraFieldInput, pair, flag string, explicitJSON, rejectDuplicates bool) error {
+	key, value, ok := strings.Cut(pair, "=")
+	if !ok {
+		return usageErr("%s must be key=value, got %q", flag, pair)
+	}
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return usageErr("%s key must not be empty", flag)
+	}
+	if explicitJSON && !json.Valid([]byte(value)) {
+		return usageErr("--field-json value for key %q must be valid JSON", key)
+	}
+	if prior, exists := fields[key]; exists {
+		if prior.ExplicitJSON != explicitJSON {
+			return usageErr("--field and --field-json must not assign the same key %q", key)
+		}
+		if rejectDuplicates {
+			return usageErr("%s key %q is repeated", flag, key)
+		}
+	}
+	fields[key] = domain.JiraFieldInput{Value: value, ExplicitJSON: explicitJSON}
+	return nil
 }
 
 // userID returns the most useful stable identifier for piping (-o id): the DC

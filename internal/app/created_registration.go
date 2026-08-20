@@ -232,11 +232,11 @@ func classifyCreateWriteError(operation string, err error) error {
 	return ambiguousWriteFailure(fmt.Sprintf("%v: %s outcome is unknown; the object may already exist, so do not retry automatically", domain.ErrCheckFailed, operation))
 }
 
-func (s *JiraService) CreateAndRegister(ctx context.Context, project, issueType, summary string, body []byte, fields map[string]string, root string) (*domain.Issue, *CreatedMirrorRegistration, error) {
+func (s *JiraService) CreateAndRegister(ctx context.Context, project, issueType, summary string, body []byte, fields map[string]domain.JiraFieldInput, root string) (*domain.Issue, *CreatedMirrorRegistration, error) {
 	return s.createAndRegister(ctx, project, issueType, summary, body, fields, root, runtime.GOOS)
 }
 
-func (s *JiraService) createAndRegister(ctx context.Context, project, issueType, summary string, body []byte, fields map[string]string, root, goos string) (*domain.Issue, *CreatedMirrorRegistration, error) {
+func (s *JiraService) createAndRegister(ctx context.Context, project, issueType, summary string, body []byte, fields map[string]domain.JiraFieldInput, root, goos string) (*domain.Issue, *CreatedMirrorRegistration, error) {
 	if err := validateCreatedRegistrationPlatform(goos); err != nil {
 		return nil, nil, err
 	}

@@ -21,7 +21,7 @@ type planTracker struct {
 	labelsAdd     []string
 	labelsRemove  []string
 	updatedKey    string
-	updatedFields map[string]string
+	updatedFields map[string]domain.JiraFieldInput
 	commentKey    string
 	commentBody   string
 	commentsErr   error
@@ -48,7 +48,7 @@ func (t *planTracker) UpdateLabels(_ context.Context, key string, add, remove []
 	return nil
 }
 
-func (t *planTracker) Update(_ context.Context, key, _ string, _ []byte, fields map[string]string) error {
+func (t *planTracker) Update(_ context.Context, key, _ string, _ []byte, fields map[string]domain.JiraFieldInput) error {
 	t.updatedKey, t.updatedFields = key, fields
 	return nil
 }
@@ -167,7 +167,7 @@ func TestApplyPlanRequiresConfirmAndAppliesAllowedOps(t *testing.T) {
 	if strings.Join([]string{res.Results[0].Status, res.Results[1].Status, res.Results[2].Status}, ",") != "applied,applied,applied" {
 		t.Fatalf("results = %+v, want all applied", res.Results)
 	}
-	if strings.Join(tr.linked, ",") != "PROJ-1>PROJ-3:Blocks" || tr.labelsKey != "PROJ-2" || strings.Join(tr.labelsAdd, ",") != "triaged" || tr.updatedKey != "PROJ-4" || tr.updatedFields["priority"] != "High" {
+	if strings.Join(tr.linked, ",") != "PROJ-1>PROJ-3:Blocks" || tr.labelsKey != "PROJ-2" || strings.Join(tr.labelsAdd, ",") != "triaged" || tr.updatedKey != "PROJ-4" || tr.updatedFields["priority"].Value != "High" {
 		t.Fatalf("writes not applied as expected: linked=%v labels=%s/%v fields=%v", tr.linked, tr.labelsKey, tr.labelsAdd, tr.updatedFields)
 	}
 }
@@ -410,7 +410,7 @@ func TestApplyPlanFieldTextStartingWithBracketRemainsText(t *testing.T) {
 	res, err := (&JiraService{tr: tr}).ApplyPlan(context.Background(), JiraPlanApplyOpts{
 		CSVPath: path, Apply: true, Confirm: planApplyConfirm, AllowOps: []string{"field"}, AllowFields: []string{"summary"},
 	})
-	if err != nil || res.Results[0].Status != "applied" || tr.updatedFields["summary"] != "[Draft]" {
+	if err != nil || res.Results[0].Status != "applied" || tr.updatedFields["summary"].Value != "[Draft]" {
 		t.Fatalf("result=%+v error=%v fields=%v", res, err, tr.updatedFields)
 	}
 }
@@ -453,7 +453,7 @@ func TestApplyPlanStructuredFieldUpdatePreservesReviewedJSON(t *testing.T) {
 	res, err := (&JiraService{tr: tr}).ApplyPlan(context.Background(), JiraPlanApplyOpts{
 		CSVPath: path, Apply: true, Confirm: planApplyConfirm, AllowOps: []string{"field"}, AllowFields: []string{"customfield_1"},
 	})
-	if err != nil || res.Results[0].Status != "applied" || tr.updatedFields["customfield_1"] != desired {
+	if err != nil || res.Results[0].Status != "applied" || tr.updatedFields["customfield_1"].Value != desired {
 		t.Fatalf("result=%+v error=%v fields=%v", res, err, tr.updatedFields)
 	}
 }
