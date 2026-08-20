@@ -804,19 +804,21 @@ func TestClaudeSyntheticWriteRunUsesPlainATLWithLoopbackAuthority(t *testing.T) 
 	scenario.RequiredMetrics = []string{"interface_invocations", "backend_requests", "remote_writes"}
 	scenario.Budgets = Budgets{
 		MaxAgentTurns: 2, MaxToolCalls: 2, MaxATLInvocations: 1, MaxInterfaceInvocations: 1,
-		MaxBackendRequests: 1, MaxRemoteWrites: 1, MaxOutputBytes: 1 << 20,
+		MaxBackendRequests: 2, MaxRemoteWrites: 1, MaxOutputBytes: 1 << 20,
 		MaxInputTokens: 1000, MaxOutputTokens: 1000, MaxMainThreadInputTokens: 1000,
 		MaxMainThreadOutputTokens: 1000, MaxEstimatedCostMicroUSD: 10_000_000,
-		MaxDurationMillis: 30_000, AllowedHTTPMethods: []string{"POST"},
+		MaxDurationMillis: 30_000, AllowedHTTPMethods: []string{"GET", "POST"},
 	}
 	writeJSONTestFile(t, filepath.Join(caseDir, "scenario.json"), scenario)
 	fixture := MockFixture{
 		SchemaVersion: 1, JiraContext: "/jira", ConfluenceContext: "/wiki",
-		Routes: []MockRoute{{
-			Method: "POST", Path: "/jira/rest/api/2/issue",
-			RequestBody: json.RawMessage(`{"fields":{"project":{"key":"TEST"},"issuetype":{"name":"Task"},"summary":"reviewed synthetic fixture","description":"synthetic body\n"}}`),
-			Status:      http.StatusCreated, Body: json.RawMessage(`{"key":"TEST-1"}`),
-		}},
+		Routes: []MockRoute{
+			{Method: "GET", Path: "/jira/rest/api/2/issue/createmeta/TEST/issuetypes", QueryEquals: map[string]string{"startAt": "0", "maxResults": "200"},
+				Status: http.StatusOK, Body: json.RawMessage(`{"startAt":0,"isLast":true,"values":[{"id":"1","name":"Task"}]}`)},
+			{Method: "POST", Path: "/jira/rest/api/2/issue",
+				RequestBody: json.RawMessage(`{"fields":{"project":{"key":"TEST"},"issuetype":{"id":"1"},"summary":"reviewed synthetic fixture","description":"synthetic body\n"}}`),
+				Status:      http.StatusCreated, Body: json.RawMessage(`{"key":"TEST-1"}`)},
+		},
 	}
 	writeJSONTestFile(t, filepath.Join(caseDir, "fixture.json"), fixture)
 	writeTestFile(t, filepath.Join(caseDir, "prompt.md"), "Create the exact reviewed synthetic fixture with plain atl.\n", 0o600)
@@ -839,7 +841,7 @@ func TestClaudeSyntheticWriteRunUsesPlainATLWithLoopbackAuthority(t *testing.T) 
 			{Name: "guard_clean", Kind: "guard_no_denials"},
 			{Name: "mock_clean", Kind: "mock_no_unexpected"},
 			{Name: "used_atl", Kind: "interface_invocations_min", Minimum: 1},
-			{Name: "methods", Kind: "http_methods_equal", Expected: json.RawMessage(`{"POST":1}`)},
+			{Name: "methods", Kind: "http_methods_equal", Expected: json.RawMessage(`{"GET":1,"POST":1}`)},
 		},
 	}
 	specPath := filepath.Join(caseDir, "run.json")
@@ -882,8 +884,8 @@ printf '%s\n' '{"type":"result","num_turns":1,"duration_ms":10,"total_cost_usd":
 		t.Fatalf("output=%+v", output)
 	}
 	result := output.Results[0]
-	if result.Metrics.ATLInvocations != 0 || result.Metrics.InterfaceInvocations != 1 || result.Metrics.BackendRequests != 1 || result.Metrics.RemoteWrites != 1 ||
-		result.Metrics.DuplicateBackendRequests != 0 || len(result.HTTPMethods) != 1 || result.HTTPMethods[http.MethodPost] != 1 {
+	if result.Metrics.ATLInvocations != 0 || result.Metrics.InterfaceInvocations != 1 || result.Metrics.BackendRequests != 2 || result.Metrics.RemoteWrites != 1 ||
+		result.Metrics.DuplicateBackendRequests != 0 || len(result.HTTPMethods) != 2 || result.HTTPMethods[http.MethodGet] != 1 || result.HTTPMethods[http.MethodPost] != 1 {
 		t.Fatalf("result=%+v", result)
 	}
 }
@@ -2220,19 +2222,28 @@ func TestPrivateLiveCLIReviewedWriteStaysBehindBrokerAndGateway(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("fake executable scripts are Unix-only")
 	}
-	var upstreamCalls int
+	var upstreamCalls, metadataCalls int
 	var upstreamBody string
 	upstream := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
-		data, _ := io.ReadAll(request.Body)
-		upstreamBody = string(data)
-		if request.Method != http.MethodPost || request.URL.Path != "/jira/rest/api/2/issue" || request.Header.Get("Authorization") != "Bearer upstream-secret" {
+		if request.Header.Get("Authorization") != "Bearer upstream-secret" {
 			http.Error(response, "unexpected", http.StatusBadRequest)
 			return
 		}
-		upstreamCalls++
-		response.Header().Set("Content-Type", "application/json")
-		response.WriteHeader(http.StatusCreated)
-		_, _ = io.WriteString(response, `{"key":"TEST-1"}`)
+		switch {
+		case request.Method == http.MethodGet && request.URL.Path == "/jira/rest/api/2/issue/createmeta/TEST/issuetypes" && request.URL.RawQuery == "startAt=0&maxResults=200":
+			metadataCalls++
+			response.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(response, `{"startAt":0,"isLast":true,"values":[{"id":"1","name":"Task"}]}`)
+		case request.Method == http.MethodPost && request.URL.Path == "/jira/rest/api/2/issue":
+			data, _ := io.ReadAll(request.Body)
+			upstreamBody = string(data)
+			upstreamCalls++
+			response.Header().Set("Content-Type", "application/json")
+			response.WriteHeader(http.StatusCreated)
+			_, _ = io.WriteString(response, `{"key":"TEST-1"}`)
+		default:
+			http.Error(response, "unexpected", http.StatusBadRequest)
+		}
 	}))
 	defer upstream.Close()
 	repositoryRoot, err := filepath.Abs(filepath.Join("..", ".."))
@@ -2258,9 +2269,9 @@ func TestPrivateLiveCLIReviewedWriteStaysBehindBrokerAndGateway(t *testing.T) {
 	scenario.RequiredSemanticChecks = []string{"answer"}
 	scenario.RequiredMetrics = []string{"interface_invocations", "backend_requests", "remote_writes"}
 	scenario.Budgets = Budgets{MaxAgentTurns: 2, MaxToolCalls: 2, MaxATLInvocations: 1, MaxInterfaceInvocations: 1,
-		MaxBackendRequests: 1, MaxRemoteWrites: 1, MaxOutputBytes: 1 << 20, MaxInputTokens: 1000, MaxOutputTokens: 1000,
+		MaxBackendRequests: 2, MaxRemoteWrites: 1, MaxOutputBytes: 1 << 20, MaxInputTokens: 1000, MaxOutputTokens: 1000,
 		MaxMainThreadInputTokens: 1000, MaxMainThreadOutputTokens: 1000, MaxEstimatedCostMicroUSD: 10_000_000,
-		MaxDurationMillis: 30_000, AllowedHTTPMethods: []string{"POST"}}
+		MaxDurationMillis: 30_000, AllowedHTTPMethods: []string{"GET", "POST"}}
 	writeJSONTestFile(t, filepath.Join(caseDir, "scenario.json"), scenario)
 	writeTestFile(t, filepath.Join(caseDir, "prompt.md"), "Create the exact reviewed fixture.\n", 0o600)
 	writeTestFile(t, filepath.Join(caseDir, "response.json"), `{"type":"object","properties":{"answer":{"type":"string"}},"required":["answer"],"additionalProperties":false}`, 0o600)
@@ -2275,12 +2286,15 @@ func TestPrivateLiveCLIReviewedWriteStaysBehindBrokerAndGateway(t *testing.T) {
 			{Name: "--project", Values: []string{"TEST"}, Required: true}, {Name: "--type", Values: []string{"Task"}, Required: true},
 			{Name: "--summary", Values: []string{"reviewed fixture"}, Required: true}, {Name: "--from-file", Values: []string{"body.txt"}, Required: true},
 		}, MaxInvocations: 1}},
-		AllowedGatewayRoutes:    map[string][]LiveGatewayRoute{"jira": {{Name: "create", PathPrefix: "/rest/api/2/issue", Exact: true, Methods: []string{"POST"}, MaxRequests: 1, MaxRequestBytes: 1 << 20}}},
+		AllowedGatewayRoutes: map[string][]LiveGatewayRoute{"jira": {
+			{Name: "create-metadata", PathPrefix: "/rest/api/2/issue/createmeta/TEST/issuetypes", Exact: true, Methods: []string{"GET"}, MaxRequests: 1},
+			{Name: "create", PathPrefix: "/rest/api/2/issue", Exact: true, Methods: []string{"POST"}, MaxRequests: 1, MaxRequestBytes: 1 << 20},
+		}},
 		GatewayMaxResponseBytes: 1 << 20, GatewayMaxTotalBytes: 1 << 20, GatewayMaxRequestBytes: 1 << 20, GatewayMaxTotalRequestBytes: 1 << 20,
 		Checks: []RunCheck{{Name: "answer", Kind: "json_equals", Pointer: "/answer", Expected: json.RawMessage(`"ok"`)},
 			{Name: "atl_succeeded", Kind: "interface_all_succeeded"}, {Name: "guard_clean", Kind: "guard_no_denials"},
 			{Name: "http_observed", Kind: "http_methods_observed"}, {Name: "no_delegation", Kind: "delegations_none"},
-			{Name: "used_atl", Kind: "interface_invocations_min", Minimum: 1}, {Name: "methods", Kind: "http_methods_equal", Expected: json.RawMessage(`{"POST":1}`)}},
+			{Name: "used_atl", Kind: "interface_invocations_min", Minimum: 1}, {Name: "methods", Kind: "http_methods_equal", Expected: json.RawMessage(`{"GET":1,"POST":1}`)}},
 	}
 	specPath := filepath.Join(caseDir, "run.json")
 	writeJSONTestFile(t, specPath, spec)
@@ -2319,9 +2333,9 @@ printf '%s\n' '{"type":"result","num_turns":1,"duration_ms":10,"total_cost_usd":
 	if err != nil {
 		t.Fatal(err)
 	}
-	if upstreamCalls != 1 || !strings.Contains(upstreamBody, `"summary":"reviewed fixture"`) || len(output.Results) != 1 || output.Results[0].Status != "pass" ||
-		output.Results[0].Metrics.RemoteWrites != 1 || output.Results[0].HTTPMethods["POST"] != 1 {
-		t.Fatalf("calls=%d body=%q output=%+v", upstreamCalls, upstreamBody, output)
+	if metadataCalls != 1 || upstreamCalls != 1 || !strings.Contains(upstreamBody, `"issuetype":{"id":"1"}`) || !strings.Contains(upstreamBody, `"summary":"reviewed fixture"`) || len(output.Results) != 1 || output.Results[0].Status != "pass" ||
+		output.Results[0].Metrics.RemoteWrites != 1 || output.Results[0].HTTPMethods["GET"] != 1 || output.Results[0].HTTPMethods["POST"] != 1 {
+		t.Fatalf("metadata=%d calls=%d body=%q output=%+v", metadataCalls, upstreamCalls, upstreamBody, output)
 	}
 }
 
@@ -2333,16 +2347,21 @@ func TestPrivateLiveCLINegativeWriteBindsTypedCLIErrorContract(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("fake executable scripts are Unix-only")
 	}
-	var upstreamCalls int
+	var upstreamCalls, metadataCalls int
 	upstream := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
-		if request.Method != http.MethodPost || request.URL.Path != "/jira/rest/api/2/issue" {
+		switch {
+		case request.Method == http.MethodGet && request.URL.Path == "/jira/rest/api/2/issue/createmeta/TEST/issuetypes" && request.URL.RawQuery == "startAt=0&maxResults=200":
+			metadataCalls++
+			response.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(response, `{"startAt":0,"isLast":true,"values":[{"id":"1","name":"Task"}]}`)
+		case request.Method == http.MethodPost && request.URL.Path == "/jira/rest/api/2/issue":
+			upstreamCalls++
+			response.Header().Set("Content-Type", "application/json")
+			response.WriteHeader(http.StatusNotFound)
+			_, _ = io.WriteString(response, `{"errorMessages":["Issue type is not available in this project"]}`)
+		default:
 			http.Error(response, "unexpected", http.StatusBadRequest)
-			return
 		}
-		upstreamCalls++
-		response.Header().Set("Content-Type", "application/json")
-		response.WriteHeader(http.StatusNotFound)
-		_, _ = io.WriteString(response, `{"errorMessages":["Issue type is not available in this project"]}`)
 	}))
 	defer upstream.Close()
 	repositoryRoot, err := filepath.Abs(filepath.Join("..", ".."))
@@ -2368,9 +2387,9 @@ func TestPrivateLiveCLINegativeWriteBindsTypedCLIErrorContract(t *testing.T) {
 	scenario.RequiredSemanticChecks = []string{"answer"}
 	scenario.RequiredMetrics = []string{"interface_invocations", "backend_requests", "remote_writes"}
 	scenario.Budgets = Budgets{MaxAgentTurns: 2, MaxToolCalls: 2, MaxATLInvocations: 1, MaxInterfaceInvocations: 1,
-		MaxBackendRequests: 1, MaxRemoteWrites: 1, MaxOutputBytes: 1 << 20, MaxInputTokens: 1000, MaxOutputTokens: 1000,
+		MaxBackendRequests: 2, MaxRemoteWrites: 1, MaxOutputBytes: 1 << 20, MaxInputTokens: 1000, MaxOutputTokens: 1000,
 		MaxMainThreadInputTokens: 1000, MaxMainThreadOutputTokens: 1000, MaxEstimatedCostMicroUSD: 10_000_000,
-		MaxDurationMillis: 30_000, AllowedHTTPMethods: []string{"POST"}}
+		MaxDurationMillis: 30_000, AllowedHTTPMethods: []string{"GET", "POST"}}
 	writeJSONTestFile(t, filepath.Join(caseDir, "scenario.json"), scenario)
 	writeTestFile(t, filepath.Join(caseDir, "prompt.md"), "Attempt the exact reviewed fixture and report the refusal.\n", 0o600)
 	writeTestFile(t, filepath.Join(caseDir, "response.json"), `{"type":"object","properties":{"answer":{"type":"string"}},"required":["answer"],"additionalProperties":false}`, 0o600)
@@ -2385,12 +2404,15 @@ func TestPrivateLiveCLINegativeWriteBindsTypedCLIErrorContract(t *testing.T) {
 			{Name: "--project", Values: []string{"TEST"}, Required: true}, {Name: "--type", Values: []string{"Task"}, Required: true},
 			{Name: "--summary", Values: []string{"reviewed fixture"}, Required: true}, {Name: "--from-file", Values: []string{"body.txt"}, Required: true},
 		}, MaxInvocations: 1}},
-		AllowedGatewayRoutes:    map[string][]LiveGatewayRoute{"jira": {{Name: "create", PathPrefix: "/rest/api/2/issue", Exact: true, Methods: []string{"POST"}, MaxRequests: 1, MaxRequestBytes: 1 << 20}}},
+		AllowedGatewayRoutes: map[string][]LiveGatewayRoute{"jira": {
+			{Name: "create-metadata", PathPrefix: "/rest/api/2/issue/createmeta/TEST/issuetypes", Exact: true, Methods: []string{"GET"}, MaxRequests: 1},
+			{Name: "create", PathPrefix: "/rest/api/2/issue", Exact: true, Methods: []string{"POST"}, MaxRequests: 1, MaxRequestBytes: 1 << 20},
+		}},
 		GatewayMaxResponseBytes: 1 << 20, GatewayMaxTotalBytes: 1 << 20, GatewayMaxRequestBytes: 1 << 20, GatewayMaxTotalRequestBytes: 1 << 20,
 		Checks: []RunCheck{{Name: "answer", Kind: "json_equals", Pointer: "/answer", Expected: json.RawMessage(`"refused"`)},
 			{Name: "guard_clean", Kind: "guard_no_denials"}, {Name: "http_observed", Kind: "http_methods_observed"},
 			{Name: "no_delegation", Kind: "delegations_none"}, {Name: "used_atl", Kind: "interface_invocations_min", Minimum: 1},
-			{Name: "methods", Kind: "http_methods_equal", Expected: json.RawMessage(`{"POST":1}`)},
+			{Name: "methods", Kind: "http_methods_equal", Expected: json.RawMessage(`{"GET":1,"POST":1}`)},
 			{Name: "expected_failure", Kind: "interface_failures_equals", Expected: json.RawMessage(`1`)},
 			{Name: "exit_codes", Kind: "cli_exit_codes_equal", Expected: json.RawMessage(`[4]`)},
 			{Name: "error_contracts", Kind: "cli_error_contracts_equal",
@@ -2432,8 +2454,8 @@ printf '%s\n' '{"type":"result","num_turns":1,"duration_ms":10,"total_cost_usd":
 	if err != nil {
 		t.Fatal(err)
 	}
-	if upstreamCalls != 1 || len(output.Results) != 1 {
-		t.Fatalf("calls=%d output=%+v", upstreamCalls, output)
+	if metadataCalls != 1 || upstreamCalls != 1 || len(output.Results) != 1 {
+		t.Fatalf("metadata=%d calls=%d output=%+v", metadataCalls, upstreamCalls, output)
 	}
 	result := output.Results[0]
 	if result.Status != "pass" || !result.Checks["error_contracts"] || !result.Checks["exit_codes"] || !result.Checks["expected_failure"] {
@@ -2443,7 +2465,7 @@ printf '%s\n' '{"type":"result","num_turns":1,"duration_ms":10,"total_cost_usd":
 	// fails the check instead of passing on the exit code alone.
 	contracts := []CLIErrorContract{{ExitCode: 4, Kind: "forbidden", Remediation: "request_access"}}
 	rechecked, err := evaluateRunChecksWithCLIErrorContracts(spec.Checks, []byte(`{"answer":"refused"}`), workspace, 1, 1, 0, 0, nil,
-		0, 0, map[string]int{"POST": 1}, true, []int{4}, nil, false, nil, nil, false, contracts)
+		0, 0, map[string]int{"GET": 1, "POST": 1}, true, []int{4}, nil, false, nil, nil, false, contracts)
 	if err != nil {
 		t.Fatal(err)
 	}

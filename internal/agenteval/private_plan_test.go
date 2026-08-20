@@ -115,9 +115,9 @@ func TestPrivatePlanRequiresDedicatedLiveWriteConsentAndRunConfirmation(t *testi
 	readPrivatePlanTestJSON(t, filepath.Join(caseRoot, "run.cli.json"), &spec)
 	var scenario Scenario
 	readPrivatePlanTestJSON(t, filepath.Join(caseRoot, "scenario.json"), &scenario)
-	scenario.Budgets.MaxBackendRequests = 1
+	scenario.Budgets.MaxBackendRequests = 2
 	scenario.Budgets.MaxRemoteWrites = 1
-	scenario.Budgets.AllowedHTTPMethods = []string{"POST"}
+	scenario.Budgets.AllowedHTTPMethods = []string{"GET", "POST"}
 	scenario.RequiredChecks = append(scenario.RequiredChecks, "methods")
 	spec.AllowLiveWrites = true
 	spec.AllowedCLICommands = []CLICommandRule{{Name: "create", Command: []string{"jira", "issue", "create"}, Flags: []CLIFlagRule{
@@ -126,11 +126,12 @@ func TestPrivatePlanRequiresDedicatedLiveWriteConsentAndRunConfirmation(t *testi
 		{Name: "--summary", Values: []string{"reviewed fixture"}, Required: true},
 	}, MaxInvocations: 1}}
 	spec.AllowedGatewayRoutes = map[string][]LiveGatewayRoute{"jira": {
+		{Name: "create-metadata", PathPrefix: "/rest/api/2/issue/createmeta/TEST/issuetypes", Exact: true, Methods: []string{"GET"}, MaxRequests: 1},
 		{Name: "create", PathPrefix: "/rest/api/2/issue", Exact: true, Methods: []string{"POST"}, MaxRequests: 1, MaxRequestBytes: 1 << 20},
 	}}
 	spec.GatewayMaxRequestBytes = 1 << 20
 	spec.GatewayMaxTotalRequestBytes = 1 << 20
-	spec.Checks = append(spec.Checks, RunCheck{Name: "methods", Kind: "http_methods_equal", Expected: json.RawMessage(`{"POST":1}`)})
+	spec.Checks = append(spec.Checks, RunCheck{Name: "methods", Kind: "http_methods_equal", Expected: json.RawMessage(`{"GET":1,"POST":1}`)})
 	writeJSONTestFile(t, filepath.Join(caseRoot, "scenario.json"), scenario)
 	writeJSONTestFile(t, filepath.Join(caseRoot, "run.cli.json"), spec)
 	manifestPath := filepath.Join(fixture.root, PrivateWorkspaceManifestName)
