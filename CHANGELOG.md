@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-08-20
+
 ### Changed
 
 - `atl auth login` and global `atl config set` now treat an unambiguous
@@ -155,6 +157,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   qualification, transport budgets, and exhaustive absence proof.
 
 ### Fixed
+
+- Jira create now resolves an exact issue-type ID from the selected create
+  metadata before its single write attempt, accepts an unambiguous type name or
+  ID consistently, rejects a conflicting `issuetype` field override before the
+  request, and distinguishes rejected writes from ambiguous outcomes.
+- Jira issue graphs ignore harmless textual self-mentions, qualify malformed
+  structured self-relations by source, and name a remaining self-reference
+  rather than reporting a generic invalid edge inventory.
 
 - Bounded `conf attachment get` with caller-selectable `--max-bytes` (64 MiB
   default, 1 GiB maximum), version-specific size admission before binary I/O,
@@ -2889,7 +2899,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- link references -->
 
-[Unreleased]: https://github.com/isukharev/atl/compare/v0.7.1...HEAD
+[Unreleased]: https://github.com/isukharev/atl/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/isukharev/atl/compare/v0.7.1...v0.8.0
 [0.7.1]: https://github.com/isukharev/atl/compare/v0.6.0...v0.7.1
 [0.6.0]: https://github.com/isukharev/atl/compare/v0.5.1...v0.6.0
 [0.5.1]: https://github.com/isukharev/atl/compare/v0.5.0...v0.5.1
