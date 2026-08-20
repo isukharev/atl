@@ -145,7 +145,7 @@ func jiraIssueCmd() *cobra.Command {
 		},
 	}
 	create.Flags().StringVar(&project, "project", "", "project key")
-	create.Flags().StringVar(&issueType, "type", "", "issue type name")
+	create.Flags().StringVar(&issueType, "type", "", "exact issue type id or name from project create metadata")
 	create.Flags().StringVar(&summary, "summary", "", "summary")
 	create.Flags().StringVar(&fromFile, "from-file", "", "description (wiki) file or - for stdin")
 	create.Flags().StringVar(&fromMD, "from-md", "", "markdown description file or - for stdin (converted to wiki; unsupported constructs are refused)")

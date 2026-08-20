@@ -276,7 +276,7 @@ func (j *Jira) Create(ctx context.Context, project, issueType, summary string, b
 	}
 	fl := map[string]any{
 		"project":   map[string]string{"key": project},
-		"issuetype": map[string]string{"name": issueType},
+		"issuetype": map[string]string{"id": issueType},
 		"summary":   summary,
 	}
 	if len(body) > 0 {

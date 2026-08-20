@@ -208,8 +208,8 @@ func TestCreatedRegistrationRejectsEmptyRootBeforeRemoteCreate(t *testing.T) {
 	if _, _, err := (&JiraService{tr: jira}).CreateAndRegister(context.Background(), "PROJ", "Task", "New", nil, nil, "\n"); !errors.Is(err, domain.ErrUsage) {
 		t.Fatalf("Jira error=%v, want ErrUsage", err)
 	}
-	if jira.createCalls != 0 {
-		t.Fatalf("Jira create calls=%d, want 0", jira.createCalls)
+	if jira.metadataCalls != 0 || jira.createCalls != 0 {
+		t.Fatalf("Jira metadata/create calls=%d/%d, want 0/0", jira.metadataCalls, jira.createCalls)
 	}
 }
 
@@ -340,7 +340,9 @@ type createdJiraTracker struct {
 	domain.Tracker
 	created          *domain.Issue
 	readback         *domain.Issue
+	metadataCalls    int
 	createCalls      int
+	createType       string
 	readbackCalls    int
 	projection       []string
 	createErr        error
@@ -351,11 +353,17 @@ type createdJiraTracker struct {
 	readbackRedacted bool
 }
 
-func (t *createdJiraTracker) Create(ctx context.Context, _ string, _ string, _ string, _ []byte, _ map[string]domain.JiraFieldInput) (*domain.Issue, error) {
+func (t *createdJiraTracker) Create(ctx context.Context, _ string, issueType string, _ string, _ []byte, _ map[string]domain.JiraFieldInput) (*domain.Issue, error) {
 	t.createCalls++
+	t.createType = issueType
 	t.createSingle = domain.SingleAttempt(ctx)
 	t.createRedacted = domain.RedactedHTTPTrace(ctx)
 	return t.created, t.createErr
+}
+
+func (t *createdJiraTracker) ReadCreateIssueTypes(context.Context, string) ([]domain.JiraIssueType, error) {
+	t.metadataCalls++
+	return []domain.JiraIssueType{{ID: "10001", Name: "Task"}}, nil
 }
 
 func (t *createdJiraTracker) GetIssue(ctx context.Context, _ string, fields []string) (*domain.Issue, error) {
@@ -392,7 +400,7 @@ func TestJiraCreateRegistrationUsesAuthoritativeReadback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if issue != tracker.readback || registration.Status != "registered" || tracker.createCalls != 1 || tracker.readbackCalls != 1 {
+	if issue != tracker.readback || registration.Status != "registered" || tracker.createCalls != 1 || tracker.createType != "10001" || tracker.readbackCalls != 1 {
 		t.Fatalf("issue=%+v registration=%+v calls=%d/%d", issue, registration, tracker.createCalls, tracker.readbackCalls)
 	}
 	if err := requireMirrorBackend(root, "jira", testJiraBackendURL); err != nil {
