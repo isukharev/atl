@@ -36,6 +36,7 @@ type triageCohort struct {
 	methods                                           map[string]int
 	exitCodes                                         []int
 	duplicates, failures                              int
+	historical                                        syntheticJiraCreateHistoricalContract
 }
 
 var triageCohorts = []triageCohort{
@@ -53,7 +54,10 @@ var triageCohorts = []triageCohort{
 		},
 		decision: "create", createdKey: "LAB-101", newSummary: "Cache: refresh fails after token rotation",
 		sequence: []string{"search_specific", "search_broad", "candidate_one", "candidate_two", "create"},
-		methods:  map[string]int{"GET": 4, "POST": 1}, exitCodes: []int{0, 0, 0, 0, 0},
+		methods:  map[string]int{"GET": 5, "POST": 1}, exitCodes: []int{0, 0, 0, 0, 0},
+		historical: syntheticJiraCreateHistoricalContract{
+			HTTPMethods: map[string]int{"GET": 4, "POST": 1}, MaxBackendRequests: 7, MaxDuplicateBackendRequests: 1,
+		},
 	},
 	{
 		directory: triageHoldoutDirectory, project: "OPS", signature: "LeaseRenewalError", component: "Indexer", trigger: "lease renewal",
@@ -69,6 +73,9 @@ var triageCohorts = []triageCohort{
 		decision: "comment", targetKey: "OPS-88", commentID: "801", newSummary: "Indexer: retry storm after lease renewal",
 		sequence: []string{"search_specific", "search_broad", "candidate", "comments", "comment", "comments"},
 		methods:  map[string]int{"GET": 5, "POST": 1}, exitCodes: []int{0, 0, 0, 0, 1, 0}, duplicates: 1, failures: 1,
+		historical: syntheticJiraCreateHistoricalContract{
+			HTTPMethods: map[string]int{"GET": 5, "POST": 1}, MaxBackendRequests: 6, MaxDuplicateBackendRequests: 1,
+		},
 	},
 }
 
@@ -84,7 +91,7 @@ func TestRepositoryJiraTriageIssueFixturesDriveSelectedCLIAndHistoricalOracles(t
 		assertTriageFixtureTopology(t, fixture, primary)
 		policy := triageCodexPolicy(t, root)
 		evidence := executeJiraTriagePrimaryProcess(t, startJiraTriagePrimaryProcess(t, root, fixture, primary, policy), primary)
-		assertTriageProviderOracles(t, root, primary, triageFinal(t, primary), evidence.Summary.HTTPMethods)
+		assertTriageProviderOracles(t, root, primary, triageFinal(t, primary), evidence.Summary.HTTPMethods, evidence.Summary.DuplicateRequests, true)
 		assertJiraTriagePrimaryProcessAdmissionRefused(t, root, fixture, primary, policy)
 	})
 
@@ -97,7 +104,7 @@ func TestRepositoryJiraTriageIssueFixturesDriveSelectedCLIAndHistoricalOracles(t
 		// The corpus deliberately records an earlier raw POST failure followed by
 		// readback. Its static schema, checks, failure count, topology, and final
 		// are frozen; current guarded-preview compatibility lives in its own test.
-		assertTriageProviderOracles(t, root, holdout, triageFinal(t, holdout), holdout.methods)
+		assertTriageProviderOracles(t, root, holdout, triageFinal(t, holdout), holdout.methods, holdout.duplicates, false)
 	})
 }
 
@@ -252,10 +259,17 @@ func triageFinal(t *testing.T, cohort triageCohort) []byte {
 	return encoded
 }
 
-func assertTriageProviderOracles(t *testing.T, root string, cohort triageCohort, final []byte, methods map[string]int) {
+func assertTriageProviderOracles(t *testing.T, root string, cohort triageCohort, final []byte, methods map[string]int, duplicates int, currentProduct bool) {
 	t.Helper()
 	for _, provider := range []string{"codex", "claude"} {
-		spec := loadRepositoryRunSpec(t, filepath.Join(root, "run.cli."+provider+".json"))
+		historicalSpec := loadRepositoryRunSpec(t, filepath.Join(root, "run.cli."+provider+".json"))
+		historicalScenario := loadRepositoryScenario(t, filepath.Join(root, historicalSpec.ScenarioFile))
+		assertSyntheticJiraCreateHistoricalContract(t, historicalSpec, historicalScenario, cohort.historical)
+		spec := historicalSpec
+		if currentProduct {
+			spec = deriveSyntheticJiraCreateCurrentContract(t, historicalSpec, historicalScenario, methods, duplicates).Spec
+			assertSyntheticJiraCreateHistoricalContract(t, historicalSpec, historicalScenario, cohort.historical)
+		}
 		schema, err := os.ReadFile(filepath.Join(root, spec.ResponseSchemaFile))
 		if err != nil {
 			t.Fatal(err)

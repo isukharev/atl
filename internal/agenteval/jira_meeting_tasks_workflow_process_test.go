@@ -54,8 +54,7 @@ func prepareJiraMeetingTasksProcessFixture(t *testing.T, fixture MockFixture, co
 	if !slices.Equal(fixture.RequestSequence, cohort.sequence) {
 		t.Fatalf("meeting process fixture shape drifted: routes=%d sequence=%v want=%v", len(fixture.Routes), fixture.RequestSequence, cohort.sequence)
 	}
-	prepared := fixture
-	prepared.Routes = slices.Clone(fixture.Routes)
+	prepared := prepareSyntheticJiraCreateMetadata(t, fixture)
 	seen := make(map[string]struct{}, len(cohort.sequence))
 	for index := range prepared.Routes {
 		prepared.Routes[index].closedQuery = true

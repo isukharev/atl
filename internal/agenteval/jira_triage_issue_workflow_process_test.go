@@ -49,8 +49,7 @@ func prepareJiraTriagePrimaryProcessFixture(t *testing.T, fixture MockFixture, c
 	if cohort.decision != "create" || !slices.Equal(fixture.RequestSequence, cohort.sequence) {
 		t.Fatalf("primary triage fixture branch drifted: decision=%q sequence=%v want=%v", cohort.decision, fixture.RequestSequence, cohort.sequence)
 	}
-	prepared := fixture
-	prepared.Routes = slices.Clone(fixture.Routes)
+	prepared := prepareSyntheticJiraCreateMetadata(t, fixture)
 	seen := make(map[string]struct{}, len(prepared.Routes))
 	for index := range prepared.Routes {
 		prepared.Routes[index].closedQuery = true
