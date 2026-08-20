@@ -218,6 +218,77 @@ func TestIssueGraphPreservesTrimmedCLIKeyCompatibility(t *testing.T) {
 	}
 }
 
+func TestIssueGraphIgnoresTextualSelfReferences(t *testing.T) {
+	tracker := completeGraphFixture()
+	tracker.snapshot.Fields["description"] = "See PROJ-1 and https://jira.example.test/browse/PROJ-1."
+
+	result, err := (&JiraService{tr: tracker, baseURL: "https://jira.example.test"}).IssueGraphWithOptions(context.Background(), "PROJ-1", JiraIssueGraphOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Complete {
+		t.Fatalf("textual self-reference made the graph incomplete: %#v", result.Summary)
+	}
+	for _, edge := range result.Edges {
+		if edge.From == edge.To {
+			t.Fatalf("textual self-reference produced an edge: %#v", edge)
+		}
+	}
+}
+
+func TestIssueGraphQualifiesStructuredSelfRelations(t *testing.T) {
+	tests := []struct {
+		name   string
+		source string
+		mutate func(*jiraGraphTracker)
+	}{
+		{
+			name: "issue link", source: "issue_links",
+			mutate: func(tracker *jiraGraphTracker) {
+				tracker.snapshot.Fields["issuelinks"] = []any{map[string]any{
+					"id": "17", "type": map[string]any{"name": "Relates", "outward": "relates to"},
+					"outwardIssue": map[string]any{"id": "10001", "key": "PROJ-1"},
+				}}
+			},
+		},
+		{
+			name: "epic", source: "hierarchy",
+			mutate: func(tracker *jiraGraphTracker) {
+				tracker.snapshot.Fields["customfield_11"] = "PROJ-1"
+				tracker.snapshot.Names["customfield_11"] = "Epic Link"
+				tracker.snapshot.Schema["customfield_11"] = domain.IssueFieldSchema{Type: "string", Custom: "com.example:epic-link"}
+			},
+		},
+		{
+			name: "remote link", source: "remote_links",
+			mutate: func(tracker *jiraGraphTracker) {
+				tracker.remote = domain.JiraRemoteLinkInventory{Links: []domain.JiraRemoteLink{{
+					ID: "18", ObjectURL: "https://jira.example.test/browse/PROJ-1",
+				}}, Total: 1}
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			tracker := completeGraphFixture()
+			test.mutate(tracker)
+			result, err := (&JiraService{tr: tracker, baseURL: "https://jira.example.test"}).IssueGraphWithOptions(context.Background(), "PROJ-1", JiraIssueGraphOptions{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			source := graphV2Source(t, result, result.RootID, test.source)
+			if source.Status != domain.ArtifactSourcePartial || source.Complete || source.PartialReason != domain.ArtifactPartialMalformed {
+				t.Fatalf("source = %#v", source)
+			}
+			for _, edge := range result.Edges {
+				if edge.From == edge.To {
+					t.Fatalf("structured self-relation produced an edge: %#v", edge)
+				}
+			}
+		})
+	}
+}
+
 func TestIssueGraphRejectsMismatchedSnapshotIdentity(t *testing.T) {
 	tracker := completeGraphFixture()
 	tracker.snapshot.RequestedKey = "PROJ-2"

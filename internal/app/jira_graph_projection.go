@@ -10,6 +10,14 @@ import (
 
 const jiraIssueGraphCompactSchemaVersion = 1
 
+func markJiraGraphSourceMalformed(source *domain.ArtifactGraphSource) {
+	if source == nil {
+		return
+	}
+	source.Status, source.Complete, source.Truncated, source.PartialReason =
+		domain.ArtifactSourcePartial, false, false, domain.ArtifactPartialMalformed
+}
+
 // Closed Jira graph projection and selector names shared by transport
 // frontends. Selectors reduce an already collected graph; they never change
 // graph collection or its bounds.

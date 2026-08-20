@@ -2,6 +2,7 @@ package app
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/isukharev/atl/internal/domain"
@@ -17,6 +18,32 @@ func TestValidateJiraIssueGraphKeyRequiresExactCanonicalIdentity(t *testing.T) {
 		if err := ValidateJiraIssueGraphKey(key); !errors.Is(err, domain.ErrUsage) {
 			t.Errorf("ValidateJiraIssueGraphKey(%q) error=%v, want usage", key, err)
 		}
+	}
+}
+
+func TestValidateJiraIssueGraphResultReportsSelfReferenceWithoutContent(t *testing.T) {
+	service, _ := traversalService(map[string]*domain.QualifiedIssueSnapshot{
+		"PROJ-1": traversalSnapshot("PROJ-1", []string{"PROJ-2"}, ""),
+	})
+	result, err := service.IssueGraphWithOptions(t.Context(), "PROJ-1", JiraIssueGraphOptions{Depth: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Edges) != 1 {
+		t.Fatalf("edges = %#v", result.Edges)
+	}
+	result.Edges[0].To = result.Edges[0].From
+	result.Edges[0].ID = graphEdgeID(result.Edges[0])
+
+	err = ValidateJiraIssueGraphResult(result)
+	if !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("error = %v, want check failure", err)
+	}
+	if got, want := err.Error(), "check failed: Jira graph v2 edge inventory contains a self-reference"; got != want {
+		t.Fatalf("error = %q, want %q", got, want)
+	}
+	if strings.Contains(err.Error(), "PROJ-1") {
+		t.Fatalf("self-reference diagnostic leaked graph content: %q", err)
 	}
 }
 
