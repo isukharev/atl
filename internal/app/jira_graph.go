@@ -166,7 +166,8 @@ func (b *jiraGraphBuilder) collectIssueLinks(snapshot *domain.QualifiedIssueSnap
 		targetKey, targetKeyOK := graphStrictString(targetObject["key"])
 		relation, relationOK := graphStrictString(typeObject[direction])
 		if !targetIDOK || targetID == snapshot.ID || !targetKeyOK ||
-			!jiraGraphExactKey(targetKey) || !relationOK {
+			!jiraGraphExactKey(targetKey) ||
+			"jira:issue:"+strings.ToUpper(targetKey) == b.result.RootID || !relationOK {
 			b.markMalformed(source)
 			continue
 		}
@@ -198,7 +199,7 @@ func (b *jiraGraphBuilder) collectHierarchy(snapshot *domain.QualifiedIssueSnaps
 	seen := map[string]bool{}
 	addTarget := func(key, kind, pointer string) {
 		count++
-		if !jiraGraphExactKey(key) {
+		if !jiraGraphExactKey(key) || "jira:issue:"+strings.ToUpper(key) == b.result.RootID {
 			b.markMalformed(source)
 			return
 		}
@@ -514,6 +515,10 @@ func (b *jiraGraphBuilder) collectRemoteLinks(ctx context.Context, tracker domai
 			b.markMalformed(source)
 			continue
 		}
+		if reference.Node.ID == b.result.RootID {
+			b.markMalformed(source)
+			continue
+		}
 		reference.Node.Label = graphBoundedLabel(link.ObjectTitle)
 		if !b.addNode(reference.Node, source) {
 			continue
@@ -567,6 +572,9 @@ func (b *jiraGraphBuilder) addValueReferences(value any, pointer, collector, sou
 
 func (b *jiraGraphBuilder) addTextReferences(text, pointer, collector, sourceKind, sourceID string, allowBare bool, jiraBase, confluenceBase string, source *domain.ArtifactGraphSource) {
 	for _, reference := range extractGraphReferences(text, jiraBase, confluenceBase, allowBare) {
+		if reference.Node.ID == b.result.RootID {
+			continue
+		}
 		if !b.addNode(reference.Node, source) {
 			continue
 		}
@@ -777,24 +785,16 @@ func (b *jiraGraphBuilder) qualifyAuxiliaryError(ctx context.Context, source *do
 	case notFoundUnsupported && errors.Is(err, domain.ErrNotFound):
 		source.Status = domain.ArtifactSourceUnsupported
 	case errors.Is(err, domain.ErrCheckFailed):
-		source.Status = domain.ArtifactSourcePartial
-		source.PartialReason = domain.ArtifactPartialMalformed
+		markJiraGraphSourceMalformed(source)
 	default:
 		source.Status = domain.ArtifactSourcePartial
 		source.PartialReason = domain.ArtifactPartialRequestFailed
 	}
 	return nil
 }
-
 func (b *jiraGraphBuilder) markMalformed(source *domain.ArtifactGraphSource) {
-	if source == nil {
-		return
-	}
-	source.Status = domain.ArtifactSourcePartial
-	source.Complete = false
-	source.PartialReason = domain.ArtifactPartialMalformed
+	markJiraGraphSourceMalformed(source)
 }
-
 func (b *jiraGraphBuilder) markInspectionLimit(source *domain.ArtifactGraphSource) {
 	if source == nil {
 		return
