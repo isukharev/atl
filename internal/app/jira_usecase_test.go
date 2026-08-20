@@ -28,11 +28,11 @@ type recordingTracker struct {
 	createType   string
 	createSumm   string
 	createBody   []byte
-	createFields map[string]string
+	createFields map[string]domain.JiraFieldInput
 	updateKey    string
 	updateSumm   string
 	updateBody   []byte
-	updateFields map[string]string
+	updateFields map[string]domain.JiraFieldInput
 	transKey     string
 	transTo      string
 	transComment string
@@ -79,17 +79,17 @@ func (t *recordingTracker) Search(_ context.Context, jql string, fields []string
 	return t.issues, "", t.err
 }
 
-func (t *recordingTracker) Create(_ context.Context, project, issueType, summary string, body []byte, fields map[string]string) (*domain.Issue, error) {
+func (t *recordingTracker) Create(_ context.Context, project, issueType, summary string, body []byte, fields map[string]domain.JiraFieldInput) (*domain.Issue, error) {
 	t.createProj, t.createType, t.createSumm, t.createBody, t.createFields = project, issueType, summary, body, fields
 	return t.issue, t.err
 }
 
-func (t *recordingTracker) Update(_ context.Context, key, summary string, body []byte, fields map[string]string) error {
+func (t *recordingTracker) Update(_ context.Context, key, summary string, body []byte, fields map[string]domain.JiraFieldInput) error {
 	t.updateKey, t.updateSumm, t.updateBody, t.updateFields = key, summary, body, fields
 	return t.err
 }
 
-func (t *recordingTracker) Transition(_ context.Context, key, to, comment string, _ map[string]string) error {
+func (t *recordingTracker) Transition(_ context.Context, key, to, comment string, _ map[string]domain.JiraFieldInput) error {
 	t.transKey, t.transTo, t.transComment = key, to, comment
 	return t.err
 }
@@ -157,12 +157,12 @@ func TestJiraWrappersPassThrough(t *testing.T) {
 	t.Run("Create", func(t *testing.T) {
 		tr := &recordingTracker{issue: &domain.Issue{Key: "NEW-1"}}
 		svc := &JiraService{tr: tr}
-		got, err := svc.Create(ctx, "PRJ", "Bug", "Boom", []byte("desc"), map[string]string{"prio": "High"})
+		got, err := svc.Create(ctx, "PRJ", "Bug", "Boom", []byte("desc"), map[string]domain.JiraFieldInput{"prio": {Value: "High"}})
 		if err != nil {
 			t.Fatal(err)
 		}
 		if tr.createProj != "PRJ" || tr.createType != "Bug" || tr.createSumm != "Boom" ||
-			string(tr.createBody) != "desc" || tr.createFields["prio"] != "High" || got.Key != "NEW-1" {
+			string(tr.createBody) != "desc" || tr.createFields["prio"].Value != "High" || got.Key != "NEW-1" {
 			t.Errorf("Create args/return not forwarded: %+v ret=%+v", tr, got)
 		}
 	})
@@ -170,10 +170,10 @@ func TestJiraWrappersPassThrough(t *testing.T) {
 	t.Run("Update", func(t *testing.T) {
 		tr := &recordingTracker{}
 		svc := &JiraService{tr: tr}
-		if err := svc.Update(ctx, "K-1", "newsum", []byte("nb"), map[string]string{"a": "b"}); err != nil {
+		if err := svc.Update(ctx, "K-1", "newsum", []byte("nb"), map[string]domain.JiraFieldInput{"a": {Value: "b"}}); err != nil {
 			t.Fatal(err)
 		}
-		if tr.updateKey != "K-1" || tr.updateSumm != "newsum" || string(tr.updateBody) != "nb" || tr.updateFields["a"] != "b" {
+		if tr.updateKey != "K-1" || tr.updateSumm != "newsum" || string(tr.updateBody) != "nb" || tr.updateFields["a"].Value != "b" {
 			t.Errorf("Update args not forwarded: %+v", tr)
 		}
 	})

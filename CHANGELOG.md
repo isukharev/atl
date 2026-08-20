@@ -17,6 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added explicit `--field-json key=JSON` input for Jira issue create, update,
+  and transition fields, so numbers, booleans, `null`, objects, and arrays can
+  be sent with their intended JSON types while legacy `--field key=value`
+  scalar behavior remains unchanged.
 - Added qualified identity-ordered content pagination for complete Confluence
   pulls, preserving two-pass selection and fail-closed duplicate/drift checks
   for large-space bootstrap and resume.

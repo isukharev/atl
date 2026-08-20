@@ -98,7 +98,7 @@ func jiraIssueCmd() *cobra.Command {
 
 	var project, issueType, summary, fromFile, fromMD, createInto string
 	var createRegister bool
-	var fieldKV []string
+	var fieldKV, fieldJSON []string
 	create := &cobra.Command{
 		Use:   "create",
 		Short: "Create an issue (description = wiki via --from-file, or markdown via --from-md)",
@@ -113,7 +113,7 @@ func jiraIssueCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			kv, err := parseKV(fieldKV)
+			kv, err := parseJiraFieldInputs(fieldKV, fieldJSON, false)
 			if err != nil {
 				return err
 			}
@@ -149,12 +149,13 @@ func jiraIssueCmd() *cobra.Command {
 	create.Flags().StringVar(&summary, "summary", "", "summary")
 	create.Flags().StringVar(&fromFile, "from-file", "", "description (wiki) file or - for stdin")
 	create.Flags().StringVar(&fromMD, "from-md", "", "markdown description file or - for stdin (converted to wiki; unsupported constructs are refused)")
-	create.Flags().StringArrayVar(&fieldKV, "field", nil, "extra field key=value (repeatable); a JSON object/array value is sent as JSON, e.g. priority={\"name\":\"High\"}")
+	create.Flags().StringArrayVar(&fieldKV, "field", nil, "extra field key=value (repeatable); JSON objects/arrays are sent as JSON")
+	create.Flags().StringArrayVar(&fieldJSON, "field-json", nil, "extra field key=JSON (repeatable); sends an explicit JSON value including scalars")
 	create.Flags().BoolVar(&createRegister, "register", false, "register the created issue in the mirror named by --into from an authoritative readback")
 	create.Flags().StringVar(&createInto, "into", "", "mirror root for explicit post-create registration (requires --register)")
 
 	var upSummary, upFile, upMD string
-	var upFieldKV []string
+	var upFieldKV, upFieldJSON []string
 	update := &cobra.Command{
 		Use:   "update <KEY>",
 		Short: "Update an issue (summary/description/fields)",
@@ -164,7 +165,7 @@ func jiraIssueCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			kv, err := parseKV(upFieldKV)
+			kv, err := parseJiraFieldInputs(upFieldKV, upFieldJSON, false)
 			if err != nil {
 				return err
 			}
@@ -181,7 +182,8 @@ func jiraIssueCmd() *cobra.Command {
 	update.Flags().StringVar(&upSummary, "summary", "", "new summary")
 	update.Flags().StringVar(&upFile, "from-file", "", "new description (wiki) file or - for stdin")
 	update.Flags().StringVar(&upMD, "from-md", "", "new markdown description file or - for stdin (converted to wiki; unsupported constructs are refused)")
-	update.Flags().StringArrayVar(&upFieldKV, "field", nil, "field key=value (repeatable); a JSON object/array value is sent as JSON, e.g. priority={\"name\":\"High\"}")
+	update.Flags().StringArrayVar(&upFieldKV, "field", nil, "field key=value (repeatable); JSON objects/arrays are sent as JSON")
+	update.Flags().StringArrayVar(&upFieldJSON, "field-json", nil, "field key=JSON (repeatable); sends an explicit JSON value including scalars")
 
 	var edOld, edNew, edOldFile, edNewFile string
 	var edAll, edDryRun bool

@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/isukharev/atl/internal/domain"
 )
 
 // Transition can set fields on the transition (e.g. resolution=Fixed at Done).
@@ -27,8 +29,8 @@ func TestTransitionSendsFields(t *testing.T) {
 	defer srv.Close()
 
 	j := newTestJira(srv)
-	err := j.Transition(context.Background(), "ABC-1", "Done", "", map[string]string{
-		"resolution": `{"name":"Fixed"}`,
+	err := j.Transition(context.Background(), "ABC-1", "Done", "", map[string]domain.JiraFieldInput{
+		"resolution": {Value: `{"name":"Fixed"}`},
 	})
 	if err != nil {
 		t.Fatalf("Transition: %v", err)

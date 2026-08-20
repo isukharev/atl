@@ -194,7 +194,7 @@ func TestJiraCompoundAndRelocationAuthorizationTargets(t *testing.T) {
 	if len(link.Targets) != 2 || link.Targets[0].Key != "ML-1" || link.Targets[1].Key != "OPS-2" {
 		t.Fatalf("link request = %+v", link)
 	}
-	if err := adapter.Update(context.Background(), "ML-1", "", nil, map[string]string{"project": `{"key":"OPS"}`}); err != nil {
+	if err := adapter.Update(context.Background(), "ML-1", "", nil, map[string]domain.JiraFieldInput{"project": {Value: `{"key":"OPS"}`}}); err != nil {
 		t.Fatal(err)
 	}
 	relocation := authorizer.requests[len(authorizer.requests)-1]
@@ -417,7 +417,7 @@ func TestJiraCreateProjectOverrideIsScopeContradiction(t *testing.T) {
 		}}},
 	}}}
 	adapter := New(server.URL, "token", "test", WithWriteAuthorizer(contentpolicy.NewAuthorizer(allow)))
-	_, err := adapter.Create(context.Background(), "ML", "Task", "summary", nil, map[string]string{"project": `{"key":"OPS"}`})
+	_, err := adapter.Create(context.Background(), "ML", "Task", "summary", nil, map[string]domain.JiraFieldInput{"project": {Value: `{"key":"OPS"}`}})
 	var denial *contentpolicy.DenialError
 	if !errors.As(err, &denial) || denial.Reason != contentpolicy.ReasonScopeContradiction {
 		t.Fatalf("error=%v denial=%+v", err, denial)

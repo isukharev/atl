@@ -502,7 +502,7 @@ func TestJiraIssueCreate_WireFields(t *testing.T) {
 	out, code := runCLI(t, jiraEnv(js.srv),
 		"jira", "issue", "create",
 		"--project", "ENG", "--type", "Bug", "--summary", "Fix the thing",
-		"--from-file", descPath)
+		"--from-file", descPath, "--field-json", "customfield_10001=true")
 	if code != exitOK {
 		t.Fatalf("jira issue create: exit %d, want 0 (stdout=%q)", code, out)
 	}
@@ -537,6 +537,23 @@ func TestJiraIssueCreate_WireFields(t *testing.T) {
 	}
 	if it, ok := f["issuetype"].(map[string]any); !ok || it["name"] != "Bug" {
 		t.Errorf("issuetype = %v, want {name: Bug}", f["issuetype"])
+	}
+	if got, ok := f["customfield_10001"].(bool); !ok || !got {
+		t.Errorf("explicit JSON field = %#v, want boolean true", f["customfield_10001"])
+	}
+}
+
+func TestJiraIssueFieldJSONInputFailsBeforeService(t *testing.T) {
+	out, _, code := runCLIFull(t, nil,
+		"jira", "issue", "create", "--project", "ENG", "--type", "Task", "--summary", "Invalid",
+		"--field-json", "customfield_10001=not-json")
+	if code != exitUsage || out != "" {
+		t.Fatalf("invalid JSON exit=%d stdout=%q, want usage failure before service", code, out)
+	}
+	out, _, code = runCLIFull(t, nil,
+		"jira", "issue", "update", "ENG-1", "--field", "customfield_10001=5", "--field-json", "customfield_10001=5")
+	if code != exitUsage || out != "" {
+		t.Fatalf("conflicting fields exit=%d stdout=%q, want usage failure before service", code, out)
 	}
 }
 
@@ -774,7 +791,8 @@ func TestJiraIssueUpdate_WireFields(t *testing.T) {
 	out, code := runCLI(t, jiraEnv(js.srv),
 		"jira", "issue", "update", "ENG-7",
 		"--summary", "New summary", "--from-file", descPath,
-		"--field", "priority={\"name\":\"High\"}")
+		"--field", "priority={\"name\":\"High\"}",
+		"--field-json", "customfield_10001=5", "--field-json", "customfield_10002=null")
 	if code != exitOK {
 		t.Fatalf("jira issue update: exit %d, want 0 (stdout=%q)", code, out)
 	}
@@ -807,6 +825,12 @@ func TestJiraIssueUpdate_WireFields(t *testing.T) {
 	// Extra --field with a JSON-object value is coerced to an object on the wire.
 	if pr, ok := f["priority"].(map[string]any); !ok || pr["name"] != "High" {
 		t.Errorf("priority = %v, want {name: High} (coerced object)", f["priority"])
+	}
+	if f["customfield_10001"] != float64(5) {
+		t.Errorf("explicit number = %#v, want numeric 5", f["customfield_10001"])
+	}
+	if value, ok := f["customfield_10002"]; !ok || value != nil {
+		t.Errorf("explicit null = %#v (present=%v), want null", value, ok)
 	}
 }
 

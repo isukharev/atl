@@ -89,13 +89,13 @@ not display/short URLs, and no page body or backlink query is made.
 | `jira issue create-check` | Inspect content-free create-screen field requirements | `--project`, exact `--type`, `-o text` |
 | `jira issue children <EPIC-KEY>` | Read direct epic children as a common IssueList without per-child reads | `--view`, `--columns`, `--limit 1..1000` (0 invalid), `--cursor`, `--epic-field`, `-o text/id` |
 | `jira epic digest <EPIC-KEY>` | Deterministic multi-source epic evidence with per-source completeness | `--projection compact|full`, period, includes, fields, caps, optional bounded Confluence heading expansion |
-| `jira issue create` | Create an issue; optionally register one authoritative readback in a mirror | `--project`, `--type`, `--summary`, `--from-md`, `--from-file`, `--field k=v`; `--register --into <ROOT>` |
-| `jira issue update <KEY>` | Update summary/description/fields (whole body) | `--summary`, `--from-md`, `--from-file`, `--field k=v` |
+| `jira issue create` | Create an issue; optionally register one authoritative readback in a mirror | `--project`, `--type`, `--summary`, `--from-md`, `--from-file`, `--field k=v`, `--field-json k=JSON`; `--register --into <ROOT>` |
+| `jira issue update <KEY>` | Update summary/description/fields (whole body) | `--summary`, `--from-md`, `--from-file`, `--field k=v`, `--field-json k=JSON` |
 | `jira issue field set <KEY>` | Apply a reviewed file-backed custom-field proposal | `--from-file FIELD=PATH`, `--from-md FIELD=PATH`, `--allow-fields`, `--expected-updated`, `--expected-proposal-hash`, `--apply` |
 | `jira issue edit <KEY>` | Targeted description replace in one command | `--old`, `--new`, `--old-file`, `--new-file`, `--all`, `--dry-run` |
 | `jira issue assign <KEY>` | Set or clear the assignee | exactly one of `--to USER`, `--me`, `--none` |
-| `jira issue transition preview <KEY>` | GET-only state-bound transition proposal | `--to`, optional `--comment`, `--field k=v`; inspect selected transition/current state/hash |
-| `jira issue transition <KEY>` | Preview or apply one reviewed transition | `--to`, optional `--comment`, `--field k=v`, `--apply`, `--expected-proposal-hash` |
+| `jira issue transition preview <KEY>` | GET-only state-bound transition proposal | `--to`, optional `--comment`, `--field k=v`, `--field-json k=JSON`; inspect selected transition/current state/hash |
+| `jira issue transition <KEY>` | Preview or apply one reviewed transition | `--to`, optional `--comment`, `--field k=v`, `--field-json k=JSON`, `--apply`, `--expected-proposal-hash` |
 | `jira issue check <KEY>` | Audit required/important fields; non-zero exit if required field empty | `--require fields`, `--warn fields` |
 | `jira issue delete <KEY>` | Preview/apply one immutable-id-bound permanent deletion; the whole leaf is mutation-classified | after explicit approval remove inherited read-only policy for preview; apply: `--apply --confirm DELETE --expected-updated --expected-proposal-hash`; optional reviewed `--delete-subtasks`; restore policy afterward |
 | `jira issue labels <KEY>` | Add/remove labels | `--add labels`, `--remove labels` |

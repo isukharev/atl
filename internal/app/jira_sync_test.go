@@ -37,7 +37,7 @@ type syncTracker struct {
 		key     string
 		summary string
 		body    []byte
-		fields  map[string]string
+		fields  map[string]domain.JiraFieldInput
 	}
 }
 
@@ -63,7 +63,7 @@ func (tr *syncTracker) GetIssue(_ context.Context, key string, _ []string) (*dom
 	return &domain.Issue{ID: id, Key: key, Project: "PROJ", Summary: "S", Status: "Open", Type: "Task", Body: body}, nil
 }
 
-func (tr *syncTracker) Update(_ context.Context, key, summary string, body []byte, fields map[string]string) error {
+func (tr *syncTracker) Update(_ context.Context, key, summary string, body []byte, fields map[string]domain.JiraFieldInput) error {
 	tr.updateCalls++
 	tr.lastUpdate.key = key
 	tr.lastUpdate.summary = summary

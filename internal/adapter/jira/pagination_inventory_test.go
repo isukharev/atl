@@ -139,6 +139,7 @@ evidence.go:ListJiraCommentsQualified:for:1
 evidence.go:ListJiraCommentsQualified:range:1
 evidence.go:RevalidateJiraAttachmentDownload:range:1
 evidence.go:jiraCommentConservativeEncodedBytes:range:1
+fields.go:coerceFields:range:1
 graph.go:ReadIssueRemoteLinks:range:1
 graph.go:validJiraRemoteLinkMetadata:range:1
 inverse_reference.go:ReadInverseReferenceSnapshot:range:1
@@ -155,14 +156,13 @@ jira.go:ListComments:range:1
 jira.go:SearchUsers:range:1
 jira.go:Transition:range:1
 jira.go:Transition:range:2
-jira.go:Transition:range:3
-jira.go:Update:range:1
 jira.go:UpdateLabels:range:1
 jira.go:UpdateLabels:range:2
 jira.go:mapChangelogHistories:range:1
 jira.go:mapChangelogHistories:range:2
 jira.go:resolveAdapterOptions:range:1
 jira.go:searchPage:range:1
+jira.go:updateWithTypedFields:range:1
 meta.go:DownloadAttachment:range:1
 meta.go:FieldOptions:range:1
 meta.go:FieldOptions:range:2

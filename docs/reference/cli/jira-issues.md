@@ -270,13 +270,15 @@ atl jira issue create \
   --summary "Crash on empty input" \
   --from-md description.md
 
-# with extra fields. A --field value that parses as JSON is sent as that JSON
-# type, so structured fields work; a plain string is sent as a string.
+# Extra fields keep legacy string behavior unless an object/array is supplied.
+# Use --field-json whenever Jira expects a typed scalar such as a number,
+# boolean, or null.
 atl jira issue create \
   --project PROJ --type Task --summary "Deploy docs" \
   --field 'priority={"name":"High"}' \
   --field 'labels=["docs","infra"]' \
-  --field customfield_10001=foo
+  --field customfield_10001=foo \
+  --field-json customfield_10002=5
 
 # Opt in to immediate mirror registration from the authoritative readback:
 atl jira issue create \
@@ -306,7 +308,8 @@ Flags:
 | `--summary` | issue summary (required) |
 | `--from-file` | description body file (wiki markup) or `-` for stdin |
 | `--from-md` | markdown description file or `-` for stdin; converted to wiki, fail-closed (exit 8) |
-| `--field key=value` | extra field (repeatable) |
+| `--field key=value` | extra field (repeatable); objects/arrays are decoded, other values remain strings |
+| `--field-json key=JSON` | extra explicitly typed JSON field (repeatable), including number, boolean, or `null` |
 | `--register` | explicitly register the created issue in a mirror; requires non-empty `--into` |
 | `--into` | mirror root for registration; requires `--register` |
 
@@ -320,6 +323,7 @@ atl jira issue update PROJ-1 --summary "Crash on empty input (critical)"
 atl jira issue update PROJ-1 --from-file updated-desc.wiki
 atl jira issue update PROJ-1 --from-md updated-desc.md
 atl jira issue update PROJ-1 --field 'priority={"name":"Highest"}'
+atl jira issue update PROJ-1 --field-json customfield_10001=5
 ```
 
 Flags:
@@ -330,7 +334,8 @@ Flags:
 | `--summary` | new summary |
 | `--from-file` | new description file (wiki markup) or `-` for stdin |
 | `--from-md` | new markdown description file or `-` for stdin; converted to wiki, fail-closed (exit 8) |
-| `--field key=value` | extra field (repeatable) |
+| `--field key=value` | extra field (repeatable); objects/arrays are decoded, other values remain strings |
+| `--field-json key=JSON` | extra explicitly typed JSON field (repeatable), including number, boolean, or `null` |
 
 ## `atl jira issue field preview` / `field set`
 
@@ -468,7 +473,8 @@ Flags:
 | `PROJ-1` | issue key (positional, required) |
 | `--to` | target status or transition name (required) |
 | `--comment` | optional non-empty Jira-wiki comment to post with the transition |
-| `--field key=value` | field to set on the transition (repeatable), e.g. `resolution={"name":"Fixed"}` |
+| `--field key=value` | field to set on the transition (repeatable); objects/arrays are decoded, e.g. `resolution={"name":"Fixed"}` |
+| `--field-json key=JSON` | explicitly typed JSON field to set on the transition (repeatable), including number, boolean, or `null` |
 | `--apply` | perform the exact reviewed transition (default: dry-run) |
 | `--expected-proposal-hash` | exact hash emitted by the matching preview/dry-run (required with `--apply`) |
 

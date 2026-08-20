@@ -39,7 +39,7 @@ func (t *jiraBindingProbeTracker) GetIssue(context.Context, string, []string) (*
 	}}, nil
 }
 
-func (t *jiraBindingProbeTracker) Update(context.Context, string, string, []byte, map[string]string) error {
+func (t *jiraBindingProbeTracker) Update(context.Context, string, string, []byte, map[string]domain.JiraFieldInput) error {
 	t.updateCalls++
 	return nil
 }

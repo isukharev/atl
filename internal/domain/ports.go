@@ -416,19 +416,28 @@ type JiraTimeSemanticsReader interface {
 	ServerTime(ctx context.Context) (string, error)
 }
 
+// JiraFieldInput preserves how a Jira field value entered the CLI until the
+// adapter builds its wire payload. ExplicitJSON distinguishes an explicitly
+// requested JSON scalar from a legacy --field string that merely looks like
+// JSON. Callers must validate ExplicitJSON values before invoking a write.
+type JiraFieldInput struct {
+	Value        string
+	ExplicitJSON bool
+}
+
 // Tracker is the port for an issue tracker (Jira today; Linear/GitLab later).
 type Tracker interface {
 	GetIssue(ctx context.Context, key string, fields []string) (*Issue, error)
 	Search(ctx context.Context, jql string, fields []string, limit int, cursor string) ([]Issue, string, error)
-	Create(ctx context.Context, project, issueType, summary string, body []byte, fields map[string]string) (*Issue, error)
-	Update(ctx context.Context, key, summary string, body []byte, fields map[string]string) error
+	Create(ctx context.Context, project, issueType, summary string, body []byte, fields map[string]JiraFieldInput) (*Issue, error)
+	Update(ctx context.Context, key, summary string, body []byte, fields map[string]JiraFieldInput) error
 	// SetFields writes already-typed Jira field values without the legacy
 	// string-to-JSON coercion used by Update. Guarded file-backed workflows use
 	// it to distinguish a literal string from an object/array explicitly.
 	SetFields(ctx context.Context, key string, fields map[string]any) error
 	// Transition moves an issue to a status by name, optionally commenting and
 	// setting fields on the transition (e.g. resolution at Done).
-	Transition(ctx context.Context, key, to, comment string, fields map[string]string) error
+	Transition(ctx context.Context, key, to, comment string, fields map[string]JiraFieldInput) error
 	// DeleteIssue permanently deletes an issue (Jira DC has no trash for issues).
 	DeleteIssue(ctx context.Context, key string, deleteSubtasks bool) error
 	// UpdateLabels adds and/or removes labels on an issue.
