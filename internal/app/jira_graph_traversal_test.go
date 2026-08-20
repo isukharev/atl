@@ -462,6 +462,110 @@ func TestIssueGraphWithOptionsCanonicalizesMovedAliasDiscoveredLater(t *testing.
 	}
 }
 
+func TestIssueGraphWithOptionsIgnoresTextualSelfReferencesThroughMovedAliases(t *testing.T) {
+	t.Run("known alias", func(t *testing.T) {
+		moved := traversalSnapshot("PROJ-3", nil, "PROJ-2")
+		moved.RequestedKey = "PROJ-2"
+		service, _ := traversalService(map[string]*domain.QualifiedIssueSnapshot{
+			"PROJ-1": traversalSnapshot("PROJ-1", []string{"PROJ-2"}, ""),
+			"PROJ-2": moved,
+		})
+		result, err := service.IssueGraphWithOptions(t.Context(), "PROJ-1", JiraIssueGraphOptions{Depth: 1})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !result.Complete {
+			t.Fatalf("known alias textual self-reference made the graph incomplete: %#v", result.Summary)
+		}
+		for _, edge := range result.Edges {
+			if edge.From == edge.To {
+				t.Fatalf("known alias textual self-reference produced an edge: %#v", edge)
+			}
+		}
+	})
+
+	t.Run("later alias", func(t *testing.T) {
+		current := traversalSnapshot("PROJ-2", nil, "PROJ-3")
+		moved := traversalSnapshot("PROJ-2", nil, "")
+		moved.RequestedKey = "PROJ-3"
+		service, _ := traversalService(map[string]*domain.QualifiedIssueSnapshot{
+			"PROJ-1": traversalSnapshot("PROJ-1", []string{"PROJ-2", "PROJ-3"}, ""),
+			"PROJ-2": current,
+			"PROJ-3": moved,
+		})
+		result, err := service.IssueGraphWithOptions(t.Context(), "PROJ-1", JiraIssueGraphOptions{Depth: 1})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !result.Complete {
+			t.Fatalf("later alias textual self-reference made the graph incomplete: %#v", result.Summary)
+		}
+		for _, edge := range result.Edges {
+			if edge.From == edge.To {
+				t.Fatalf("later alias textual self-reference produced an edge: %#v", edge)
+			}
+		}
+	})
+}
+
+func TestIssueGraphWithOptionsQualifiesStructuredSelfReferencesThroughMovedAliases(t *testing.T) {
+	moved := traversalSnapshot("PROJ-3", nil, "")
+	moved.RequestedKey = "PROJ-2"
+	moved.Fields["customfield_10"] = "PROJ-2"
+	moved.Names["customfield_10"] = "Epic Link"
+	moved.Schema["customfield_10"] = domain.IssueFieldSchema{Type: "string", Custom: "example:epic-link"}
+	service, _ := traversalService(map[string]*domain.QualifiedIssueSnapshot{
+		"PROJ-1": traversalSnapshot("PROJ-1", []string{"PROJ-2"}, ""),
+		"PROJ-2": moved,
+	})
+	result, err := service.IssueGraphWithOptions(t.Context(), "PROJ-1", JiraIssueGraphOptions{Depth: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := graphV2Source(t, result, "jira:issue:PROJ-3", "hierarchy")
+	if source.Status != domain.ArtifactSourcePartial || source.Complete || source.PartialReason != domain.ArtifactPartialMalformed {
+		t.Fatalf("source = %#v", source)
+	}
+	for _, edge := range result.Edges {
+		if edge.From == edge.To {
+			t.Fatalf("structured alias self-reference produced an edge: %#v", edge)
+		}
+	}
+}
+
+func TestIssueGraphWithOptionsRequalifiesOutputLimitedStructuredSelfReference(t *testing.T) {
+	current := traversalSnapshot("PROJ-2", nil, "")
+	current.Fields["issuelinks"] = []any{
+		map[string]any{
+			"id": "20", "type": map[string]any{"name": "Relates", "outward": "relates to"},
+			"outwardIssue": map[string]any{"id": "10003", "key": "PROJ-3"},
+		},
+		map[string]any{
+			"id": "21", "type": map[string]any{"name": "Relates", "outward": "relates to"},
+			"outwardIssue": map[string]any{"id": "10004", "key": "PROJ-4"},
+		},
+	}
+	moved := traversalSnapshot("PROJ-2", nil, "")
+	moved.RequestedKey = "PROJ-3"
+	service, _ := traversalService(map[string]*domain.QualifiedIssueSnapshot{
+		"PROJ-1": traversalSnapshot("PROJ-1", []string{"PROJ-2", "PROJ-3"}, ""),
+		"PROJ-2": current,
+		"PROJ-3": moved,
+	})
+	result, err := service.IssueGraphWithOptions(t.Context(), "PROJ-1", JiraIssueGraphOptions{Depth: 1, MaxNodes: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateJiraIssueGraphResult(result); err != nil {
+		t.Fatalf("result became invalid after requalification: %v", err)
+	}
+	source := graphV2Source(t, result, "jira:issue:PROJ-2", "issue_links")
+	if source.Status != domain.ArtifactSourcePartial || source.Complete || source.Truncated ||
+		source.PartialReason != domain.ArtifactPartialMalformed {
+		t.Fatalf("source = %#v", source)
+	}
+}
+
 func TestIssueGraphWithOptionsQualifiesNeighborFailure(t *testing.T) {
 	service, tracker := traversalService(map[string]*domain.QualifiedIssueSnapshot{
 		"PROJ-1": traversalSnapshot("PROJ-1", []string{"PROJ-2"}, ""),
