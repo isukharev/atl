@@ -207,8 +207,10 @@ atl jira issue create-check --project PROJ --type Task
 ```
 
 `types` accepts a project key or id, returns the exact backend type ids/names
-and subtask flags, and prints type ids with `-o id`. `create-check` accepts an
-exact type id or exact name and fails closed when a name is absent or ambiguous.
+and subtask flags, and prints type ids with `-o id`. `create-check` and
+`issue create --type` accept an exact type id or exact name and fail closed
+when a name is absent or ambiguous. Create resolves the selector from the same
+project metadata and sends Jira the resolved immutable type id.
 Its fields report only id, name, required, and whether allowed values exist;
 option labels and values are deliberately omitted. Every returned field is on
 Jira's create screen by definition of the endpoint, so the output does not emit
@@ -304,7 +306,7 @@ Flags:
 | flag | description |
 |---|---|
 | `--project` | project key (required) |
-| `--type` | issue type name (required) |
+| `--type` | exact issue type id or name from project create metadata (required) |
 | `--summary` | issue summary (required) |
 | `--from-file` | description body file (wiki markup) or `-` for stdin |
 | `--from-md` | markdown description file or `-` for stdin; converted to wiki, fail-closed (exit 8) |

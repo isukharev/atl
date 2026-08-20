@@ -19,34 +19,36 @@ type recordingTracker struct {
 	domain.Tracker
 
 	// recorded args
-	issueKey     string
-	issueFields  []string
-	searchJQL    string
-	searchFields []string
-	searchLimit  int
-	createProj   string
-	createType   string
-	createSumm   string
-	createBody   []byte
-	createFields map[string]domain.JiraFieldInput
-	updateKey    string
-	updateSumm   string
-	updateBody   []byte
-	updateFields map[string]domain.JiraFieldInput
-	transKey     string
-	transTo      string
-	transComment string
-	commentKey   string
-	commentBody  []byte
-	linkFrom     string
-	linkTo       string
-	linkType     string
-	epicIssue    string
-	epicEpic     string
-	foProject    string
-	foType       string
-	foField      string
-	transitsKey  string
+	issueKey       string
+	issueFields    []string
+	searchJQL      string
+	searchFields   []string
+	searchLimit    int
+	createProj     string
+	createType     string
+	createSumm     string
+	createBody     []byte
+	createFields   map[string]domain.JiraFieldInput
+	createSingle   bool
+	createRedacted bool
+	updateKey      string
+	updateSumm     string
+	updateBody     []byte
+	updateFields   map[string]domain.JiraFieldInput
+	transKey       string
+	transTo        string
+	transComment   string
+	commentKey     string
+	commentBody    []byte
+	linkFrom       string
+	linkTo         string
+	linkType       string
+	epicIssue      string
+	epicEpic       string
+	foProject      string
+	foType         string
+	foField        string
+	transitsKey    string
 
 	// canned returns
 	issue       *domain.Issue
@@ -79,9 +81,23 @@ func (t *recordingTracker) Search(_ context.Context, jql string, fields []string
 	return t.issues, "", t.err
 }
 
-func (t *recordingTracker) Create(_ context.Context, project, issueType, summary string, body []byte, fields map[string]domain.JiraFieldInput) (*domain.Issue, error) {
+func (t *recordingTracker) Create(ctx context.Context, project, issueType, summary string, body []byte, fields map[string]domain.JiraFieldInput) (*domain.Issue, error) {
 	t.createProj, t.createType, t.createSumm, t.createBody, t.createFields = project, issueType, summary, body, fields
+	t.createSingle = domain.SingleAttempt(ctx)
+	t.createRedacted = domain.RedactedHTTPTrace(ctx)
 	return t.issue, t.err
+}
+
+type createMetadataRecordingTracker struct {
+	*recordingTracker
+	issueTypes    []domain.JiraIssueType
+	metadataErr   error
+	metadataCalls int
+}
+
+func (t *createMetadataRecordingTracker) ReadCreateIssueTypes(context.Context, string) ([]domain.JiraIssueType, error) {
+	t.metadataCalls++
+	return t.issueTypes, t.metadataErr
 }
 
 func (t *recordingTracker) Update(_ context.Context, key, summary string, body []byte, fields map[string]domain.JiraFieldInput) error {
@@ -155,14 +171,18 @@ func TestJiraWrappersPassThrough(t *testing.T) {
 	})
 
 	t.Run("Create", func(t *testing.T) {
-		tr := &recordingTracker{issue: &domain.Issue{Key: "NEW-1"}}
+		tr := &createMetadataRecordingTracker{
+			recordingTracker: &recordingTracker{issue: &domain.Issue{Key: "NEW-1"}},
+			issueTypes:       []domain.JiraIssueType{{ID: "17", Name: "Bug"}},
+		}
 		svc := &JiraService{tr: tr}
 		got, err := svc.Create(ctx, "PRJ", "Bug", "Boom", []byte("desc"), map[string]domain.JiraFieldInput{"prio": {Value: "High"}})
 		if err != nil {
 			t.Fatal(err)
 		}
-		if tr.createProj != "PRJ" || tr.createType != "Bug" || tr.createSumm != "Boom" ||
-			string(tr.createBody) != "desc" || tr.createFields["prio"].Value != "High" || got.Key != "NEW-1" {
+		if tr.createProj != "PRJ" || tr.createType != "17" || tr.createSumm != "Boom" ||
+			string(tr.createBody) != "desc" || tr.createFields["prio"].Value != "High" || got.Key != "NEW-1" || got.Type != "Bug" ||
+			!tr.createSingle || !tr.createRedacted {
 			t.Errorf("Create args/return not forwarded: %+v ret=%+v", tr, got)
 		}
 	})
@@ -296,8 +316,10 @@ func TestJiraWrappersPropagateSentinel(t *testing.T) {
 	if _, _, err := svc.Search(ctx, "x", nil, 1, ""); !errors.Is(err, domain.ErrNotFound) {
 		t.Errorf("Search did not propagate sentinel: %v", err)
 	}
-	if _, err := svc.Create(ctx, "p", "Bug", "s", nil, nil); !errors.Is(err, domain.ErrNotFound) {
-		t.Errorf("Create did not propagate sentinel: %v", err)
+	createTR := &createMetadataRecordingTracker{recordingTracker: tr, issueTypes: []domain.JiraIssueType{{ID: "17", Name: "Bug"}}}
+	createSvc := &JiraService{tr: createTR}
+	if _, err := createSvc.Create(ctx, "p", "Bug", "s", nil, nil); !errors.Is(err, domain.ErrCheckFailed) {
+		t.Errorf("Create did not classify an unqualified write error: %v", err)
 	}
 	if err := svc.Update(ctx, "x", "s", nil, nil); !errors.Is(err, domain.ErrNotFound) {
 		t.Errorf("Update did not propagate sentinel: %v", err)
@@ -326,6 +348,95 @@ func TestJiraWrappersPropagateSentinel(t *testing.T) {
 	if _, err := svc.LinkTypes(ctx); !errors.Is(err, domain.ErrNotFound) {
 		t.Errorf("LinkTypes did not propagate sentinel: %v", err)
 	}
+}
+
+type createHTTPStatusError struct{ status int }
+
+func (e createHTTPStatusError) Error() string   { return "create request failed" }
+func (e createHTTPStatusError) HTTPStatus() int { return e.status }
+
+func TestJiraCreateResolvesTypeAndClassifiesOutcome(t *testing.T) {
+	types := []domain.JiraIssueType{
+		{ID: "10", Name: "Task"},
+		{ID: "11", Name: "Story"},
+		{ID: "12", Name: "Story"},
+		{ID: "13", Name: "Задача"},
+	}
+	newService := func() (*JiraService, *createMetadataRecordingTracker) {
+		tracker := &createMetadataRecordingTracker{
+			recordingTracker: &recordingTracker{issue: &domain.Issue{Key: "PROJ-1"}},
+			issueTypes:       types,
+		}
+		return &JiraService{tr: tracker}, tracker
+	}
+
+	for _, test := range []struct {
+		selector, wantID, wantName string
+	}{
+		{selector: "10", wantID: "10", wantName: "Task"},
+		{selector: "Task", wantID: "10", wantName: "Task"},
+		{selector: "13", wantID: "13", wantName: "Задача"},
+		{selector: "Задача", wantID: "13", wantName: "Задача"},
+	} {
+		t.Run("resolved "+test.selector, func(t *testing.T) {
+			svc, tracker := newService()
+			issue, err := svc.Create(context.Background(), "PROJ", test.selector, "Summary", nil, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tracker.createType != test.wantID || issue.Type != test.wantName || !tracker.createSingle || !tracker.createRedacted {
+				t.Fatalf("create type/result/request policy = %q/%q/%t/%t, want %s/%s/true/true", tracker.createType, issue.Type, tracker.createSingle, tracker.createRedacted, test.wantID, test.wantName)
+			}
+		})
+	}
+
+	for _, selector := range []string{"Missing", "Story"} {
+		t.Run("preflight "+selector, func(t *testing.T) {
+			svc, tracker := newService()
+			_, err := svc.Create(context.Background(), "PROJ", selector, "Summary", nil, nil)
+			if !errors.Is(err, domain.ErrNotFound) && !errors.Is(err, domain.ErrCheckFailed) {
+				t.Fatalf("create error = %v, want selector rejection", err)
+			}
+			if tracker.createType != "" {
+				t.Fatalf("create request ran with type %q after invalid selector", tracker.createType)
+			}
+		})
+	}
+
+	t.Run("definitive rejection", func(t *testing.T) {
+		svc, tracker := newService()
+		cause := createHTTPStatusError{status: 400}
+		tracker.err = cause
+		_, err := svc.Create(context.Background(), "PROJ", "Task", "Summary", nil, nil)
+		if !errors.Is(err, cause) || errors.Is(err, domain.ErrCheckFailed) {
+			t.Fatalf("create error = %v, want definitive rejection without ambiguous outcome", err)
+		}
+		if tracker.createType != "10" {
+			t.Fatalf("create attempts = %q, want one resolved request", tracker.createType)
+		}
+	})
+
+	t.Run("ambiguous outcome", func(t *testing.T) {
+		svc, tracker := newService()
+		tracker.err = errors.New("transport unavailable")
+		_, err := svc.Create(context.Background(), "PROJ", "Task", "Summary", nil, nil)
+		if !errors.Is(err, domain.ErrCheckFailed) || !strings.Contains(err.Error(), "outcome is unknown") {
+			t.Fatalf("create error = %v, want ambiguous outcome classification", err)
+		}
+		if tracker.createType != "10" {
+			t.Fatalf("create attempts = %q, want one resolved request", tracker.createType)
+		}
+	})
+
+	t.Run("type override is rejected before metadata or create", func(t *testing.T) {
+		svc, tracker := newService()
+		_, err := svc.Create(context.Background(), "PROJ", "Task", "Summary", nil, map[string]domain.JiraFieldInput{
+			"issuetype": {Value: `{"id":"10"}`},
+		})
+		if !errors.Is(err, domain.ErrUsage) || tracker.metadataCalls != 0 || tracker.createType != "" {
+			t.Fatalf("create error/metadata/create = %v/%d/%q, want usage error and no request", err, tracker.metadataCalls, tracker.createType)
+		}
+	})
 }
 
 // ---- renderIssueMarkdown branches ----

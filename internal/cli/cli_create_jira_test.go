@@ -54,6 +54,8 @@ func newJiraServer(t *testing.T) *jiraServer {
 		dflt:   cannedResp{status: http.StatusOK, body: `{}`},
 	}
 	js.srv = httptest.NewServer(http.HandlerFunc(js.handle))
+	js.route(http.MethodGet, "/rest/api/2/issue/createmeta/", http.StatusOK,
+		`{"isLast":true,"values":[{"id":"1","name":"Task"},{"id":"2","name":"Bug"},{"id":"3","name":"Story"}]}`)
 	t.Cleanup(js.srv.Close)
 	return js
 }
@@ -535,8 +537,8 @@ func TestJiraIssueCreate_WireFields(t *testing.T) {
 	if pr, ok := f["project"].(map[string]any); !ok || pr["key"] != "ENG" {
 		t.Errorf("project = %v, want {key: ENG}", f["project"])
 	}
-	if it, ok := f["issuetype"].(map[string]any); !ok || it["name"] != "Bug" {
-		t.Errorf("issuetype = %v, want {name: Bug}", f["issuetype"])
+	if it, ok := f["issuetype"].(map[string]any); !ok || it["id"] != "2" {
+		t.Errorf("issuetype = %v, want {id: 2}", f["issuetype"])
 	}
 	if got, ok := f["customfield_10001"].(bool); !ok || !got {
 		t.Errorf("explicit JSON field = %#v, want boolean true", f["customfield_10001"])

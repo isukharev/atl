@@ -240,8 +240,14 @@ func (s *JiraService) createAndRegister(ctx context.Context, project, issueType,
 	if err := validateCreatedRegistrationPlatform(goos); err != nil {
 		return nil, nil, err
 	}
-	var err error
-	root, err = createdRegistrationRoot(root)
+	if err := rejectCreateIssueTypeOverride(fields); err != nil {
+		return nil, nil, err
+	}
+	root, err := createdRegistrationRoot(root)
+	if err != nil {
+		return nil, nil, err
+	}
+	resolvedType, err := s.resolveCreateIssueType(ctx, project, issueType)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -267,7 +273,7 @@ func (s *JiraService) createAndRegister(ctx context.Context, project, issueType,
 	if err != nil {
 		return nil, nil, err
 	}
-	created, err := s.tr.Create(domain.WithRedactedHTTPTrace(domain.WithSingleAttempt(ctx)), project, issueType, summary, body, fields)
+	created, err := s.tr.Create(domain.WithRedactedHTTPTrace(domain.WithSingleAttempt(ctx)), project, resolvedType.ID, summary, body, fields)
 	if err != nil {
 		return nil, nil, classifyCreateWriteError("issue create", err)
 	}
@@ -285,7 +291,7 @@ func (s *JiraService) createAndRegister(ctx context.Context, project, issueType,
 	if err != nil {
 		return jiraRegistrationFailure(created, registration, "readback_unavailable", err)
 	}
-	if err := validateCreatedJiraReadback(readback, created.Key, project, issueType, projection); err != nil {
+	if err := validateCreatedJiraReadback(readback, created.Key, project, resolvedType.Name, projection); err != nil {
 		return jiraRegistrationFailure(created, registration, "readback_unqualified", err)
 	}
 	registration.ReadbackReconciled = true
