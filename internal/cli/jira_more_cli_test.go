@@ -329,14 +329,14 @@ func TestJiraIssueLinkList_EmitsAndID(t *testing.T) {
 	}
 }
 
-func TestJiraIssueLinkDelete_WiresDelete(t *testing.T) {
+func TestJiraIssueLinkDeleteRequiresGuardedIdentity(t *testing.T) {
 	js := newJiraServer(t)
 	out, code := runCLI(t, jiraEnv(js.srv), "jira", "issue", "link", "delete", "9")
-	if code != exitOK {
-		t.Fatalf("link delete: exit %d, want 0 (stdout=%q)", code, out)
+	if code != exitUsage {
+		t.Fatalf("link delete: exit %d, want usage (stdout=%q)", code, out)
 	}
-	if !sawReq(js.requests(), http.MethodDelete, "/rest/api/2/issueLink/9") {
-		t.Errorf("expected DELETE /rest/api/2/issueLink/9, got %+v", js.requests())
+	if len(js.requests()) != 0 {
+		t.Errorf("guard refusal made requests: %+v", js.requests())
 	}
 }
 

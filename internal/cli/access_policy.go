@@ -93,6 +93,7 @@ const (
 	mutationGuardConfluencePageDelete
 	mutationGuardJiraIssueDelete
 	mutationGuardJiraDescriptionEdit
+	mutationGuardJiraGuardedLink
 )
 
 type mutationGuardSpec struct {
@@ -119,6 +120,7 @@ const (
 	policyIdentityJiraProjectFlag    policyIdentitySource = "jira-project-flag"
 	policyIdentityJiraTwoIssueArgs   policyIdentitySource = "jira-two-issue-args"
 	policyIdentityJiraLinkID         policyIdentitySource = "jira-link-id"
+	policyIdentityJiraLinkEndpoints  policyIdentitySource = "jira-link-endpoints"
 	policyIdentityJiraPlan           policyIdentitySource = "jira-plan"
 	policyIdentityJiraSprintIssues   policyIdentitySource = "jira-sprint-issues"
 	policyIdentityJiraMirror         policyIdentitySource = "jira-mirror"
@@ -294,8 +296,10 @@ R remote-read-caller-bounded json,text jira issue graph
 R remote-read json,text jira issue history
 R remote-download json jira issue images
 M remote-write remote-direct update jira-issue-arg - json jira issue labels
-M remote-write remote-direct update jira-two-issue-args - json jira issue link add
-M remote-write remote-direct delete jira-link-id - json jira issue link delete
+M remote-write preview-apply update jira-link-endpoints apply,expected-proposal-hash pre-config jira-guarded-link json jira issue link add
+R remote-read json jira issue link add preview
+M remote-write preview-apply delete jira-link-endpoints apply,expected-proposal-hash pre-config jira-guarded-link json jira issue link delete
+R remote-read json jira issue link delete preview
 R remote-read json,text,id jira issue link list
 R remote-read-with-local json,text jira issue link suggest
 M remote-write remote-direct update jira-two-issue-args - json jira issue link-epic
@@ -686,6 +690,8 @@ func validateMutationGuardFamily(cmd *cobra.Command, family mutationGuardFamily,
 		return validateJiraIssueDeleteInvocation(cmd, applyRequested)
 	case mutationGuardJiraDescriptionEdit:
 		return validateJiraDescriptionEditInvocation(cmd, applyRequested)
+	case mutationGuardJiraGuardedLink:
+		return validateJiraGuardedLinkInvocation(cmd, applyRequested)
 	default:
 		return &accessPolicyInvariantError{Command: fmt.Sprintf("%s has invalid mutation guard family", cmd.CommandPath())}
 	}
@@ -896,104 +902,6 @@ func policyVerbConditionPresent(cmd *cobra.Command, verb domain.WriteVerb) bool 
 		}
 	}
 	return false
-}
-
-func policyPreflightTargets(cmd *cobra.Command, args []string, identity policyIdentitySource) ([]domain.WriteTarget, error) {
-	switch identity {
-	case policyIdentityNone, policyIdentityJiraMirror, policyIdentityConfluenceMirror:
-		return nil, nil
-	case policyIdentityJiraPlan:
-		return nil, nil
-	case policyIdentityConfluencePlan:
-		return app.ConfluencePlanPolicyTargets(firstArg(args))
-	case policyIdentityJiraIssueArg:
-		kind := "issue"
-		switch commandRegistryPath(cmd.Root(), cmd) {
-		case "jira issue attachment upload":
-			kind = "attachment"
-		case "jira issue watchers add", "jira issue watchers remove":
-			kind = "watcher"
-		case "jira issue worklog add":
-			kind = "worklog"
-		}
-		return jiraPreflightTargets(kind, firstArg(args)), nil
-	case policyIdentityJiraProjectFlag:
-		project := strings.ToUpper(policyFlagValue(cmd, "project"))
-		if project == "" {
-			return nil, nil
-		}
-		return []domain.WriteTarget{{Service: "jira", Kind: "issue", Project: project}}, nil
-	case policyIdentityJiraTwoIssueArgs:
-		refs := []string{firstArg(args), policyFlagValue(cmd, "to", "epic")}
-		if len(args) > 1 {
-			refs = append(refs, args[1])
-		}
-		var out []domain.WriteTarget
-		for _, ref := range refs {
-			out = append(out, jiraPreflightTargets("issue", ref)...)
-		}
-		return uniqueWriteTargets(out), nil
-	case policyIdentityJiraLinkID:
-		return []domain.WriteTarget{{Service: "jira", Kind: "link"}}, nil
-	case policyIdentityJiraSprintIssues:
-		path := commandRegistryPath(cmd.Root(), cmd)
-		start := 0
-		var out []domain.WriteTarget
-		if path == "jira sprint add" && len(args) > 0 {
-			start = 1
-			out = append(out, domain.WriteTarget{Service: "jira", Kind: "sprint", ID: args[0]})
-		}
-		for _, ref := range args[start:] {
-			out = append(out, jiraPreflightTargets("issue", ref)...)
-		}
-		return out, nil
-	case policyIdentityConfluencePageFlag:
-		path := commandRegistryPath(cmd.Root(), cmd)
-		switch path {
-		case "conf attachment delete":
-			return confluencePreflightTarget("attachment", policyFlagValue(cmd, "id"))
-		case "conf attachment upload":
-			pageID := policyFlagValue(cmd, "id")
-			if pageID == "" {
-				return nil, nil
-			}
-			if _, err := confluencePreflightTarget("page", pageID); err != nil {
-				return nil, err
-			}
-			return []domain.WriteTarget{{Service: "confluence", Kind: "attachment"}}, nil
-		case "conf comment mutation apply":
-			pageID := policyFlagValue(cmd, "id")
-			if pageID == "" {
-				return nil, nil
-			}
-			if _, err := confluencePreflightTarget("page", pageID); err != nil {
-				return nil, err
-			}
-			return confluencePreflightTarget("comment", policyFlagValue(cmd, "thread-id"))
-		default:
-			return confluencePreflightTarget("page", policyFlagValue(cmd, "id", "page-id", "page"))
-		}
-	case policyIdentityConfluencePageArg:
-		if commandRegistryPath(cmd.Root(), cmd) == "conf comment add" {
-			if _, err := confluencePreflightTarget("page", firstArg(args)); err != nil {
-				return nil, err
-			}
-			return []domain.WriteTarget{{Service: "confluence", Kind: "comment"}}, nil
-		}
-		return confluencePreflightTarget("page", firstArg(args))
-	case policyIdentityConfluenceSpace:
-		space := strings.ToUpper(policyFlagValue(cmd, "space"))
-		if space == "" {
-			return nil, nil
-		}
-		kind := "page"
-		if commandRegistryPath(cmd.Root(), cmd) == "conf blog create" {
-			kind = "blogpost"
-		}
-		return []domain.WriteTarget{{Service: "confluence", Kind: kind, Space: space}}, nil
-	default:
-		return nil, fmt.Errorf("%w: unsupported content-policy identity source %q", domain.ErrCheckFailed, identity)
-	}
 }
 
 func policyFlagValue(cmd *cobra.Command, names ...string) string {

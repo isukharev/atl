@@ -684,28 +684,7 @@ func issueTreeText(res *app.JiraIssueTreeResult) string {
 // jiraLinkCmd builds `jira issue link {add,list,delete}`.
 func jiraLinkCmd() *cobra.Command {
 	c := &cobra.Command{Use: "link", Short: "List/add/delete issue links"}
-
-	var linkTo, linkType string
-	add := &cobra.Command{
-		Use:   "add <KEY>",
-		Short: "Link an issue to another (--to KEY2 --type blocks)",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			if linkTo == "" || linkType == "" {
-				return usageErr("--to and --type are required")
-			}
-			svc, err := jiraService(cmd)
-			if err != nil {
-				return err
-			}
-			if err := svc.Link(cmd.Context(), args[0], linkTo, linkType); err != nil {
-				return err
-			}
-			return emit(cmd, map[string]string{"from": args[0], "to": linkTo, "type": linkType, "status": "linked"}, nil)
-		},
-	}
-	add.Flags().StringVar(&linkTo, "to", "", "target issue key")
-	add.Flags().StringVar(&linkType, "type", "", "link type name (e.g. blocks)")
+	add := jiraGuardedLinkAddCmd()
 
 	list := &cobra.Command{
 		Use:   "list <KEY>",
@@ -736,21 +715,7 @@ func jiraLinkCmd() *cobra.Command {
 		},
 	}
 
-	del := &cobra.Command{
-		Use:   "delete <LINK-ID>",
-		Short: "Delete an issue link by id (see `link list`)",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			svc, err := jiraService(cmd)
-			if err != nil {
-				return err
-			}
-			if err := svc.DeleteLink(cmd.Context(), args[0]); err != nil {
-				return err
-			}
-			return emit(cmd, map[string]string{"link": args[0], "status": "deleted"}, nil)
-		},
-	}
+	del := jiraGuardedLinkDeleteCmd()
 
 	var suggestCSV string
 	suggest := &cobra.Command{

@@ -41,7 +41,7 @@ func parsePolicyIdentity(value string) (policyIdentitySource, bool) {
 	identity := policyIdentitySource(value)
 	switch identity {
 	case policyIdentityNone, policyIdentityJiraIssueArg, policyIdentityJiraProjectFlag,
-		policyIdentityJiraTwoIssueArgs, policyIdentityJiraLinkID, policyIdentityJiraPlan,
+		policyIdentityJiraTwoIssueArgs, policyIdentityJiraLinkID, policyIdentityJiraLinkEndpoints, policyIdentityJiraPlan,
 		policyIdentityJiraSprintIssues, policyIdentityJiraMirror,
 		policyIdentityConfluencePageFlag, policyIdentityConfluencePageArg,
 		policyIdentityConfluenceSpace, policyIdentityConfluencePlan, policyIdentityConfluenceMirror:
@@ -177,6 +177,8 @@ func parseMutationGuardFamily(value string) (mutationGuardFamily, bool) {
 		return mutationGuardJiraIssueDelete, true
 	case "jira-description-edit":
 		return mutationGuardJiraDescriptionEdit, true
+	case "jira-guarded-link":
+		return mutationGuardJiraGuardedLink, true
 	default:
 		return 0, false
 	}

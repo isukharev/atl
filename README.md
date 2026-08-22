@@ -12,10 +12,10 @@
 
 **Lossless local workflows for Jira and Confluence Server/Data Center.**
 
-`atl` lets people and coding agents inspect, mirror, diff, and update
-Atlassian content. Native Confluence `.csf` and Jira `.wiki` bytes remain the
-write substrate; Markdown is a staging view. Remote
-writes require explicit version, baseline, or proposal gates.
+`atl` provides Jira/Confluence inspection, mirroring, diffs, and updates.
+Native `.csf`/`.wiki` bytes—not Markdown—remain the write substrate. Writes
+require version, baseline, or proposal gates. Guarded Jira links require two
+project/key `kind:link` targets and a reviewed hash; issue-only allows are insufficient.
 
 ```sh
 export ATL_READ_ONLY=1

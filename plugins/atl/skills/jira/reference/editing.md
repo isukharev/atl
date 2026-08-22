@@ -111,8 +111,13 @@ push.
   review normalized duration/start/author plus the complete worklog-id baseline
   hash, then apply once. An ambiguous response gets one reconciliation read;
   unknown is possibly committed and never reusable.
-- Links/plans: freeze exact scope, expected update times, link type metadata,
-  and proposal hash before any row writes; stop/reconcile unknown outcomes.
+- Links: use the independent `link add|delete preview` child under read-only
+  policy, review both endpoints, exact type metadata, reciprocal candidates,
+  and proposal hash, then repeat once on the parent with `--apply` and the hash.
+  Delete also repeats exact `--from`, `--to`, and `--type`. Both endpoint
+  `kind:link` targets must be allowed; stop on `outcome_unknown` without retry.
+- CSV plans: freeze exact scope, expected update times, link type metadata, and
+  proposal hash before any row writes; stop/reconcile unknown outcomes.
 - Attachments/create operations are non-idempotent: do not automatically retry
   a transport-ambiguous POST.
 
