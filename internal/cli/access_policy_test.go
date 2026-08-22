@@ -215,7 +215,7 @@ preview-apply|apply,expected-proposal-hash|jira issue create
 preview-apply|apply,confirm,expected-proposal-hash,expected-updated|jira issue delete
 preview-apply|apply,expected-proposal-hash|jira issue edit
 preview-apply|apply,expected-proposal-hash,expected-updated|jira issue field set
-remote-direct|-|jira issue labels
+preview-apply|apply,expected-proposal-hash|jira issue labels
 preview-apply|apply,expected-proposal-hash|jira issue link add
 preview-apply|apply,expected-proposal-hash|jira issue link delete
 remote-direct|-|jira issue link-epic

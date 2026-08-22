@@ -11,6 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Changed `jira issue labels` to preview by default and added the independently
+  read-only `labels preview` child. Label add/remove proposals now bind complete
+  strict label evidence, immutable issue/project identity and fixed workflow
+  bounds; apply performs one numeric-id PUT and accepts success only after exact
+  advancing readback, with terminal no-replay ambiguous outcomes.
+
 - Changed `jira issue create` to preview by default with exact proposal-hash
   apply, immutable-ID readback proof, closed ambiguous outcomes, and optional
   post-proof mirror registration. Added the read-only `create preview` child.

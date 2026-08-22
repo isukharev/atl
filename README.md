@@ -50,13 +50,13 @@ The [documentation index](docs/README.md) leads to workflows. Use the
 
 ## Install
 
-Linux and macOS release binaries are available for amd64 and arm64.
+Linux/macOS binaries support amd64 and arm64.
 
 ```sh
 curl -fsSL https://github.com/isukharev/atl/releases/latest/download/install.sh | sh
 ```
 
-The installer verifies SHA-256; releases also publish checksums, signatures,
+The installer verifies SHA-256; releases publish checksums, signatures,
 and SLSA provenance:
 
 ```sh
@@ -88,6 +88,7 @@ atl jira issue search --jql 'order by updated DESC' --limit 5
 `doctor --service jira|confluence` scopes offline health; `--remote` makes
 bounded body-free version probes. `safety` reports read-only state/source.
 JSON uses stdout; diagnostics stderr.
+`labels preview`: read-only; apply requires hash.
 
 For Confluence:
 

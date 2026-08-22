@@ -8,6 +8,7 @@ Jira mirrors, issue evidence and mutations, exports, graphs, references, and rep
 ## Navigate this reference
 
 - [Guarded targeted description edits](#guarded-targeted-description-edits)
+- [Guarded Jira labels](#guarded-jira-labels)
 - [Guarded Jira links](#guarded-jira-links)
 - [Jira mirrors and derived views](#jira-mirrors-and-derived-views)
 - [`jira attachment-bodies`](#jira-attachment-bodies)
@@ -35,6 +36,28 @@ Statuses are `would_apply`, `already_satisfied`, `blocked`, `not_applied`,
 reviewed hash can attempt one PUT. `recovered` means an ambiguous response was
 followed by exact intended bytes and an advancing `updated`; every unavailable,
 unchanged, or conflicting readback is `outcome_unknown` and exit 8.
+
+## Guarded Jira labels
+
+`jira issue labels` and its independent `preview` child emit content-minimized
+schema-v1 JSON only. The result identifies the operation, backend digest,
+requested/canonical key, numeric issue id, project and exact `updated`; includes
+the sorted requested `add`/`remove` values; and represents current, desired and
+effective-delta sets only as `{count,sha256}`. It also carries fixed bounds,
+usage, `proposal_hash`, `mode`, closed `status`, `write_attempted`,
+`reconciled`, and `complete`. Unrelated current labels are never emitted.
+The bounds include a 64-byte requested-key cap alongside the label, request,
+response-byte, and deadline limits bound into the proposal hash.
+
+Statuses are `would_apply`, `already_satisfied`, `blocked`, `not_applied`,
+`applied`, `recovered`, or `outcome_unknown`. A matching already-satisfied
+proposal makes only the initial GET. Otherwise apply uses at most four Jira
+attempts under one 60-second deadline and 16 MiB aggregate response/error-body
+budget: initial GET, immediate numeric-id GET, one numeric-id PUT, and one
+numeric-id readback. Preview permits one GET. Only exact desired labels plus a
+strictly advancing `updated` prove `applied` or `recovered`; unavailable,
+moved, malformed, non-advancing, or conflicting evidence is terminal
+`outcome_unknown`, exit 8, and not replay-safe.
 
 ## Guarded Jira links
 

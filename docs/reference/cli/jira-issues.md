@@ -890,14 +890,33 @@ positive values are capped at 1000/50/500, and negative values are rejected.
 
 ## `atl jira issue labels`
 
-Add and/or remove labels without clobbering labels set by others (uses the
-field-update verb).
+Preview or apply one reviewed label delta without clobbering unrelated labels.
+The parent is mutation-classified even when it previews; the independent
+`labels preview` child is GET-only and works under read-only policy. Both emit
+schema-v1 JSON only.
 
 ```bash
-atl jira issue labels PROJ-1 --add bug,backend [--remove wontfix]
+ATL_READ_ONLY=1 atl jira issue labels preview PROJ-1 \
+  --add bug,backend --remove wontfix
+env -u ATL_READ_ONLY atl jira issue labels PROJ-1 \
+  --add bug,backend --remove wontfix --apply \
+  --expected-proposal-hash '<reviewed hash>'
 ```
 
-Flags: `--add` / `--remove` (comma-separated; at least one required, else exit 2).
+`--add` and `--remove` remain compatible comma-separated inputs and may be
+combined. Values are trimmed, byte-sorted, and must be unique, non-empty valid
+UTF-8 of at most 255 bytes; overlap is rejected. At most 100 values may be
+requested and a complete current set may contain at most 4096 labels. The
+canonical issue key is capped at 64 bytes. There is no `--set` replacement mode.
+
+The proposal binds backend origin, requested and immutable issue identity,
+project, exact `updated`, the complete current/desired sets, effective delta,
+and fixed request/byte/deadline bounds. Apply compares the hash before deciding
+an already-satisfied no-op, revalidates immediately by numeric id, sends at
+most one sorted add/remove PUT, and requires exact labels plus an advancing
+`updated` from one numeric-id readback. `recovered` proves that end state after
+an ambiguous response, not causation. `blocked` and `outcome_unknown` exit 8;
+never replay an attempted or unknown operation automatically.
 
 ## `atl jira issue watchers list|add|remove`
 

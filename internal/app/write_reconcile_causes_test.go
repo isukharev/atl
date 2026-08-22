@@ -175,6 +175,7 @@ func TestGuardedWriteErrorCauseAdapterInventory(t *testing.T) {
 		"jiraDescriptionEditError":             {file: "jira_description_edit.go", causeArg: "e.cause", closedArg: "e.closed"},
 		"jiraGuardedLinkError":                 {file: "jira_links_guarded.go", causeArg: "e.cause", closedArg: "true"},
 		"jiraGuardedCreateError":               {file: "jira_create_guarded.go", causeArg: "e.cause", closedArg: "e.closed"},
+		"jiraGuardedLabelError":                {file: "jira_labels_guarded.go", causeArg: "e.cause", closedArg: "e.closed"},
 	}
 
 	paths, err := filepath.Glob("*.go")

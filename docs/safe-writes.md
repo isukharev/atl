@@ -260,6 +260,27 @@ at most one description-only PUT and then requires exact advancing readback.
 `recovered` proves the intended bytes after an ambiguous response;
 `outcome_unknown` is terminal and must never be replayed automatically.
 
+## Jira: guarded issue labels
+
+Use the independently read-only child to review the exact add/remove proposal,
+then repeat the same combined flags once on the mutation-classified parent:
+
+```sh
+ATL_READ_ONLY=1 atl jira issue labels preview EXAMPLE-1 \
+  --add reviewed,backend --remove stale
+env -u ATL_READ_ONLY atl jira issue labels EXAMPLE-1 \
+  --add reviewed,backend --remove stale --apply \
+  --expected-proposal-hash '<reviewed hash>'
+```
+
+Apply revalidates the complete label set and exact issue/project identity by
+immutable numeric id before one sorted field-update PUT. A matching reviewed
+no-op returns `already_satisfied` without the second GET or PUT. After any
+successful or ambiguous dispatch, accept success only from exact desired labels
+and a strictly advancing `updated`; `outcome_unknown` is terminal and must not
+be replayed. Use add/remove, not whole-array replacement, when unrelated labels
+must be preserved.
+
 ## Jira: reviewed comment
 
 Keep the comment body out of command-line arguments:
