@@ -266,6 +266,26 @@ The command sends at most one POST and reconciles an ambiguous outcome without
 replaying it. The same principle applies to guarded field, transition, watcher,
 worklog, and multi-object plan commands.
 
+## Jira: reviewed issue links
+
+Use the independent read-only child for proposal review, then repeat the exact
+semantic endpoints and selector on the mutation-classified parent:
+
+```sh
+ATL_READ_ONLY=1 atl jira issue link add preview EXAMPLE-1 \
+  --to OTHER-2 --type blocks
+env -u ATL_READ_ONLY atl jira issue link add EXAMPLE-1 \
+  --to OTHER-2 --type blocks --apply \
+  --expected-proposal-hash '<reviewed hash>'
+```
+
+Delete requires the link id plus both reviewed endpoints and the same type
+selector. Guarded add/delete use two project/key-scoped `kind:link` policy
+targets; an issue-only allow is intentionally insufficient. Apply revalidates
+immediately before one immutable-id/type-id POST or exact-link DELETE. Accept
+only `applied`, `recovered`, or add-only `already_satisfied`; retain terminal
+`outcome_unknown` for investigation and never replay it automatically.
+
 ## Jira: permanent issue deletion
 
 Jira Data Center has no issue trash. The whole deletion leaf is

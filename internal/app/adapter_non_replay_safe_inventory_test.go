@@ -40,6 +40,8 @@ func TestAdapterNonReplaySafeRequestInventory(t *testing.T) {
 		"confluence/labels.go:RemoveContentLabel:Do:DELETE":                         mutatingCleared,
 		"jira/agile.go:MoveIssuesToBacklog:SendJSON:POST":                           mutatingCleared,
 		"jira/agile.go:MoveIssuesToSprint:SendJSON:POST":                            mutatingCleared,
+		"jira/guarded_links.go:AddGuardedLink:SendJSON:POST":                        mutatingCleared,
+		"jira/guarded_links.go:DeleteGuardedLink:SendJSON:DELETE":                   mutatingCleared,
 		"jira/jira.go:AddComment:SendJSON:POST":                                     mutatingCleared,
 		"jira/jira.go:Assign:SendJSON:PUT":                                          mutatingCleared,
 		"jira/jira.go:Create:SendJSON:POST":                                         mutatingCleared,
@@ -77,11 +79,11 @@ func TestAdapterNonReplaySafeRequestInventory(t *testing.T) {
 		dispositions[classification.Disposition]++
 		markers[classification.Marker]++
 	}
-	if len(got) != 32 || dispositions[mutating] != 31 || dispositions[readIntent] != 1 {
-		t.Fatalf("inventory counts = total %d, mutating %d, read-intent %d; want 32/31/1", len(got), dispositions[mutating], dispositions[readIntent])
+	if len(got) != 34 || dispositions[mutating] != 33 || dispositions[readIntent] != 1 {
+		t.Fatalf("inventory counts = total %d, mutating %d, read-intent %d; want 34/33/1", len(got), dispositions[mutating], dispositions[readIntent])
 	}
-	if markers["write_clearance"] != 31 || markers[readIntent] != 1 || markers[noMarker] != 0 {
-		t.Fatalf("marker counts = clearance %d, read-intent %d, none %d; want 31/1/0", markers["write_clearance"], markers[readIntent], markers[noMarker])
+	if markers["write_clearance"] != 33 || markers[readIntent] != 1 || markers[noMarker] != 0 {
+		t.Fatalf("marker counts = clearance %d, read-intent %d, none %d; want 33/1/0", markers["write_clearance"], markers[readIntent], markers[noMarker])
 	}
 }
 

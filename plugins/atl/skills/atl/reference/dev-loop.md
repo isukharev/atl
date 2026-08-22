@@ -71,7 +71,8 @@ ambiguous.
 **Blocked?** Say so where it's visible:
 
 ```bash
-atl jira issue link add PROJ-123 --to PROJ-99 --type blocks   # check `atl jira link-types` first
+ATL_READ_ONLY=1 atl jira issue link add preview PROJ-123 --to PROJ-99 --type blocks
+# After review, repeat on `link add` with --apply --expected-proposal-hash.
 ATL_READ_ONLY=1 atl jira issue transition preview PROJ-123 --to Blocked --comment "Waiting on PROJ-99"
 env -u ATL_READ_ONLY atl jira issue transition PROJ-123 --to Blocked \
   --comment "Waiting on PROJ-99" --apply --expected-proposal-hash '<reviewed-hash>'

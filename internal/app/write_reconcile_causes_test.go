@@ -173,6 +173,7 @@ func TestGuardedWriteErrorCauseAdapterInventory(t *testing.T) {
 		"confluenceAttachmentDeleteWriteError": {file: "confluence_attachment_delete.go", causeArg: "e.cause", closedArg: "true"},
 		"jiraIssueDeleteWriteError":            {file: "jira_issue_delete.go", causeArg: "e.cause", closedArg: "true"},
 		"jiraDescriptionEditError":             {file: "jira_description_edit.go", causeArg: "e.cause", closedArg: "e.closed"},
+		"jiraGuardedLinkError":                 {file: "jira_links_guarded.go", causeArg: "e.cause", closedArg: "true"},
 	}
 
 	paths, err := filepath.Glob("*.go")

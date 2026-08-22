@@ -8,6 +8,7 @@ Jira mirrors, issue evidence and mutations, exports, graphs, references, and rep
 ## Navigate this reference
 
 - [Guarded targeted description edits](#guarded-targeted-description-edits)
+- [Guarded Jira links](#guarded-jira-links)
 - [Jira mirrors and derived views](#jira-mirrors-and-derived-views)
 - [`jira attachment-bodies`](#jira-attachment-bodies)
 - [Jira mirror status, apply, and push](#jira-mirror-status-apply-and-push)
@@ -34,6 +35,25 @@ Statuses are `would_apply`, `already_satisfied`, `blocked`, `not_applied`,
 reviewed hash can attempt one PUT. `recovered` means an ambiguous response was
 followed by exact intended bytes and an advancing `updated`; every unavailable,
 unchanged, or conflicting readback is `outcome_unknown` and exit 8.
+
+## Guarded Jira links
+
+`jira issue link add|delete` and their independent `preview` children emit only
+schema-v1 JSON. The result contains `operation`, content-free backend origin,
+semantic `requested_from`/`requested_to`, requested selector/link id, exact
+outward/inward endpoint `{id,key,project,role}`, selected type
+`{id,name,inward,outward}`, `resolved_role`, complete type-catalog count/digest,
+candidate-only reciprocal evidence, `proposal_hash`, `mode`, closed `status`,
+`write_attempted`, `reconciled`, and `complete`. Native issue content, unrelated
+link inventory, response bodies, and policy detail are never emitted.
+
+Statuses are `would_apply`, add-only `already_satisfied`, `blocked`,
+`not_applied`, `applied`, `recovered`, and `outcome_unknown`. `applied` requires
+exact reciprocal intended state after add, or exact link-id absence on both
+complete endpoints with no semantic replacement after delete. `recovered`
+proves only the same bounded end state after an ambiguous response, not causal
+attribution. Any missing, retained, duplicate, conflicting, moved, incomplete,
+or deadline-exhausted readback is `outcome_unknown` and exit 8.
 
 ## Jira mirrors and derived views
 

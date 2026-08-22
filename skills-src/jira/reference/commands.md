@@ -113,9 +113,11 @@ not display/short URLs, and no page body or backlink query is made.
 | `jira issue comment add <KEY>` | Preview or apply one reviewed comment append | `--from-md`, `--from-file`, `--apply`, `--expected-proposal-hash` |
 | `jira issue comment list <KEY>` | List comments | — |
 | `jira issue comment delete <KEY> <ID>` | Delete a comment | — |
-| `jira issue link add <KEY>` | Link an issue to another | `--to KEY2`, `--type blocks` |
+| `jira issue link add preview <KEY>` | GET-only guarded-link proposal | `--to KEY2`, `--type blocks`; safe under `ATL_READ_ONLY=1` |
+| `jira issue link add <KEY>` | Preview/apply an exact reviewed link | `--to KEY2`, `--type blocks`; apply with `--apply --expected-proposal-hash` |
 | `jira issue link list <KEY>` | List links with ids | — |
-| `jira issue link delete <LINK-ID>` | Delete a link by id | — |
+| `jira issue link delete preview <LINK-ID>` | GET-only exact-link deletion proposal | required `--from`, `--to`, `--type` |
+| `jira issue link delete <LINK-ID>` | Preview/apply exact-link deletion | required `--from`, `--to`, `--type`; apply with reviewed hash |
 | `jira issue link suggest` | Read-only missing-link candidates from CSV | `--csv` |
 | `jira issue plan apply` | Dry-run/apply guarded CSV operation plan | `--csv`, `--allow-ops`, `--allow-fields`, `--allow-link-types`, `--continue-on-error`, `--apply`, `--confirm APPLY` |
 | `jira issue link-epic <KEY>` | Set the configured or auto-resolved Epic Link | `--epic EPIC-KEY`; optional global `render.jira.epic_field` selector |

@@ -154,8 +154,8 @@ delete|jira-issue-arg|jira issue delete
 update,move?|jira-issue-arg|jira issue edit
 update,move?|jira-issue-arg|jira issue field set
 update|jira-issue-arg|jira issue labels
-update|jira-two-issue-args|jira issue link add
-delete|jira-link-id|jira issue link delete
+update|jira-link-endpoints|jira issue link add
+delete|jira-link-endpoints|jira issue link delete
 update|jira-two-issue-args|jira issue link-epic
 update|jira-plan|jira issue plan apply
 transition,comment?|jira-issue-arg|jira issue transition
@@ -216,8 +216,8 @@ preview-apply|apply,confirm,expected-proposal-hash,expected-updated|jira issue d
 preview-apply|apply,expected-proposal-hash|jira issue edit
 preview-apply|apply,expected-proposal-hash,expected-updated|jira issue field set
 remote-direct|-|jira issue labels
-remote-direct|-|jira issue link add
-remote-direct|-|jira issue link delete
+preview-apply|apply,expected-proposal-hash|jira issue link add
+preview-apply|apply,expected-proposal-hash|jira issue link delete
 remote-direct|-|jira issue link-epic
 plan|apply,confirm|jira issue plan apply
 preview-apply|apply,expected-proposal-hash|jira issue transition

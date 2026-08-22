@@ -586,20 +586,50 @@ Flags (`preview` and `add`):
 Manage typed links between issues. `link` is a subcommand group.
 
 ```bash
-atl jira issue link add PROJ-1 --to PROJ-2 --type blocks
-atl jira issue link add PROJ-3 --to PROJ-1 --type "is cloned by"
+ATL_READ_ONLY=1 atl jira issue link add preview PROJ-1 --to PROJ-2 --type blocks
+env -u ATL_READ_ONLY atl jira issue link add PROJ-1 --to PROJ-2 --type blocks
+env -u ATL_READ_ONLY atl jira issue link add PROJ-1 --to PROJ-2 --type blocks \
+  --apply --expected-proposal-hash '<reviewed hash>'
 atl jira issue link list PROJ-1                    # {key, links:[{id,direction,type,type_name,key}]}; -o id → link ids
-atl jira issue link delete <LINK-ID>               # see the id from `link list`
+ATL_READ_ONLY=1 atl jira issue link delete preview <LINK-ID> \
+  --from PROJ-1 --to PROJ-2 --type blocks
+env -u ATL_READ_ONLY atl jira issue link delete <LINK-ID> \
+  --from PROJ-1 --to PROJ-2 --type blocks \
+  --apply --expected-proposal-hash '<reviewed hash>'
 atl jira issue link suggest --csv links.csv         # dry-run missing-link candidates only
 ```
 
-Flags (`add`):
+`add` and `delete` parents are mutation-classified, preview by default, and
+JSON-only. Their independently read-only `preview` children perform the same
+three-read proposal (`link types`, then both endpoints) and are available under
+`ATL_READ_ONLY=1`. There is no `--dry-run` alias. Apply repeats the three reads,
+sends at most one POST/DELETE, and reads both endpoints once for closeout: at
+most 9 physical requests, one shared 16 MiB response budget, and one 60-second
+absolute deadline. Every request is single-attempt and refuses redirects.
+
+Flags (`add` and `add preview`):
 
 | flag | description |
 |---|---|
 | `PROJ-1` | source issue key (positional, required) |
 | `--to` | target issue key (required) |
-| `--type` | link type name (required; see `atl jira link-types`) |
+| `--type` | canonical name, inward phrase, or outward phrase (required; see `atl jira link-types`) |
+| `--apply` | parent only: send the sole reviewed write attempt |
+| `--expected-proposal-hash` | parent only: exact lowercase hash required with `--apply` |
+
+Delete additionally requires exact `--from`, `--to`, and `--type` evidence;
+its positional value is the positive numeric link id, never an issue identity.
+Both endpoints must be admitted by project/key-scoped `kind:link` policy for
+the operation. An older `kind:issue` allow does not authorize guarded links.
+
+The schema-v1 proposal binds backend origin, semantic endpoint roles and
+immutable ids, exact link-type id/name/phrases, complete type-catalog digest,
+and only reciprocal candidates between these endpoints. Unrelated links and
+the issue `updated` marker do not invalidate another independently reviewed
+link. Identical inward/outward phrases are neutral and endpoint order is
+canonical by numeric issue id. Collision, malformed/incomplete evidence,
+non-reciprocal state, prewrite drift, or duplicate candidates blocks with zero
+writes. `outcome_unknown` is terminal and must never be replayed automatically.
 
 `suggest` is read-only. It expects a reviewed CSV plan with `source`, `target`,
 `type`, and optional `rationale` columns. Common aliases such as `from`, `to`,

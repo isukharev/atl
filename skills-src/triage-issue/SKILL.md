@@ -103,7 +103,8 @@ then:
 
 ```sh
 atl jira issue create --project KEY --type Bug --summary '<Component>: <symptom> <condition>' --from-md desc.md
-atl jira issue link add NEW-1 --to OLD-9 --type Relates     # when prior history exists
+ATL_READ_ONLY=1 atl jira issue link add preview NEW-1 --to OLD-9 --type Relates
+# After explicit review, repeat without ATL_READ_ONLY and add --apply plus the proposal hash.
 ```
 
 Title formula: component + observable symptom + triggering condition — not the

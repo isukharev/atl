@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added hash-guarded Jira link add/delete proposals with independent read-only
+  preview leaves, strict reciprocal/type evidence, immutable-id writes, bounded
+  no-replay reconciliation, and two-endpoint `kind:link` authorization. Existing
+  issue-only policy grants no longer authorize these guarded link mutations.
 - Added guarded targeted Jira description edits: a GET-only
   `jira issue edit preview` leaf and preview-by-default parent now bind native
   wiki byte evidence to a reviewed proposal hash, revalidate by immutable id,
