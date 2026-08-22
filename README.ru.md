@@ -194,7 +194,7 @@ env -u ATL_READ_ONLY atl conf push \
 Проверив полный результат, запустите ту же команду без `--dry-run`. Version
 conflict Confluence завершается с кодом `5`: сохраните локальный candidate и
 используйте `conf reconcile preview`, не включая force автоматически.
-Proposal-bound workflow для комментариев, create/copy, корзины, полей Jira,
+Proposal-bound workflow для комментариев, Jira create, Confluence copy, корзины, полей,
 transition и удаления требуют выведенных expected-значений и никогда не
 повторяют неоднозначную запись. Точные команды apply и восстановления приведены
 в [руководстве по безопасной записи](docs/safe-writes.md).

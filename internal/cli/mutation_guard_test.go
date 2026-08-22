@@ -262,6 +262,7 @@ func TestMutationGuardSpecsPreserveReviewedPhasesAndFamilies(t *testing.T) {
 		"conf plan apply":              {mutationGuardCommandOwned, mutationGuardGeneric},
 		"corpus cache retention apply": {mutationGuardPreConfig, mutationGuardGeneric},
 		"jira issue comment add":       {mutationGuardCommandOwned, mutationGuardGeneric},
+		"jira issue create":            {mutationGuardPreConfig, mutationGuardJiraGuardedCreate},
 		"jira issue delete":            {mutationGuardPreConfig, mutationGuardJiraIssueDelete},
 		"jira issue edit":              {mutationGuardPreConfig, mutationGuardJiraDescriptionEdit},
 		"jira issue link add":          {mutationGuardPreConfig, mutationGuardJiraGuardedLink},
@@ -302,8 +303,8 @@ func TestMutationGuardSpecsPreserveReviewedPhasesAndFamilies(t *testing.T) {
 			}
 		}
 	}
-	if seen != 26 || len(want) != 26 {
-		t.Fatalf("typed guarded commands=%d reviewed=%d want=26", seen, len(want))
+	if seen != 27 || len(want) != 27 {
+		t.Fatalf("typed guarded commands=%d reviewed=%d want=27", seen, len(want))
 	}
 	for path := range want {
 		registration, ok := commandRegistry.nodes[path]

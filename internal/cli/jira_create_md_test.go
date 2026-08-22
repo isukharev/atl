@@ -30,20 +30,23 @@ func writeTempMD(t *testing.T, content string) string {
 // TestJiraCreate_FromMD: the converted wiki markup is what reaches the wire
 // as fields.description.
 func TestJiraCreate_FromMD(t *testing.T) {
-	js := newJiraServer(t)
-	js.route(http.MethodPost, "/rest/api/2/issue", http.StatusCreated, `{"key":"ENG-7"}`)
-
-	out, code := runCLI(t, jiraEnv(js.srv),
-		"jira", "issue", "create", "--project", "ENG", "--type", "Task",
-		"--summary", "MD", "--from-md", writeTempMD(t, jiraMD))
+	js := newJiraGuardedCreateCLIServer(t)
+	args := []string{"jira", "issue", "create", "--project", "OPS", "--type", "Task",
+		"--summary", "MD", "--from-md", writeTempMD(t, jiraMD)}
+	out, code := runCLI(t, jiraEnv(js.server), args...)
 	if code != exitOK {
-		t.Fatalf("jira create --from-md: exit %d (stdout=%q)", code, out)
+		t.Fatalf("jira create --from-md preview: exit %d (stdout=%q)", code, out)
 	}
-	writes := js.writeReqsTo("/rest/api/2/issue")
-	if len(writes) != 1 {
-		t.Fatalf("expected 1 write, got %d", len(writes))
+	var preview app.JiraGuardedCreateResult
+	if err := json.Unmarshal([]byte(out), &preview); err != nil {
+		t.Fatal(err)
 	}
-	if got := jiraFields(t, writes[0].body)["description"]; got != jiraWiki {
+	args = append(args, "--apply", "--expected-proposal-hash", preview.ProposalHash)
+	out, code = runCLI(t, jiraEnv(js.server), args...)
+	if code != exitOK {
+		t.Fatalf("jira create --from-md apply: exit %d (stdout=%q)", code, out)
+	}
+	if got := jiraFields(t, js.body)["description"]; got != jiraWiki {
 		t.Fatalf("description = %q, want converted wiki %q", got, jiraWiki)
 	}
 }

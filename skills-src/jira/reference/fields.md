@@ -72,7 +72,7 @@ its exact bytes and existing coercion behavior.
 
 ```bash
 atl jira issue update PROJ-1 --field 'priority={"name":"High"}'
-atl jira issue create --project PROJ --type Task --summary 'X' \
+atl jira issue create preview --project PROJ --type Task --summary 'X' \
   --field 'components=[{"name":"backend"}]' --field 'fixVersions=[{"name":"1.2"}]' \
   --field-json customfield_10060=5
 ```

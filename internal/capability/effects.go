@@ -47,6 +47,7 @@ const (
 	EffectRemoteReadCaller     = "remote-read-caller-bounded"
 	EffectRemoteReadFixed      = "remote-read-fixed"
 	EffectRemoteReadWithLocal  = "remote-read-with-local"
+	EffectGuardedCreatePreview = "guarded-create-preview"
 	EffectRemoteReadLocal      = "remote-read-local"
 	EffectRemoteDownload       = "remote-download"
 	EffectRemoteOpen           = "remote-open"
@@ -54,6 +55,7 @@ const (
 	EffectRemoteWrite          = "remote-write"
 	EffectRemoteWriteWithLocal = "remote-write-with-local"
 	EffectRemoteWriteLocal     = "remote-write-local"
+	EffectGuardedCreateApply   = "guarded-create-apply"
 	EffectCorpusBuild          = "corpus-build"
 	EffectStdioServer          = "stdio-server"
 )
@@ -66,6 +68,8 @@ var effectProfiles = []EffectProfile{
 	{ID: EffectCredentialWrite, Summary: "inspect configuration and remove credential-store state when present", RemoteEffect: "none", LocalEffect: "write", CredentialAccess: "possible", NetworkBound: "none", ProcessEffect: "none", ReplayClass: "non_replay_safe", OutputKind: "data", LocalArtifact: "none", Configuration: "read", SelfUpdate: "disabled"},
 	{ID: EffectDiagnostic, Summary: "inspect common local state and optionally make fixed service probes", RemoteEffect: "read", LocalEffect: "read", CredentialAccess: "possible", NetworkBound: "fixed", ProcessEffect: "none", ReplayClass: "replay_safe", OutputKind: "data", LocalArtifact: "none", Configuration: "read", SelfUpdate: "disabled"},
 	{ID: EffectGenerator, Summary: "generate static shell integration text", RemoteEffect: "none", LocalEffect: "none", CredentialAccess: "none", NetworkBound: "none", ProcessEffect: "none", ReplayClass: "replay_safe", OutputKind: "generator", LocalArtifact: "none", Configuration: "none", SelfUpdate: "disabled"},
+	{ID: EffectGuardedCreateApply, Summary: "apply an exact guarded Jira create with optional local registration and no startup update", RemoteEffect: "write", LocalEffect: "write", CredentialAccess: "required", NetworkBound: "fixed", ProcessEffect: "none", ReplayClass: "non_replay_safe", OutputKind: "data", LocalArtifact: "possible", Configuration: "read", SelfUpdate: "disabled"},
+	{ID: EffectGuardedCreatePreview, Summary: "preview an exact guarded Jira create with optional local qualification and no startup update", RemoteEffect: "read", LocalEffect: "read", CredentialAccess: "required", NetworkBound: "fixed", ProcessEffect: "none", ReplayClass: "replay_safe", OutputKind: "data", LocalArtifact: "none", Configuration: "read", SelfUpdate: "disabled"},
 	{ID: EffectLocalArtifact, Summary: "read and write a caller-selected local artifact", RemoteEffect: "none", LocalEffect: "write", CredentialAccess: "none", NetworkBound: "none", ProcessEffect: "none", ReplayClass: "non_replay_safe", OutputKind: "data", LocalArtifact: "required", Configuration: "none", SelfUpdate: "disabled"},
 	{ID: EffectLocalArtifactConfig, Summary: "read and write a caller-selected local artifact after inspecting configuration", RemoteEffect: "none", LocalEffect: "write", CredentialAccess: "none", NetworkBound: "none", ProcessEffect: "none", ReplayClass: "non_replay_safe", OutputKind: "data", LocalArtifact: "required", Configuration: "read", SelfUpdate: "disabled"},
 	{ID: EffectLocalProse, Summary: "read bounded local state and emit human-oriented guidance", RemoteEffect: "none", LocalEffect: "read", CredentialAccess: "none", NetworkBound: "none", ProcessEffect: "none", ReplayClass: "replay_safe", OutputKind: "prose", LocalArtifact: "none", Configuration: "none", SelfUpdate: "disabled"},

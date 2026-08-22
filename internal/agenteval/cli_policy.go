@@ -28,11 +28,13 @@ type CLICommandPolicy struct {
 }
 
 type CLICommandRule struct {
-	Name           string            `json:"name"`
-	Command        []string          `json:"command"`
-	Positionals    []CLIArgumentRule `json:"positionals,omitempty"`
-	Flags          []CLIFlagRule     `json:"flags,omitempty"`
-	MaxInvocations int               `json:"max_invocations"`
+	Name                 string            `json:"name"`
+	Command              []string          `json:"command"`
+	Positionals          []CLIArgumentRule `json:"positionals,omitempty"`
+	Flags                []CLIFlagRule     `json:"flags,omitempty"`
+	BindsProposalHash    string            `json:"binds_proposal_hash,omitempty"`
+	RequiresProposalHash string            `json:"requires_proposal_hash,omitempty"`
+	MaxInvocations       int               `json:"max_invocations"`
 }
 
 type CLIArgumentRule struct {
@@ -48,8 +50,10 @@ type CLIFlagRule struct {
 }
 
 type CLICommandMatch struct {
-	Name           string
-	MaxInvocations int
+	Name                 string
+	BindsProposalHash    string
+	RequiresProposalHash string
+	MaxInvocations       int
 }
 
 func (p CLICommandPolicy) Validate() error {
@@ -60,6 +64,8 @@ func (p CLICommandPolicy) Validate() error {
 		return fmt.Errorf("cli command policy requires 1..64 rules")
 	}
 	seenNames := map[string]struct{}{}
+	boundProducers := map[string]string{}
+	boundConsumers := map[string]string{}
 	for _, rule := range p.Rules {
 		if !identifierRE.MatchString(rule.Name) {
 			return fmt.Errorf("invalid cli command rule name")
@@ -68,6 +74,24 @@ func (p CLICommandPolicy) Validate() error {
 			return fmt.Errorf("duplicate cli command rule name %q", rule.Name)
 		}
 		seenNames[rule.Name] = struct{}{}
+		if rule.BindsProposalHash != "" && rule.RequiresProposalHash != "" {
+			return fmt.Errorf("cli command rule %q cannot both bind and require a proposal hash", rule.Name)
+		}
+		if p.SchemaVersion == LegacyCLICommandPolicySchemaVersion && (rule.BindsProposalHash != "" || rule.RequiresProposalHash != "") {
+			return fmt.Errorf("cli command rule %q proposal bindings require schema_version %d", rule.Name, CLICommandPolicySchemaVersion)
+		}
+		if rule.BindsProposalHash != "" {
+			if !identifierRE.MatchString(rule.BindsProposalHash) || boundProducers[rule.BindsProposalHash] != "" {
+				return fmt.Errorf("cli command rule %q has an invalid or duplicate proposal-hash producer", rule.Name)
+			}
+			boundProducers[rule.BindsProposalHash] = rule.Name
+		}
+		if rule.RequiresProposalHash != "" {
+			if !identifierRE.MatchString(rule.RequiresProposalHash) || boundConsumers[rule.RequiresProposalHash] != "" {
+				return fmt.Errorf("cli command rule %q has an invalid or duplicate proposal-hash consumer", rule.Name)
+			}
+			boundConsumers[rule.RequiresProposalHash] = rule.Name
+		}
 		if len(rule.Command) == 0 || len(rule.Command) > 8 {
 			return fmt.Errorf("cli command rule %q requires 1..8 command tokens", rule.Name)
 		}
@@ -85,6 +109,7 @@ func (p CLICommandPolicy) Validate() error {
 			}
 		}
 		seenFlags := map[string]struct{}{}
+		hasProposalHashFlag := false
 		for _, flag := range rule.Flags {
 			if !cliFlagNameRE.MatchString(flag.Name) || flag.Name == "--" {
 				return fmt.Errorf("cli command rule %q has an invalid flag name", rule.Name)
@@ -93,6 +118,9 @@ func (p CLICommandPolicy) Validate() error {
 				return fmt.Errorf("cli command rule %q has duplicate flag %q", rule.Name, flag.Name)
 			}
 			seenFlags[flag.Name] = struct{}{}
+			if flag.Name == "--expected-proposal-hash" && flag.Required && flag.ValueFormat == "sha256" {
+				hasProposalHashFlag = true
+			}
 			if p.SchemaVersion == LegacyCLICommandPolicySchemaVersion && flag.Occurrences != 0 {
 				return fmt.Errorf("cli command rule %q flag %q occurrences require schema_version %d", rule.Name, flag.Name, CLICommandPolicySchemaVersion)
 			}
@@ -113,6 +141,19 @@ func (p CLICommandPolicy) Validate() error {
 			if flag.ValueFormat != "" && flag.ValueFormat != "sha256" {
 				return fmt.Errorf("cli command rule %q flag %q has an invalid value_format", rule.Name, flag.Name)
 			}
+		}
+		if rule.RequiresProposalHash != "" && !hasProposalHashFlag {
+			return fmt.Errorf("cli command rule %q proposal-hash consumer requires the exact SHA-256 flag", rule.Name)
+		}
+	}
+	for binding, producer := range boundProducers {
+		if boundConsumers[binding] == "" {
+			return fmt.Errorf("cli command rule %q proposal-hash binding %q has no consumer", producer, binding)
+		}
+	}
+	for binding, consumer := range boundConsumers {
+		if boundProducers[binding] == "" {
+			return fmt.Errorf("cli command rule %q proposal-hash binding %q has no producer", consumer, binding)
 		}
 	}
 	return nil
@@ -137,7 +178,23 @@ func (p CLICommandPolicy) Match(args []string) (CLICommandMatch, error) {
 	if len(matches) != 1 {
 		return CLICommandMatch{}, fmt.Errorf("cli command policy is ambiguous")
 	}
-	return CLICommandMatch{Name: matches[0].Name, MaxInvocations: matches[0].MaxInvocations}, nil
+	return CLICommandMatch{
+		Name: matches[0].Name, BindsProposalHash: matches[0].BindsProposalHash,
+		RequiresProposalHash: matches[0].RequiresProposalHash, MaxInvocations: matches[0].MaxInvocations,
+	}, nil
+}
+
+func cliCommandFlagValue(args []string, name string) (string, bool) {
+	for index := 0; index < len(args); index++ {
+		if args[index] != name {
+			continue
+		}
+		if index+1 >= len(args) || strings.HasPrefix(args[index+1], "-") {
+			return "", false
+		}
+		return args[index+1], true
+	}
+	return "", false
 }
 
 func DecodeCLICommandPolicy(reader io.Reader) (CLICommandPolicy, error) {
@@ -243,18 +300,23 @@ func matchCLICommandRule(rule CLICommandRule, args []string) bool {
 			}
 			seenFlags[token]++
 			if len(flag.Values) > 0 || flag.ValueFormat != "" {
-				index++
-				if index >= len(rest) || !matchCLIFlagValue(flag, rest[index]) {
+				remaining := rest[index+1:]
+				if len(remaining) == 0 {
 					return false
 				}
+				value := remaining[0]
+				if !matchCLIFlagValue(flag, value) {
+					return false
+				}
+				index++
 				if maximum > 1 {
 					if seenFlagValues[token] == nil {
 						seenFlagValues[token] = map[string]struct{}{}
 					}
-					if _, duplicate := seenFlagValues[token][rest[index]]; duplicate {
+					if _, duplicate := seenFlagValues[token][value]; duplicate {
 						return false
 					}
-					seenFlagValues[token][rest[index]] = struct{}{}
+					seenFlagValues[token][value] = struct{}{}
 				}
 			}
 			continue

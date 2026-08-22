@@ -227,13 +227,13 @@ func newRoot() *cobra.Command {
 		}
 		path := commandRegistryPath(cmd.Root(), cmd)
 		if registration, ok := commandRegistry.nodes[path]; ok {
-			if err := runtime.processPolicy.requireActiveFor(registration); err != nil {
+			if err := runtime.processPolicy.requireActiveFor(cmd, registration); err != nil {
 				return err
 			}
 			if err := enforceContentPolicyPreflight(cmd, args, registration); err != nil {
 				return err
 			}
-			runtime.commandPolicyWrite = registration.policyIdentity != policyIdentityNone
+			runtime.commandPolicyWrite = len(policyPreflightVerbs(cmd, registration.policyVerbs)) != 0
 		}
 		policyEnabled, err := resolveReadOnlyPolicy(cmd, runtime.readOnly)
 		if err != nil {
@@ -499,9 +499,7 @@ func guardedMutationResultErr(mutationErr, emitErr error, attempted bool, operat
 	}
 	closed := fmt.Errorf("%w: the remote %s was attempted, but the result could not be written; do not replay the operation", domain.ErrCheckFailed, operation)
 	// Once result emission fails, the no-replay check failure is the only safe
-	// machine classification. Retaining a joined mutation sentinel (for example
-	// ErrForbidden) would take precedence in codeFor/diagnostic.Classify and
-	// incorrectly hide the attempted-write boundary.
+	// machine classification for legacy guarded paths.
 	return errors.Join(closed, emitCause)
 }
 

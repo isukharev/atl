@@ -89,7 +89,7 @@ not display/short URLs, and no page body or backlink query is made.
 | `jira issue create-metadata` | Inspect bounded, qualified create schema and omittability without raw defaults/options | `--project`, exact `--type`, `-o text` |
 | `jira issue children <EPIC-KEY>` | Read direct epic children as a common IssueList without per-child reads | `--view`, `--columns`, `--limit 1..1000` (0 invalid), `--cursor`, `--epic-field`, `-o text/id` |
 | `jira epic digest <EPIC-KEY>` | Deterministic multi-source epic evidence with per-source completeness | `--projection compact|full`, period, includes, fields, caps, optional bounded Confluence heading expansion |
-| `jira issue create` | Create an issue; optionally register one authoritative readback in a mirror | `--project`, `--type`, `--summary`, `--from-md`, `--from-file`, `--field k=v`, `--field-json k=JSON`; `--register --into <ROOT>` |
+| `jira issue create [preview]` | Preview by default; apply one exact hash-guarded create and optionally register its proved readback | candidate flags plus apply-only `--apply --expected-proposal-hash`; `--register --into <ROOT>` |
 | `jira issue update <KEY>` | Update summary/description/fields (whole body) | `--summary`, `--from-md`, `--from-file`, `--field k=v`, `--field-json k=JSON` |
 | `jira issue field set <KEY>` | Apply a reviewed file-backed custom-field proposal | `--from-file FIELD=PATH`, `--from-md FIELD=PATH`, `--allow-fields`, `--expected-updated`, `--expected-proposal-hash`, `--apply` |
 | `jira issue edit preview <KEY>` | GET-only content-free targeted-description proposal | `--old`, `--new`, `--old-file`, `--new-file`, `--all`; safe under `ATL_READ_ONLY=1` |

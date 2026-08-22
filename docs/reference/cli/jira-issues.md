@@ -261,7 +261,9 @@ larger values fail before backend access.
 
 ## `atl jira issue create`
 
-Create an issue. The description is either Jira wiki markup (`--from-file`) or
+Preview one qualified issue create by default, then apply only the exact
+reviewed proposal. The independently read-only `jira issue create preview`
+accepts the same candidate and registration flags. The description is either Jira wiki markup (`--from-file`) or
 markdown converted to wiki (`--from-md`) — the two flags are mutually exclusive.
 Generic `--field`/`--field-json` keys that normalize to `project`, `issuetype`,
 `summary`, or `description` are rejected before metadata discovery or any
@@ -281,45 +283,56 @@ position) are backslash-escaped automatically, so ordinary prose survives
 verbatim. The same flag exists on `update` and `comment add`.
 
 ```bash
-atl jira issue create \
+atl jira issue create preview \
   --project PROJ \
   --type Bug \
   --summary "Crash on empty input" \
   --from-file description.wiki
 
-# or author the description in markdown:
-atl jira issue create \
+# Review proposal_hash, then repeat the exact candidate once:
+env -u ATL_READ_ONLY atl jira issue create \
   --project PROJ --type Bug \
   --summary "Crash on empty input" \
-  --from-md description.md
+  --from-file description.wiki \
+  --apply --expected-proposal-hash <reviewed-hash>
 
 # Extra fields keep legacy string behavior unless an object/array is supplied.
 # Use --field-json whenever Jira expects a typed scalar such as a number,
 # boolean, or null.
-atl jira issue create \
+atl jira issue create preview \
   --project PROJ --type Task --summary "Deploy docs" \
   --field 'priority={"name":"High"}' \
   --field 'labels=["docs","infra"]' \
   --field customfield_10001=foo \
   --field-json customfield_10002=5
 
-# Opt in to immediate mirror registration from the authoritative readback:
-atl jira issue create \
+# Opt in to immediate mirror registration in both review and apply:
+atl jira issue create preview \
   --project PROJ --type Task --summary "Tracked task" \
   --register --into ./mirror-jira
+# Review proposal_hash, then repeat the same candidate and registration root:
+env -u ATL_READ_ONLY atl jira issue create \
+  --project PROJ --type Task --summary "Tracked task" \
+  --register --into ./mirror-jira \
+  --apply --expected-proposal-hash <reviewed-hash>
 ```
 
-Without `--register`, issue creation and output retain their legacy remote-only
-behavior. `--register --into ROOT` performs one create and one authoritative
-readback of the returned key, then writes the exact readback description,
+Preview never sends a create, obtains write clearance, or performs registration
+staging. Apply repeats the complete qualified project/type/field snapshot before
+one POST. A positive immutable ID acknowledgement is followed by one exact
+ID-addressed readback; there is no search, retry, or replay. `--register --into
+ROOT` stages only key-independent local checks before POST, then writes the exact readback description,
 pristine base, JSON snapshot, Markdown view, and sync/view state. Registration
 never treats the submitted description as the remote baseline and never adopts
-or overwrites an occupied target; sync state is committed last.
+or overwrites an occupied target; sync state is committed last. The result's
+`registration_effects.planned_files` and `actual_files` distinguish possible
+coordination/scaffold/backend-binding files from files this invocation created.
 
-If Jira is known to have created the issue but readback or local registration
-fails, stdout still identifies the issue and includes
-`registration.status:"not_registered"`; the command exits 8. Never repeat
-`issue create`. Preserve local files and recover only the returned key with
+Closed JSON statuses are `would_apply`, `blocked`, `not_applied`, `applied`,
+`outcome_unknown`, and `applied_not_registered`. Missing/malformed acknowledgement
+or incomplete/mismatched readback is `outcome_unknown`; never repeat `issue
+create`. A post-proof local failure is `applied_not_registered`. Preserve local
+files and recover only a safely proved returned key with
 `atl jira pull --jql 'key = NEW-1' --into ROOT --limit 1`.
 
 Flags:

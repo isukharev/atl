@@ -8,7 +8,8 @@
     {"name":"candidate_one","command":["jira","issue","get"],"positionals":[{"values":["LAB-41"]}],"flags":[{"name":"--fields","values":["summary,description,status,issuetype,project"],"required":true}],"max_invocations":1},
     {"name":"candidate_two","command":["jira","issue","get"],"positionals":[{"values":["LAB-52"]}],"flags":[{"name":"--fields","values":["summary,description,status,issuetype,project"],"required":true}],"max_invocations":1},
     {"name":"comments","command":["jira","issue","comment","list"],"positionals":[{"values":["LAB-52"]}],"max_invocations":2},
-    {"name":"create","command":["jira","issue","create"],"flags":[{"name":"--project","values":["LAB"],"required":true},{"name":"--type","values":["Bug"],"required":true},{"name":"--summary","values":["Cache: refresh fails after token rotation"],"required":true},{"name":"--from-md","values":["new-bug.md"],"required":true}],"max_invocations":1},
+    {"name":"preview_create","command":["jira","issue","create","preview"],"flags":[{"name":"--project","values":["LAB"],"required":true},{"name":"--type","values":["Bug"],"required":true},{"name":"--summary","values":["Cache: refresh fails after token rotation"],"required":true},{"name":"--from-md","values":["new-bug.md"],"required":true}],"binds_proposal_hash":"create","max_invocations":1},
+    {"name":"create","command":["jira","issue","create"],"flags":[{"name":"--project","values":["LAB"],"required":true},{"name":"--type","values":["Bug"],"required":true},{"name":"--summary","values":["Cache: refresh fails after token rotation"],"required":true},{"name":"--from-md","values":["new-bug.md"],"required":true},{"name":"--apply","required":true},{"name":"--expected-proposal-hash","value_format":"sha256","required":true}],"requires_proposal_hash":"create","max_invocations":1},
     {"name":"comment","command":["jira","issue","comment","add"],"positionals":[{"values":["LAB-52"]}],"flags":[{"name":"--from-md","values":["duplicate-comment.md"],"required":true}],"max_invocations":1}
   ],
   "allow_synthetic_writes":true,
@@ -19,10 +20,10 @@
     {"name":"comment_id_correct","kind":"json_equals","pointer":"/comment_id","expected":null},
     {"name":"created_key_correct","kind":"json_equals","pointer":"/created_key","expected":"LAB-101"},
     {"name":"decision_correct","kind":"json_equals","pointer":"/decision","expected":"create"},
-    {"name":"exit_codes","kind":"cli_exit_codes_equal","expected":[0,0,0,0,0]},
+    {"name":"exit_codes","kind":"cli_exit_codes_equal","expected":[0,0,0,0,0,0]},
     {"name":"failure_report_correct","kind":"json_equals","pointer":"/cli_failures","expected":0},
     {"name":"guard_clean","kind":"guard_no_denials"},
-    {"name":"http_exact","kind":"http_methods_equal","expected":{"GET":4,"POST":1}},
+    {"name":"http_exact","kind":"http_methods_equal","expected":{"GET":14,"POST":1}},
     {"name":"mock_clean","kind":"mock_no_unexpected"},
     {"name":"next_action_correct","kind":"json_equals","pointer":"/next_action","expected":"complete"},
     {"name":"no_delegation","kind":"delegations_none"},
@@ -31,8 +32,8 @@
     {"name":"reconciled_correct","kind":"json_equals","pointer":"/comment_reconciled","expected":false},
     {"name":"replayed_false","kind":"json_equals","pointer":"/replayed","expected":false},
     {"name":"target_correct","kind":"json_equals","pointer":"/target_key","expected":null},
-    {"name":"used_atl","kind":"atl_invocations_min","minimum":5},
-    {"name":"used_atl_exact","kind":"atl_invocations_max","maximum":5},
+    {"name":"used_atl","kind":"atl_invocations_min","minimum":6},
+    {"name":"used_atl_exact","kind":"atl_invocations_max","maximum":6},
     {"name":"used_skill","kind":"skill_invocations_min","minimum":1},
     {"name":"write_attempts_correct","kind":"json_equals","pointer":"/write_attempts","expected":1}
   ]

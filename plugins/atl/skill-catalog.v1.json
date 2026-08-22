@@ -49,7 +49,7 @@
   "files": [
     {
       "path": "atl/SKILL.md",
-      "sha256": "92547cba861871b0910faa5ff6773ccca40eba7789afd896d2097b1620855502"
+      "sha256": "2b82fc973eeb4ea2e35f5bbf781c5a526b6d5c2876f741dcf77a42ca6d19419f"
     },
     {
       "path": "atl/agents/openai.yaml",
@@ -133,7 +133,7 @@
     },
     {
       "path": "jira/SKILL.md",
-      "sha256": "9a945c7dcbcc15a759845f39c9acb6efa3e4ed1725de92cea367171a256d1253"
+      "sha256": "7c540785ef13440904f428845a7acb01061d58bb46075d054eab286d0c4ae04b"
     },
     {
       "path": "jira/agents/openai.yaml",
@@ -145,7 +145,7 @@
     },
     {
       "path": "jira/reference/commands.md",
-      "sha256": "a6398e9b8086a1cf00cbf2483c431a509fae66c9e00d3ced1a73a7fd5ebf1544"
+      "sha256": "3485a2940c4d7b350ecc8c80f20639727e83467da771cd3da20d25f028e971c2"
     },
     {
       "path": "jira/reference/editing.md",
@@ -165,7 +165,7 @@
     },
     {
       "path": "jira/reference/fields.md",
-      "sha256": "d0d6ab0165ded7104612ce2d744d6cc8b5eb40801bae6bb486c6b200a603c7e1"
+      "sha256": "f369a521cdec72dbe5f5c956b4047fd44a5df62b9916ec5ed448870c09490ebc"
     },
     {
       "path": "jira/reference/jql.md",
@@ -189,7 +189,7 @@
     },
     {
       "path": "meeting-tasks/SKILL.md",
-      "sha256": "dbde4d4b69ee1f81f41be932b767e1d2f55caa24c69ab6df3fa96cdad269147d"
+      "sha256": "86cbe96eb2280d7ca111d784f9edc9391d03fa1ec06dc9116694c990cede2195"
     },
     {
       "path": "meeting-tasks/agents/openai.yaml",
@@ -233,7 +233,7 @@
     },
     {
       "path": "spec-to-backlog/SKILL.md",
-      "sha256": "49d83af7715ed0f78ae9cc411a0ff05e2a9c15e165721968531b5e974d6956a4"
+      "sha256": "350ae6670b52adba8da8dee16b5cbbf2df1af1a8cd0ace8c46451f1bb4ee5364"
     },
     {
       "path": "spec-to-backlog/agents/openai.yaml",
@@ -257,7 +257,7 @@
     },
     {
       "path": "triage-issue/SKILL.md",
-      "sha256": "b90677c0bba9c852bffce325499380d24614ec48e55b226afa44eed1206cde03"
+      "sha256": "a2f6f50075ae785d2d6121847a347375796dd2915ee03d61cbf942dfd8569b21"
     },
     {
       "path": "triage-issue/agents/openai.yaml",

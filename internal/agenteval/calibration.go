@@ -11,7 +11,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/isukharev/atl/internal/agenteval/lifecycle"
@@ -551,6 +550,7 @@ func RunCodexCLICalibration(parent context.Context, options CodexCLICalibrationO
 	if brokerErr != nil {
 		return receipt, fmt.Errorf("close calibration command broker: %w", brokerErr)
 	}
+	brokerCounts := broker.invocationCounts()
 	if ctx.Err() == context.DeadlineExceeded {
 		return receipt, &CodexCLICalibrationFailure{Status: CodexCLICalibrationProcessFailed}
 	}
@@ -583,8 +583,8 @@ func RunCodexCLICalibration(parent context.Context, options CodexCLICalibrationO
 	if err := validateCalibrationEvidence(providerMetrics, records, guardSummary, final); err != nil {
 		return receipt, err
 	}
-	if err := verifyCalibrationCommandSlot(requestDir); err != nil {
-		return receipt, err
+	if len(brokerCounts) != 1 || brokerCounts["atl_version"] != 1 {
+		return receipt, fmt.Errorf("calibration command broker did not observe exactly one atl_version invocation")
 	}
 	if !providerMetrics.Coverage["input_tokens"] || !providerMetrics.Coverage["output_tokens"] {
 		return receipt, fmt.Errorf("calibration provider did not report token usage")
@@ -704,26 +704,4 @@ func classifyCalibrationEvidence(metrics ProviderMetrics, records []atlProxyReco
 		return CodexCLICalibrationInvocationFailed
 	}
 	return CodexCLICalibrationSucceeded
-}
-
-func verifyCalibrationCommandSlot(directory string) error {
-	entries, err := os.ReadDir(directory)
-	if err != nil {
-		return err
-	}
-	const wanted = "cli-slot-atl_version-1"
-	seen := false
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasPrefix(entry.Name(), "cli-slot-") {
-			continue
-		}
-		if entry.Name() != wanted || seen {
-			return fmt.Errorf("calibration command policy observed an unexpected command family")
-		}
-		seen = true
-	}
-	if !seen {
-		return fmt.Errorf("calibration command policy did not observe atl_version")
-	}
-	return nil
 }

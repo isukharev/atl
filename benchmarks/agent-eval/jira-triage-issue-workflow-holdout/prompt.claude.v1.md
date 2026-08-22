@@ -4,19 +4,24 @@ Score each fully fetched candidate with this fixed additive rule: stable error s
 
 Run these read commands in order:
 
-atl jira issue search --jql 'project = OPS AND text ~ "LeaseRenewalError retry storm" AND type = Bug ORDER BY updated DESC' --limit 10 --columns key,summary,status,updated --
-atl jira issue search --jql 'project = OPS AND summary ~ "indexer retry" AND type = Bug ORDER BY updated DESC' --limit 10 --columns key,summary,status,updated --
-atl jira issue get OPS-88 --
+atl jira issue search --jql 'project = OPS AND text ~ "LeaseRenewalError retry storm" AND type = Bug ORDER BY updated DESC' --limit 10 --columns key,summary,status,updated
+atl jira issue search --jql 'project = OPS AND summary ~ "indexer retry" AND type = Bug ORDER BY updated DESC' --limit 10 --columns key,summary,status,updated
+atl jira issue get OPS-88
 
-The two mutually exclusive reviewed write choices are exact. If the rule selects create, run only:
+The two mutually exclusive reviewed write choices are exact. If the rule
+selects create, run the adjacent preview/apply pair below. Strictly read the
+preview JSON `proposal_hash` and replace `PREVIEW_PROPOSAL_HASH` in the apply
+with that exact 64-character lowercase value. Do not use a shell variable,
+command substitution, pipeline, or value from another preview.
 
-atl jira issue create --project OPS --type Bug --summary 'Indexer: retry storm after lease renewal' --from-md new-bug.md --
+atl jira issue create preview --project OPS --type Bug --summary 'Indexer: retry storm after lease renewal' --from-md new-bug.md
+env -u ATL_READ_ONLY atl jira issue create --project OPS --type Bug --summary 'Indexer: retry storm after lease renewal' --from-md new-bug.md --apply --expected-proposal-hash PREVIEW_PROPOSAL_HASH
 
 If the rule selects the open-duplicate alternative, list the complete baseline, run only this write once, then reconcile one ambiguous response with exactly one complete list:
 
-atl jira issue comment list OPS-88 --
-atl jira issue comment add OPS-88 --from-md duplicate-comment.md --
-atl jira issue comment list OPS-88 --
+atl jira issue comment list OPS-88
+env -u ATL_READ_ONLY atl jira issue comment add OPS-88 --from-md duplicate-comment.md
+atl jira issue comment list OPS-88
 
 The synthetic comment is committed but its POST returns HTTP 500. Do not retry. Accept `commented_reconciled` only when the second complete list has exactly one new id and its body is byte-for-byte the converted reviewed comment.
 

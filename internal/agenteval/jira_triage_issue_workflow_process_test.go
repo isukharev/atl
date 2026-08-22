@@ -8,6 +8,7 @@ import (
 	"maps"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -24,14 +25,18 @@ func startJiraTriagePrimaryProcess(
 	policy CLICommandPolicy,
 ) *SyntheticATLProcess {
 	t.Helper()
-	match, err := policy.Match(triageCreateCommand(cohort))
-	if err != nil || match.Name != "create" {
-		t.Fatalf("primary triage create policy match=%+v err=%v", match, err)
+	writeRules := make(SyntheticWriteRules, 0, 2)
+	for _, command := range [][]string{triagePreviewCommand(cohort), triageApplyCommand(cohort, strings.Repeat("a", 64))} {
+		match, err := policy.Match(command)
+		if err != nil {
+			t.Fatalf("primary triage create policy match=%+v err=%v", match, err)
+		}
+		writeRules = append(writeRules, match.Name)
 	}
 	process, err := StartSyntheticATLProcess(t.Context(), SyntheticATLProcessConfig{
 		Binary: repositorySyntheticATLBinary(t), Fixture: prepareJiraTriagePrimaryProcessFixture(t, fixture, cohort),
 		ScratchRoot: privateSyntheticATLScratch(t), WorkspaceTemplate: filepath.Join(root, "workspace"),
-		SyntheticWriteRules: SyntheticWriteRules{"create"}, CLIPolicy: policy,
+		SyntheticWriteRules: writeRules, CLIPolicy: policy,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -49,7 +54,7 @@ func prepareJiraTriagePrimaryProcessFixture(t *testing.T, fixture MockFixture, c
 	if cohort.decision != "create" || !slices.Equal(fixture.RequestSequence, cohort.sequence) {
 		t.Fatalf("primary triage fixture branch drifted: decision=%q sequence=%v want=%v", cohort.decision, fixture.RequestSequence, cohort.sequence)
 	}
-	prepared := prepareSyntheticJiraCreateMetadata(t, fixture)
+	prepared := prepareSyntheticJiraGuardedCreate(t, fixture)
 	seen := make(map[string]struct{}, len(prepared.Routes))
 	for index := range prepared.Routes {
 		prepared.Routes[index].closedQuery = true
@@ -107,37 +112,55 @@ func executeJiraTriagePrimaryProcess(
 		t.Fatalf("selected triage decision=%q want=%q", decision, cohort.decision)
 	}
 
-	result, err := process.RunSyntheticWriteCLIJSON(t.Context(), triageCreateCommand(cohort)...)
+	previewResult, err := process.RunSyntheticWriteCLIJSON(t.Context(), triagePreviewCommand(cohort)...)
 	if err != nil {
-		t.Fatalf("selected triage create: %v", err)
+		t.Fatalf("selected triage create preview: %v", err)
+	}
+	exits = append(exits, previewResult.ExitCode)
+	preview, err := DecodeJiraGuardedCreateResult(bytes.NewReader(previewResult.JSON))
+	if err != nil || previewResult.ExitCode != 0 || len(previewResult.Stderr) != 0 || preview.Status != "would_apply" || preview.Mode != "preview" {
+		t.Fatalf("decode selected triage create preview: result=%+v err=%v", preview, err)
+	}
+	result, err := process.RunSyntheticWriteCLIJSON(t.Context(), triageApplyCommand(cohort, preview.ProposalHash)...)
+	if err != nil {
+		t.Fatalf("selected triage create apply: %v", err)
 	}
 	exits = append(exits, result.ExitCode)
 	if result.ExitCode != 0 || len(result.JSON) == 0 || len(result.Stderr) != 0 {
 		t.Fatalf("selected triage create exit=%d stdout_bytes=%d stderr_bytes=%d", result.ExitCode, len(result.JSON), len(result.Stderr))
 	}
-	created, err := DecodeJiraIssueCreate(bytes.NewReader(result.JSON))
+	created, err := DecodeJiraGuardedCreateResult(bytes.NewReader(result.JSON))
 	if err != nil {
 		t.Fatalf("decode selected triage create: %v", err)
 	}
-	if want := triageFixtureCreateDescription(t, process.config.Fixture); created.Key != cohort.createdKey || created.Summary != cohort.newSummary ||
-		created.Project != cohort.project || created.Type != "Bug" || created.Status != "" || created.Description != want {
-		t.Fatalf("selected triage create=%+v want key=%q summary=%q project=%q description=%q", created, cohort.createdKey, cohort.newSummary, cohort.project, want)
+	if created.Status != "applied" || created.Mode != "apply" || created.Issue == nil || created.Issue.Key != cohort.createdKey ||
+		created.Project.Key != cohort.project || created.IssueType.Name != "Bug" || !created.ReadbackReconciled {
+		t.Fatalf("selected triage create=%+v want key=%q project=%q", created, cohort.createdKey, cohort.project)
 	}
 	if !slices.Equal(exits, cohort.exitCodes) {
 		t.Fatalf("selected triage exits=%v want=%v", exits, cohort.exitCodes)
 	}
 
 	summary := process.Summary()
-	expectedCLI := make(map[string]int, len(cohort.sequence))
+	expectedCLI := make(map[string]int, len(cohort.sequence)+1)
 	for _, name := range cohort.sequence {
-		expectedCLI[name]++
+		if name != "create" {
+			expectedCLI[name]++
+		}
+	}
+	for _, command := range [][]string{triagePreviewCommand(cohort), triageApplyCommand(cohort, strings.Repeat("a", 64))} {
+		match, err := process.config.CLIPolicy.Match(command)
+		if err != nil {
+			t.Fatal(err)
+		}
+		expectedCLI[match.Name]++
 	}
 	if !process.RequestSequenceComplete() || !maps.Equal(summary.HTTPMethods, cohort.methods) ||
 		summary.UnexpectedRequests != 0 || summary.DuplicateRequests != cohort.duplicates ||
 		!maps.Equal(summary.CLIInvocations, expectedCLI) || len(summary.MCPInvocations) != 0 {
 		t.Fatalf("selected triage primary accounting drifted: summary=%+v sequence_complete=%t", summary, process.RequestSequenceComplete())
 	}
-	if _, err := process.RunSyntheticWriteCLIJSON(t.Context(), triageCreateCommand(cohort)...); err == nil {
+	if _, err := process.RunSyntheticWriteCLIJSON(t.Context(), triageApplyCommand(cohort, preview.ProposalHash)...); err == nil {
 		t.Fatal("selected triage create replay was admitted")
 	}
 	afterReplay := process.Summary()
@@ -178,17 +201,13 @@ func triageCreateCommand(cohort triageCohort) []string {
 	}
 }
 
-func triageFixtureCreateDescription(t *testing.T, fixture MockFixture) string {
-	t.Helper()
-	var document struct {
-		Fields struct {
-			Description string `json:"description"`
-		} `json:"fields"`
-	}
-	if err := json.Unmarshal(triageRoute(t, fixture, "create").RequestBody, &document); err != nil || document.Fields.Description == "" {
-		t.Fatalf("decode triage create fixture description: %v", err)
-	}
-	return document.Fields.Description
+func triagePreviewCommand(cohort triageCohort) []string {
+	args := triageCreateCommand(cohort)
+	return append(append(slices.Clone(args[:3]), "preview"), args[3:]...)
+}
+
+func triageApplyCommand(cohort triageCohort, proposalHash string) []string {
+	return append(triageCreateCommand(cohort), "--apply", "--expected-proposal-hash", proposalHash)
 }
 
 func assertJiraTriagePrimaryProcessAdmissionRefused(
@@ -221,7 +240,7 @@ func assertJiraTriagePrimaryProcessAdmissionRefused(
 	assertJiraTriagePreBackendRefusal(t, process)
 
 	process = startJiraTriagePrimaryProcess(t, root, fixture, cohort, policy)
-	assertJiraSyntheticWriteReadOnlyByDefault(t, process, triageCreateCommand(cohort))
+	assertJiraSyntheticWriteReadOnlyByDefault(t, process, triageApplyCommand(cohort, strings.Repeat("a", 64)))
 }
 
 func assertJiraTriagePreBackendRefusal(t *testing.T, process *SyntheticATLProcess) {

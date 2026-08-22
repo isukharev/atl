@@ -38,6 +38,17 @@ type backendBindingsFile struct {
 	Services      map[string]string `json:"services"`
 }
 
+// BackendBindingPopulationGuard holds the single backend-binding CAS owner
+// across a remote population workflow. Explicit binds use the same owner, so
+// no binding can be committed between qualification and local publication.
+type BackendBindingPopulationGuard struct {
+	m       *Mirror
+	lock    *safepath.FileLock
+	want    BackendBinding
+	state   backendBindingsFile
+	present bool
+}
+
 func (m *Mirror) backendBindingsPath() string {
 	return filepath.Join(m.Root, ".atl", "backend-bindings.json")
 }
@@ -115,6 +126,45 @@ func (m *Mirror) BindBackendIfFresh(want BackendBinding, nativeExt string) (bool
 	return m.bindBackend(want, nativeExt, true)
 }
 
+// BeginBackendBindingPopulation qualifies a matching or service-fresh binding
+// under the same CAS lock used by BindBackend. The caller must hold the guard
+// until its remote operation and local publication are fully closed out.
+func (m *Mirror) BeginBackendBindingPopulation(want BackendBinding, nativeExt string) (*BackendBindingPopulationGuard, error) {
+	if nativeExt != ".csf" && nativeExt != ".wiki" {
+		return nil, fmt.Errorf("%w: unsupported native substrate for backend binding", domain.ErrCheckFailed)
+	}
+	return m.beginBackendBinding(want, nativeExt, true)
+}
+
+// Commit publishes a missing, already-qualified binding while retaining the
+// guard. A matching existing binding is an idempotent no-op.
+func (g *BackendBindingPopulationGuard) Commit() (bool, error) {
+	if g == nil || g.m == nil || g.lock == nil {
+		return false, fmt.Errorf("%w: mirror backend-binding coordination is not active", domain.ErrCheckFailed)
+	}
+	if g.present {
+		return false, nil
+	}
+	g.state.Services[g.want.Service] = g.want.OriginSHA256
+	if err := g.m.saveBackendBindings(g.state); err != nil {
+		delete(g.state.Services, g.want.Service)
+		return false, err
+	}
+	g.present = true
+	return true, nil
+}
+
+// Unlock releases backend-binding coordination. It deliberately matches the
+// common lock interface used by higher-level mutation closeout.
+func (g *BackendBindingPopulationGuard) Unlock() error {
+	if g == nil || g.lock == nil {
+		return nil
+	}
+	err := g.lock.Unlock()
+	g.lock = nil
+	return err
+}
+
 // CheckBackendBindingForPopulation is the write-free counterpart used by
 // pull dry-runs. A missing binding is accepted only for a service-fresh root.
 func (m *Mirror) CheckBackendBindingForPopulation(want BackendBinding, nativeExt string) error {
@@ -146,42 +196,50 @@ func (m *Mirror) CheckBackendBindingForPopulation(want BackendBinding, nativeExt
 }
 
 func (m *Mirror) bindBackend(want BackendBinding, nativeExt string, requireFresh bool) (bool, error) {
-	want, err := validateBackendBinding(want)
+	guard, err := m.beginBackendBinding(want, nativeExt, requireFresh)
 	if err != nil {
 		return false, err
 	}
+	defer func() { _ = guard.Unlock() }()
+	return guard.Commit()
+}
+
+func (m *Mirror) beginBackendBinding(want BackendBinding, nativeExt string, requireFresh bool) (*BackendBindingPopulationGuard, error) {
+	want, err := validateBackendBinding(want)
+	if err != nil {
+		return nil, err
+	}
 	if err := safepath.MkdirAllWithin(m.Root, filepath.Dir(m.backendBindingsPath()), 0o700); err != nil {
-		return false, err
+		return nil, err
 	}
 	lock, err := m.lockBackendBindings()
 	if err != nil {
-		return false, err
+		return nil, err
 	}
-	defer func() { _ = lock.Unlock() }()
+	fail := func(cause error) (*BackendBindingPopulationGuard, error) {
+		_ = lock.Unlock()
+		return nil, cause
+	}
 	state, _, err := m.loadBackendBindings()
 	if err != nil {
-		return false, err
+		return fail(err)
 	}
 	if current, ok := state.Services[want.Service]; ok {
 		if current != want.OriginSHA256 {
-			return false, fmt.Errorf("%w: mirror backend binding does not match the configured service %s; bindings cannot be replaced", domain.ErrCheckFailed, want.Service)
+			return fail(fmt.Errorf("%w: mirror backend binding does not match the configured service %s; bindings cannot be replaced", domain.ErrCheckFailed, want.Service))
 		}
-		return false, nil
+		return &BackendBindingPopulationGuard{m: m, lock: lock, want: want, state: state, present: true}, nil
 	}
 	if requireFresh {
 		evidence, err := m.hasBackendServiceEvidence(want.Service, nativeExt)
 		if err != nil {
-			return false, err
+			return fail(err)
 		}
 		if evidence {
-			return false, fmt.Errorf("%w: existing %s mirror evidence has no backend binding; use the explicit reviewed bind workflow before remote access", domain.ErrCheckFailed, want.Service)
+			return fail(fmt.Errorf("%w: existing %s mirror evidence has no backend binding; use the explicit reviewed bind workflow before remote access", domain.ErrCheckFailed, want.Service))
 		}
 	}
-	state.Services[want.Service] = want.OriginSHA256
-	if err := m.saveBackendBindings(state); err != nil {
-		return false, err
-	}
-	return true, nil
+	return &BackendBindingPopulationGuard{m: m, lock: lock, want: want, state: state}, nil
 }
 
 func (m *Mirror) lockBackendBindings() (*safepath.FileLock, error) {

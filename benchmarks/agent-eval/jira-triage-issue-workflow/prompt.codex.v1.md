@@ -9,9 +9,14 @@ atl jira issue search --jql 'project = LAB AND summary ~ "cache refresh" AND typ
 atl jira issue get LAB-41 --fields summary,description,status,issuetype,project
 atl jira issue get LAB-52 --fields summary,description,status,issuetype,project
 
-The two mutually exclusive reviewed write choices are exact. If the rule selects create, run only:
+The two mutually exclusive reviewed write choices are exact. If the rule
+selects create, run the adjacent preview/apply pair below. Strictly read the
+preview JSON `proposal_hash` and replace `PREVIEW_PROPOSAL_HASH` in the apply
+with that exact 64-character lowercase value. Do not use a shell variable,
+command substitution, pipeline, or value from another preview.
 
-env -u ATL_READ_ONLY atl jira issue create --project LAB --type Bug --summary 'Cache: refresh fails after token rotation' --from-md new-bug.md
+atl jira issue create preview --project LAB --type Bug --summary 'Cache: refresh fails after token rotation' --from-md new-bug.md
+env -u ATL_READ_ONLY atl jira issue create --project LAB --type Bug --summary 'Cache: refresh fails after token rotation' --from-md new-bug.md --apply --expected-proposal-hash PREVIEW_PROPOSAL_HASH
 
 If the rule selects the open-duplicate alternative, first list its comments, then run only this write, and list comments once more only if the write response is ambiguous:
 

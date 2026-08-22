@@ -252,16 +252,13 @@ func (j *Jira) searchPage(ctx context.Context, jql string, fields []string, limi
 // compatibility contract. Explicit JSON fields are decoded as their requested
 // JSON type, including scalars.
 func (j *Jira) Create(ctx context.Context, project, issueType, summary string, body []byte, fields map[string]domain.JiraFieldInput) (*domain.Issue, error) {
-	typedFields, err := coerceCreateFields(fields)
-	if err != nil {
+	// Preserve the legacy pure-validation precedence before policy evaluation;
+	// the authoritative payload is still prepared only after an authorized
+	// project selector has been canonicalized below.
+	if _, err := coerceCreateFields(fields); err != nil {
 		return nil, err
 	}
 	if j.authorizer != nil {
-		if _, overridesProject := fields["project"]; overridesProject {
-			_, err = j.authorizeScopeProblem(ctx, domain.WriteVerbSet{domain.WriteVerbCreate}, domain.WriteScopeContradiction, "project",
-				domain.WriteTarget{Service: "jira", Kind: "issue", Project: strings.ToUpper(strings.TrimSpace(project))})
-			return nil, err
-		}
 		project = strings.ToUpper(strings.TrimSpace(project))
 		if !domain.ValidJiraIssueKey(project + "-1") {
 			var err error
@@ -269,27 +266,30 @@ func (j *Jira) Create(ctx context.Context, project, issueType, summary string, b
 				domain.WriteTarget{Service: "jira", Kind: "issue", Project: project})
 			return nil, err
 		}
+		var err error
 		ctx, err = j.authorize(ctx, domain.WriteVerbSet{domain.WriteVerbCreate}, []domain.WriteTarget{{Service: "jira", Kind: "issue", Project: project}})
 		if err != nil {
 			return nil, err
 		}
 	}
-	fl := map[string]any{
-		"project":   map[string]string{"key": project},
-		"issuetype": map[string]string{"id": issueType},
-		"summary":   summary,
-	}
-	if len(body) > 0 {
-		fl["description"] = string(body)
-	}
-	for k, v := range typedFields {
-		fl[k] = v
+	prepared, err := j.PrepareGuardedCreate(domain.JiraGuardedCreatePreparationRequest{
+		ProjectKey: project, IssueTypeID: issueType, Summary: summary,
+		Description: body, DescriptionPresent: len(body) > 0, Fields: fields,
+	})
+	if err != nil {
+		return nil, err
 	}
 	var out struct {
 		Key string `json:"key"`
 	}
-	if err := j.c.SendJSON(domain.WithWriteClearance(ctx), "POST", "/rest/api/2/issue", map[string]any{"fields": fl}, &out); err != nil {
+	data, err := j.c.Do(domain.WithWriteClearance(ctx), "POST", "/rest/api/2/issue", clonePreparedPayload(prepared.Payload), nil)
+	if err != nil {
 		return nil, err
+	}
+	if len(bytes.TrimSpace(data)) != 0 {
+		if err := json.Unmarshal(data, &out); err != nil {
+			return nil, fmt.Errorf("decode response: %w", err)
+		}
 	}
 	return &domain.Issue{Key: out.Key, Summary: summary, Project: project, Type: issueType, Body: string(body)}, nil
 }

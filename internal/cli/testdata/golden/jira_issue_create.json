@@ -1,8 +1,72 @@
 {
-  "key": "ENG-7",
-  "summary": "Fix the thing",
-  "status": "",
-  "type": "Bug",
-  "project": "ENG",
-  "description": "h1. Title\n\nSome *wiki* body."
+  "schema_version": 1,
+  "operation": "jira_issue_create",
+  "backend_sha256": "<server-origin-sha256>",
+  "requested_project": "OPS",
+  "project": {
+    "id": "7",
+    "key": "OPS",
+    "archived": false
+  },
+  "type_selector": {
+    "sha256": "4bc74b21357c6cf5cca8f66b4d4ee948be64d0396feb434c9645e168ad61ceaf",
+    "bytes": 4
+  },
+  "issue_type": {
+    "id": "3",
+    "name": "Task",
+    "subtask": false
+  },
+  "summary": {
+    "sha256": "fad6057bb5403e59709e79e0679965bd362af5fc0841b06c08f48efa21fc588b",
+    "bytes": 8
+  },
+  "description": {
+    "source": "wiki",
+    "present": true,
+    "sha256": "12a435ec8454c6d1c90a1d92812b09af11bee711fbe524d56a8f26ea7c5ccee8",
+    "bytes": 4
+  },
+  "fields": [
+    {
+      "field_id": "customfield_1",
+      "input_kind": "explicit_json",
+      "normalized_json_kind": "number",
+      "normalized_sha256": "a1c367c29158357e62a3ff5d3e800fb7698a22396439dbc0a9d4929322afd35d",
+      "normalized_bytes": 16,
+      "schema_sha256": "2db9839e23de95e0b4be35a7170fadbd990ead0576ee33b472844af4d42d7d22"
+    }
+  ],
+  "metadata_count": 5,
+  "metadata_sha256": "ab78f50dfc4f443846c43cd1c8ff94cd47e05a7060691e0044dfa4e8469be56f",
+  "request_sha256": "94e33db10c19b65fa732b28542e91bd144438cb3584e995ae6bd67af39a53781",
+  "request_bytes": 134,
+  "registration_requested": false,
+  "bounds": {
+    "max_fields": 1000,
+    "max_inventory_rows": 1000,
+    "max_string_bytes": 1024,
+    "max_payload_bytes": 67108864,
+    "max_readback_fields": 1024,
+    "max_readback_query_bytes": 65536,
+    "max_requests": 24,
+    "max_response_bytes": 16777216,
+    "deadline_millis": 60000
+  },
+  "proposal_hash": "<server-origin-bound-proposal-hash>",
+  "mode": "apply",
+  "status": "applied",
+  "write_attempted": true,
+  "acknowledgement": {
+    "id": "11"
+  },
+  "issue": {
+    "id": "11",
+    "key": "OPS-1"
+  },
+  "readback_reconciled": true,
+  "usage": {
+    "requests": 8,
+    "response_bytes": 2422
+  }
 }

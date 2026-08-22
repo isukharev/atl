@@ -803,8 +803,8 @@ func TestClaudeSyntheticWriteRunUsesPlainATLWithLoopbackAuthority(t *testing.T) 
 	scenario.RequiredSemanticChecks = []string{"answer"}
 	scenario.RequiredMetrics = []string{"interface_invocations", "backend_requests", "remote_writes"}
 	scenario.Budgets = Budgets{
-		MaxAgentTurns: 2, MaxToolCalls: 2, MaxATLInvocations: 1, MaxInterfaceInvocations: 1,
-		MaxBackendRequests: 2, MaxRemoteWrites: 1, MaxOutputBytes: 1 << 20,
+		MaxAgentTurns: 2, MaxToolCalls: 2, MaxATLInvocations: 2, MaxInterfaceInvocations: 2,
+		MaxBackendRequests: 11, MaxDuplicateBackendRequests: 6, MaxRemoteWrites: 1, MaxOutputBytes: 1 << 20,
 		MaxInputTokens: 1000, MaxOutputTokens: 1000, MaxMainThreadInputTokens: 1000,
 		MaxMainThreadOutputTokens: 1000, MaxEstimatedCostMicroUSD: 10_000_000,
 		MaxDurationMillis: 30_000, AllowedHTTPMethods: []string{"GET", "POST"},
@@ -813,13 +813,13 @@ func TestClaudeSyntheticWriteRunUsesPlainATLWithLoopbackAuthority(t *testing.T) 
 	fixture := MockFixture{
 		SchemaVersion: 1, JiraContext: "/jira", ConfluenceContext: "/wiki",
 		Routes: []MockRoute{
-			{Method: "GET", Path: "/jira/rest/api/2/issue/createmeta/TEST/issuetypes", QueryEquals: map[string]string{"startAt": "0", "maxResults": "200"},
-				Status: http.StatusOK, Body: json.RawMessage(`{"startAt":0,"isLast":true,"values":[{"id":"1","name":"Task"}]}`)},
-			{Method: "POST", Path: "/jira/rest/api/2/issue",
-				RequestBody: json.RawMessage(`{"fields":{"project":{"key":"TEST"},"issuetype":{"id":"1"},"summary":"reviewed synthetic fixture","description":"synthetic body\n"}}`),
+			{Name: "create", Method: "POST", Path: "/jira/rest/api/2/issue",
+				RequestBody: json.RawMessage(`{"fields":{"project":{"key":"TEST"},"issuetype":{"name":"Task"},"summary":"reviewed synthetic fixture","description":"synthetic body\n"}}`),
 				Status:      http.StatusCreated, Body: json.RawMessage(`{"key":"TEST-1"}`)},
 		},
+		RequestSequence: []string{"create"},
 	}
+	fixture = prepareSyntheticJiraGuardedCreate(t, fixture)
 	writeJSONTestFile(t, filepath.Join(caseDir, "fixture.json"), fixture)
 	writeTestFile(t, filepath.Join(caseDir, "prompt.md"), "Create the exact reviewed synthetic fixture with plain atl.\n", 0o600)
 	writeTestFile(t, filepath.Join(caseDir, "response.json"), `{"type":"object","properties":{"answer":{"type":"string"}},"required":["answer"],"additionalProperties":false}`, 0o600)
@@ -834,14 +834,24 @@ func TestClaudeSyntheticWriteRunUsesPlainATLWithLoopbackAuthority(t *testing.T) 
 		QualitativeRubricFile: "rubric.json", WorkspaceTemplate: "workspace", FixtureFile: "fixture.json",
 		Repetitions: 1, TimeoutSeconds: 30, MaxEstimatedCostMicroUSD: 10_000_000, ToolTransport: "cli",
 		AllowedTools: []string{"Bash(atl *)"}, AllowSyntheticWrites: true,
-		AllowedATLCommands: []string{"atl jira issue create --project TEST --type Task --summary 'reviewed synthetic fixture' --from-file body.txt"},
+		AllowedCLICommands: []CLICommandRule{
+			{Name: "create_preview", Command: []string{"jira", "issue", "create", "preview"}, Flags: []CLIFlagRule{
+				{Name: "--project", Values: []string{"TEST"}, Required: true}, {Name: "--type", Values: []string{"Task"}, Required: true},
+				{Name: "--summary", Values: []string{"reviewed synthetic fixture"}, Required: true}, {Name: "--from-file", Values: []string{"body.txt"}, Required: true},
+			}, BindsProposalHash: "create", MaxInvocations: 1},
+			{Name: "create_apply", Command: []string{"jira", "issue", "create"}, Flags: []CLIFlagRule{
+				{Name: "--project", Values: []string{"TEST"}, Required: true}, {Name: "--type", Values: []string{"Task"}, Required: true},
+				{Name: "--summary", Values: []string{"reviewed synthetic fixture"}, Required: true}, {Name: "--from-file", Values: []string{"body.txt"}, Required: true},
+				{Name: "--apply", Required: true}, {Name: "--expected-proposal-hash", ValueFormat: "sha256", Required: true},
+			}, RequiresProposalHash: "create", MaxInvocations: 1},
+		},
 		Checks: []RunCheck{
 			{Name: "answer", Kind: "json_equals", Pointer: "/answer", Expected: json.RawMessage(`"ok"`)},
 			{Name: "atl_succeeded", Kind: "interface_all_succeeded"},
 			{Name: "guard_clean", Kind: "guard_no_denials"},
 			{Name: "mock_clean", Kind: "mock_no_unexpected"},
-			{Name: "used_atl", Kind: "interface_invocations_min", Minimum: 1},
-			{Name: "methods", Kind: "http_methods_equal", Expected: json.RawMessage(`{"GET":1,"POST":1}`)},
+			{Name: "used_atl", Kind: "interface_invocations_min", Minimum: 2},
+			{Name: "methods", Kind: "http_methods_equal", Expected: json.RawMessage(`{"GET":10,"POST":1}`)},
 		},
 	}
 	specPath := filepath.Join(caseDir, "run.json")
@@ -859,7 +869,11 @@ case "$ATL_CONFLUENCE_URL" in http://127.0.0.1:*/wiki) ;; *) exit 34;; esac
 [ "$ATL_JIRA_PAT" = "synthetic-jira-token" ] || exit 35
 [ "$ATL_CONFLUENCE_PAT" = "synthetic-confluence-token" ] || exit 36
 [ "$ATL_ALLOW_INSECURE" = "1" ] || exit 37
-atl jira issue create --project TEST --type Task --summary 'reviewed synthetic fixture' --from-file body.txt >/dev/null || exit 38
+preview=$(atl jira issue create preview --project TEST --type Task --summary 'reviewed synthetic fixture' --from-file body.txt) || exit 38
+proposal_hash=$(printf '%s\n' "$preview" | /usr/bin/sed -n 's/.*"proposal_hash"[[:space:]]*:[[:space:]]*"\([0-9a-f]*\)".*/\1/p')
+case "$proposal_hash" in ''|*[!0-9a-f]*) exit 39;; esac
+[ "${#proposal_hash}" -eq 64 ] || exit 40
+env -u ATL_READ_ONLY atl jira issue create --project TEST --type Task --summary 'reviewed synthetic fixture' --from-file body.txt --apply --expected-proposal-hash "$proposal_hash" >/dev/null || exit 41
 printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"tool_use"}]}}'
 printf '%s\n' '{"type":"result","num_turns":1,"duration_ms":10,"total_cost_usd":0.0001,"usage":{"input_tokens":100,"output_tokens":20},"structured_output":{"answer":"ok"}}'
 `, 0o700)
@@ -884,8 +898,8 @@ printf '%s\n' '{"type":"result","num_turns":1,"duration_ms":10,"total_cost_usd":
 		t.Fatalf("output=%+v", output)
 	}
 	result := output.Results[0]
-	if result.Metrics.ATLInvocations != 0 || result.Metrics.InterfaceInvocations != 1 || result.Metrics.BackendRequests != 2 || result.Metrics.RemoteWrites != 1 ||
-		result.Metrics.DuplicateBackendRequests != 0 || len(result.HTTPMethods) != 2 || result.HTTPMethods[http.MethodGet] != 1 || result.HTTPMethods[http.MethodPost] != 1 {
+	if result.Metrics.ATLInvocations != 0 || result.Metrics.InterfaceInvocations != 2 || result.Metrics.BackendRequests != 11 || result.Metrics.RemoteWrites != 1 ||
+		result.Metrics.DuplicateBackendRequests != 6 || len(result.HTTPMethods) != 2 || result.HTTPMethods[http.MethodGet] != 10 || result.HTTPMethods[http.MethodPost] != 1 {
 		t.Fatalf("result=%+v", result)
 	}
 }
@@ -2218,6 +2232,23 @@ func writeJSONTestFile(t *testing.T, path string, value any) {
 	writeTestFile(t, path, string(data), 0o600)
 }
 
+const guardedCreateFieldsResponse = `{"startAt":0,"total":4,"isLast":true,"values":[{"fieldId":"project","name":"project","required":true,"schema":{"type":"project","system":"project"},"hasDefaultValue":false,"allowedValues":[]},{"fieldId":"issuetype","name":"issuetype","required":true,"schema":{"type":"issuetype","system":"issuetype"},"hasDefaultValue":false,"allowedValues":[]},{"fieldId":"summary","name":"summary","required":true,"schema":{"type":"string","system":"summary"},"hasDefaultValue":false,"allowedValues":[]},{"fieldId":"description","name":"description","required":false,"schema":{"type":"string","system":"description"},"hasDefaultValue":false,"allowedValues":[]}]}`
+
+func guardedCreateCLICommandRules(summary, file string) []CLICommandRule {
+	baseFlags := []CLIFlagRule{
+		{Name: "--project", Values: []string{"TEST"}, Required: true},
+		{Name: "--type", Values: []string{"Task"}, Required: true},
+		{Name: "--summary", Values: []string{summary}, Required: true},
+		{Name: "--from-file", Values: []string{file}, Required: true},
+	}
+	return []CLICommandRule{
+		{Name: "create_preview", Command: []string{"jira", "issue", "create", "preview"}, Flags: append([]CLIFlagRule(nil), baseFlags...), BindsProposalHash: "create", MaxInvocations: 1},
+		{Name: "create_apply", Command: []string{"jira", "issue", "create"}, Flags: append(append([]CLIFlagRule(nil), baseFlags...),
+			CLIFlagRule{Name: "--apply", Required: true}, CLIFlagRule{Name: "--expected-proposal-hash", ValueFormat: "sha256", Required: true}),
+			RequiresProposalHash: "create", MaxInvocations: 1},
+	}
+}
+
 func TestPrivateLiveCLIReviewedWriteStaysBehindBrokerAndGateway(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("fake executable scripts are Unix-only")
@@ -2230,17 +2261,29 @@ func TestPrivateLiveCLIReviewedWriteStaysBehindBrokerAndGateway(t *testing.T) {
 			return
 		}
 		switch {
+		case request.Method == http.MethodGet && request.URL.Path == "/jira/rest/api/2/project" && request.URL.RawQuery == "includeArchived=true":
+			metadataCalls++
+			response.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(response, `[{"id":"100","key":"TEST","name":"TEST","archived":false}]`)
 		case request.Method == http.MethodGet && request.URL.Path == "/jira/rest/api/2/issue/createmeta/TEST/issuetypes" && request.URL.RawQuery == "startAt=0&maxResults=200":
 			metadataCalls++
 			response.Header().Set("Content-Type", "application/json")
-			_, _ = io.WriteString(response, `{"startAt":0,"isLast":true,"values":[{"id":"1","name":"Task"}]}`)
+			_, _ = io.WriteString(response, `{"startAt":0,"total":1,"isLast":true,"values":[{"id":"1","name":"Task"}]}`)
+		case request.Method == http.MethodGet && request.URL.Path == "/jira/rest/api/2/issue/createmeta/TEST/issuetypes/1" && request.URL.RawQuery == "startAt=0&maxResults=200":
+			metadataCalls++
+			response.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(response, guardedCreateFieldsResponse)
 		case request.Method == http.MethodPost && request.URL.Path == "/jira/rest/api/2/issue":
 			data, _ := io.ReadAll(request.Body)
 			upstreamBody = string(data)
 			upstreamCalls++
 			response.Header().Set("Content-Type", "application/json")
 			response.WriteHeader(http.StatusCreated)
-			_, _ = io.WriteString(response, `{"key":"TEST-1"}`)
+			_, _ = io.WriteString(response, `{"id":"1","key":"TEST-1"}`)
+		case request.Method == http.MethodGet && request.URL.Path == "/jira/rest/api/2/issue/1":
+			metadataCalls++
+			response.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(response, `{"id":"1","key":"TEST-1","fields":{"project":{"id":"100","key":"TEST"},"issuetype":{"id":"1","name":"Task"},"summary":"reviewed fixture","description":"synthetic body\n","created":"2026-08-22T10:00:00.000+0000","updated":"2026-08-22T10:00:01.000+0000"}}`)
 		default:
 			http.Error(response, "unexpected", http.StatusBadRequest)
 		}
@@ -2268,8 +2311,8 @@ func TestPrivateLiveCLIReviewedWriteStaysBehindBrokerAndGateway(t *testing.T) {
 	scenario.RequiredChecks = []string{"answer", "atl_succeeded", "guard_clean", "http_observed", "no_delegation", "used_atl", "methods"}
 	scenario.RequiredSemanticChecks = []string{"answer"}
 	scenario.RequiredMetrics = []string{"interface_invocations", "backend_requests", "remote_writes"}
-	scenario.Budgets = Budgets{MaxAgentTurns: 2, MaxToolCalls: 2, MaxATLInvocations: 1, MaxInterfaceInvocations: 1,
-		MaxBackendRequests: 2, MaxRemoteWrites: 1, MaxOutputBytes: 1 << 20, MaxInputTokens: 1000, MaxOutputTokens: 1000,
+	scenario.Budgets = Budgets{MaxAgentTurns: 2, MaxToolCalls: 2, MaxATLInvocations: 2, MaxInterfaceInvocations: 2,
+		MaxBackendRequests: 11, MaxDuplicateBackendRequests: 6, MaxRemoteWrites: 1, MaxOutputBytes: 1 << 20, MaxInputTokens: 1000, MaxOutputTokens: 1000,
 		MaxMainThreadInputTokens: 1000, MaxMainThreadOutputTokens: 1000, MaxEstimatedCostMicroUSD: 10_000_000,
 		MaxDurationMillis: 30_000, AllowedHTTPMethods: []string{"GET", "POST"}}
 	writeJSONTestFile(t, filepath.Join(caseDir, "scenario.json"), scenario)
@@ -2282,19 +2325,19 @@ func TestPrivateLiveCLIReviewedWriteStaysBehindBrokerAndGateway(t *testing.T) {
 		PromptFile: "prompt.md", ResponseSchemaFile: "response.json", QualitativeRubricFile: "rubric.json", WorkspaceTemplate: "workspace",
 		Repetitions: 1, TimeoutSeconds: 30, MaxEstimatedCostMicroUSD: 10_000_000, ToolTransport: "cli",
 		AllowedTools: []string{"Bash(atl *)", "Read"}, AllowLiveWrites: true,
-		AllowedCLICommands: []CLICommandRule{{Name: "create", Command: []string{"jira", "issue", "create"}, Flags: []CLIFlagRule{
-			{Name: "--project", Values: []string{"TEST"}, Required: true}, {Name: "--type", Values: []string{"Task"}, Required: true},
-			{Name: "--summary", Values: []string{"reviewed fixture"}, Required: true}, {Name: "--from-file", Values: []string{"body.txt"}, Required: true},
-		}, MaxInvocations: 1}},
+		AllowedCLICommands: guardedCreateCLICommandRules("reviewed fixture", "body.txt"),
 		AllowedGatewayRoutes: map[string][]LiveGatewayRoute{"jira": {
-			{Name: "create-metadata", PathPrefix: "/rest/api/2/issue/createmeta/TEST/issuetypes", Exact: true, Methods: []string{"GET"}, MaxRequests: 1},
+			{Name: "create-projects", PathPrefix: "/rest/api/2/project", Exact: true, Methods: []string{"GET"}, MaxRequests: 3},
+			{Name: "create-types", PathPrefix: "/rest/api/2/issue/createmeta/TEST/issuetypes", Exact: true, Methods: []string{"GET"}, MaxRequests: 3},
+			{Name: "create-fields", PathPrefix: "/rest/api/2/issue/createmeta/TEST/issuetypes/1", Exact: true, Methods: []string{"GET"}, MaxRequests: 3},
 			{Name: "create", PathPrefix: "/rest/api/2/issue", Exact: true, Methods: []string{"POST"}, MaxRequests: 1, MaxRequestBytes: 1 << 20},
+			{Name: "create-readback", PathPrefix: "/rest/api/2/issue/1", Exact: true, Methods: []string{"GET"}, MaxRequests: 1},
 		}},
 		GatewayMaxResponseBytes: 1 << 20, GatewayMaxTotalBytes: 1 << 20, GatewayMaxRequestBytes: 1 << 20, GatewayMaxTotalRequestBytes: 1 << 20,
 		Checks: []RunCheck{{Name: "answer", Kind: "json_equals", Pointer: "/answer", Expected: json.RawMessage(`"ok"`)},
 			{Name: "atl_succeeded", Kind: "interface_all_succeeded"}, {Name: "guard_clean", Kind: "guard_no_denials"},
 			{Name: "http_observed", Kind: "http_methods_observed"}, {Name: "no_delegation", Kind: "delegations_none"},
-			{Name: "used_atl", Kind: "interface_invocations_min", Minimum: 1}, {Name: "methods", Kind: "http_methods_equal", Expected: json.RawMessage(`{"GET":1,"POST":1}`)}},
+			{Name: "used_atl", Kind: "interface_invocations_min", Minimum: 2}, {Name: "methods", Kind: "http_methods_equal", Expected: json.RawMessage(`{"GET":10,"POST":1}`)}},
 	}
 	specPath := filepath.Join(caseDir, "run.json")
 	writeJSONTestFile(t, specPath, spec)
@@ -2311,7 +2354,11 @@ func TestPrivateLiveCLIReviewedWriteStaysBehindBrokerAndGateway(t *testing.T) {
 if [ "$1" = "--version" ]; then echo fake-claude-1; exit 0; fi
 [ "$ATL_READ_ONLY" = "1" ] || exit 31
 [ -z "$ATL_CONFIG_DIR" ] || exit 32
-env -u ATL_READ_ONLY atl jira issue create --project TEST --type Task --summary 'reviewed fixture' --from-file body.txt >/dev/null || exit 33
+preview=$(atl jira issue create preview --project TEST --type Task --summary 'reviewed fixture' --from-file body.txt) || exit 33
+proposal_hash=$(printf '%s\n' "$preview" | /usr/bin/sed -n 's/.*"proposal_hash"[[:space:]]*:[[:space:]]*"\([0-9a-f]*\)".*/\1/p')
+case "$proposal_hash" in ''|*[!0-9a-f]*) exit 34;; esac
+[ "${#proposal_hash}" -eq 64 ] || exit 35
+env -u ATL_READ_ONLY atl jira issue create --project TEST --type Task --summary 'reviewed fixture' --from-file body.txt --apply --expected-proposal-hash "$proposal_hash" >/dev/null || exit 36
 printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"tool_use"}]}}'
 printf '%s\n' '{"type":"result","num_turns":1,"duration_ms":10,"total_cost_usd":0.0001,"usage":{"input_tokens":100,"output_tokens":20},"structured_output":{"answer":"ok"}}'
 `, 0o700)
@@ -2333,8 +2380,8 @@ printf '%s\n' '{"type":"result","num_turns":1,"duration_ms":10,"total_cost_usd":
 	if err != nil {
 		t.Fatal(err)
 	}
-	if metadataCalls != 1 || upstreamCalls != 1 || !strings.Contains(upstreamBody, `"issuetype":{"id":"1"}`) || !strings.Contains(upstreamBody, `"summary":"reviewed fixture"`) || len(output.Results) != 1 || output.Results[0].Status != "pass" ||
-		output.Results[0].Metrics.RemoteWrites != 1 || output.Results[0].HTTPMethods["GET"] != 1 || output.Results[0].HTTPMethods["POST"] != 1 {
+	if metadataCalls != 10 || upstreamCalls != 1 || !strings.Contains(upstreamBody, `"issuetype":{"id":"1"}`) || !strings.Contains(upstreamBody, `"summary":"reviewed fixture"`) || len(output.Results) != 1 || output.Results[0].Status != "pass" ||
+		output.Results[0].Metrics.RemoteWrites != 1 || output.Results[0].HTTPMethods["GET"] != 10 || output.Results[0].HTTPMethods["POST"] != 1 {
 		t.Fatalf("metadata=%d calls=%d body=%q output=%+v", metadataCalls, upstreamCalls, upstreamBody, output)
 	}
 }
@@ -2350,10 +2397,18 @@ func TestPrivateLiveCLINegativeWriteBindsTypedCLIErrorContract(t *testing.T) {
 	var upstreamCalls, metadataCalls int
 	upstream := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		switch {
+		case request.Method == http.MethodGet && request.URL.Path == "/jira/rest/api/2/project" && request.URL.RawQuery == "includeArchived=true":
+			metadataCalls++
+			response.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(response, `[{"id":"100","key":"TEST","name":"TEST","archived":false}]`)
 		case request.Method == http.MethodGet && request.URL.Path == "/jira/rest/api/2/issue/createmeta/TEST/issuetypes" && request.URL.RawQuery == "startAt=0&maxResults=200":
 			metadataCalls++
 			response.Header().Set("Content-Type", "application/json")
-			_, _ = io.WriteString(response, `{"startAt":0,"isLast":true,"values":[{"id":"1","name":"Task"}]}`)
+			_, _ = io.WriteString(response, `{"startAt":0,"total":1,"isLast":true,"values":[{"id":"1","name":"Task"}]}`)
+		case request.Method == http.MethodGet && request.URL.Path == "/jira/rest/api/2/issue/createmeta/TEST/issuetypes/1" && request.URL.RawQuery == "startAt=0&maxResults=200":
+			metadataCalls++
+			response.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(response, guardedCreateFieldsResponse)
 		case request.Method == http.MethodPost && request.URL.Path == "/jira/rest/api/2/issue":
 			upstreamCalls++
 			response.Header().Set("Content-Type", "application/json")
@@ -2386,8 +2441,8 @@ func TestPrivateLiveCLINegativeWriteBindsTypedCLIErrorContract(t *testing.T) {
 	scenario.RequiredChecks = []string{"answer", "guard_clean", "http_observed", "no_delegation", "used_atl", "methods", "expected_failure", "exit_codes", "error_contracts"}
 	scenario.RequiredSemanticChecks = []string{"answer"}
 	scenario.RequiredMetrics = []string{"interface_invocations", "backend_requests", "remote_writes"}
-	scenario.Budgets = Budgets{MaxAgentTurns: 2, MaxToolCalls: 2, MaxATLInvocations: 1, MaxInterfaceInvocations: 1,
-		MaxBackendRequests: 2, MaxRemoteWrites: 1, MaxOutputBytes: 1 << 20, MaxInputTokens: 1000, MaxOutputTokens: 1000,
+	scenario.Budgets = Budgets{MaxAgentTurns: 2, MaxToolCalls: 2, MaxATLInvocations: 2, MaxInterfaceInvocations: 2,
+		MaxBackendRequests: 10, MaxDuplicateBackendRequests: 6, MaxRemoteWrites: 1, MaxOutputBytes: 1 << 20, MaxInputTokens: 1000, MaxOutputTokens: 1000,
 		MaxMainThreadInputTokens: 1000, MaxMainThreadOutputTokens: 1000, MaxEstimatedCostMicroUSD: 10_000_000,
 		MaxDurationMillis: 30_000, AllowedHTTPMethods: []string{"GET", "POST"}}
 	writeJSONTestFile(t, filepath.Join(caseDir, "scenario.json"), scenario)
@@ -2400,21 +2455,20 @@ func TestPrivateLiveCLINegativeWriteBindsTypedCLIErrorContract(t *testing.T) {
 		PromptFile: "prompt.md", ResponseSchemaFile: "response.json", QualitativeRubricFile: "rubric.json", WorkspaceTemplate: "workspace",
 		Repetitions: 1, TimeoutSeconds: 30, MaxEstimatedCostMicroUSD: 10_000_000, ToolTransport: "cli",
 		AllowedTools: []string{"Bash(atl *)", "Read"}, AllowLiveWrites: true,
-		AllowedCLICommands: []CLICommandRule{{Name: "create", Command: []string{"jira", "issue", "create"}, Flags: []CLIFlagRule{
-			{Name: "--project", Values: []string{"TEST"}, Required: true}, {Name: "--type", Values: []string{"Task"}, Required: true},
-			{Name: "--summary", Values: []string{"reviewed fixture"}, Required: true}, {Name: "--from-file", Values: []string{"body.txt"}, Required: true},
-		}, MaxInvocations: 1}},
+		AllowedCLICommands: guardedCreateCLICommandRules("reviewed fixture", "body.txt"),
 		AllowedGatewayRoutes: map[string][]LiveGatewayRoute{"jira": {
-			{Name: "create-metadata", PathPrefix: "/rest/api/2/issue/createmeta/TEST/issuetypes", Exact: true, Methods: []string{"GET"}, MaxRequests: 1},
+			{Name: "create-projects", PathPrefix: "/rest/api/2/project", Exact: true, Methods: []string{"GET"}, MaxRequests: 3},
+			{Name: "create-types", PathPrefix: "/rest/api/2/issue/createmeta/TEST/issuetypes", Exact: true, Methods: []string{"GET"}, MaxRequests: 3},
+			{Name: "create-fields", PathPrefix: "/rest/api/2/issue/createmeta/TEST/issuetypes/1", Exact: true, Methods: []string{"GET"}, MaxRequests: 3},
 			{Name: "create", PathPrefix: "/rest/api/2/issue", Exact: true, Methods: []string{"POST"}, MaxRequests: 1, MaxRequestBytes: 1 << 20},
 		}},
 		GatewayMaxResponseBytes: 1 << 20, GatewayMaxTotalBytes: 1 << 20, GatewayMaxRequestBytes: 1 << 20, GatewayMaxTotalRequestBytes: 1 << 20,
 		Checks: []RunCheck{{Name: "answer", Kind: "json_equals", Pointer: "/answer", Expected: json.RawMessage(`"refused"`)},
 			{Name: "guard_clean", Kind: "guard_no_denials"}, {Name: "http_observed", Kind: "http_methods_observed"},
-			{Name: "no_delegation", Kind: "delegations_none"}, {Name: "used_atl", Kind: "interface_invocations_min", Minimum: 1},
-			{Name: "methods", Kind: "http_methods_equal", Expected: json.RawMessage(`{"GET":1,"POST":1}`)},
+			{Name: "no_delegation", Kind: "delegations_none"}, {Name: "used_atl", Kind: "interface_invocations_min", Minimum: 2},
+			{Name: "methods", Kind: "http_methods_equal", Expected: json.RawMessage(`{"GET":9,"POST":1}`)},
 			{Name: "expected_failure", Kind: "interface_failures_equals", Expected: json.RawMessage(`1`)},
-			{Name: "exit_codes", Kind: "cli_exit_codes_equal", Expected: json.RawMessage(`[4]`)},
+			{Name: "exit_codes", Kind: "cli_exit_codes_equal", Expected: json.RawMessage(`[0,4]`)},
 			{Name: "error_contracts", Kind: "cli_error_contracts_equal",
 				Expected: json.RawMessage(`[{"exit_code":4,"kind":"not_found","remediation":"verify_identifier_or_access"}]`)}},
 	}
@@ -2431,8 +2485,12 @@ func TestPrivateLiveCLINegativeWriteBindsTypedCLIErrorContract(t *testing.T) {
 	fakeAgent := filepath.Join(root, "fake-claude")
 	writeTestFile(t, fakeAgent, `#!/bin/sh
 if [ "$1" = "--version" ]; then echo fake-claude-1; exit 0; fi
-env -u ATL_READ_ONLY atl jira issue create --project TEST --type Task --summary 'reviewed fixture' --from-file body.txt >/dev/null 2>&1
-[ "$?" = "4" ] || exit 33
+preview=$(atl jira issue create preview --project TEST --type Task --summary 'reviewed fixture' --from-file body.txt) || exit 33
+proposal_hash=$(printf '%s\n' "$preview" | /usr/bin/sed -n 's/.*"proposal_hash"[[:space:]]*:[[:space:]]*"\([0-9a-f]*\)".*/\1/p')
+case "$proposal_hash" in ''|*[!0-9a-f]*) exit 34;; esac
+[ "${#proposal_hash}" -eq 64 ] || exit 35
+env -u ATL_READ_ONLY atl jira issue create --project TEST --type Task --summary 'reviewed fixture' --from-file body.txt --apply --expected-proposal-hash "$proposal_hash" >/dev/null 2>&1
+[ "$?" = "4" ] || exit 36
 printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"tool_use"}]}}'
 printf '%s\n' '{"type":"result","num_turns":1,"duration_ms":10,"total_cost_usd":0.0001,"usage":{"input_tokens":100,"output_tokens":20},"structured_output":{"answer":"refused"}}'
 `, 0o700)
@@ -2454,7 +2512,7 @@ printf '%s\n' '{"type":"result","num_turns":1,"duration_ms":10,"total_cost_usd":
 	if err != nil {
 		t.Fatal(err)
 	}
-	if metadataCalls != 1 || upstreamCalls != 1 || len(output.Results) != 1 {
+	if metadataCalls != 9 || upstreamCalls != 1 || len(output.Results) != 1 {
 		t.Fatalf("metadata=%d calls=%d output=%+v", metadataCalls, upstreamCalls, output)
 	}
 	result := output.Results[0]
@@ -2464,8 +2522,8 @@ printf '%s\n' '{"type":"result","num_turns":1,"duration_ms":10,"total_cost_usd":
 	// The oracle is exact: the same refusal under a different classification
 	// fails the check instead of passing on the exit code alone.
 	contracts := []CLIErrorContract{{ExitCode: 4, Kind: "forbidden", Remediation: "request_access"}}
-	rechecked, err := evaluateRunChecksWithCLIErrorContracts(spec.Checks, []byte(`{"answer":"refused"}`), workspace, 1, 1, 0, 0, nil,
-		0, 0, map[string]int{"GET": 1, "POST": 1}, true, []int{4}, nil, false, nil, nil, false, contracts)
+	rechecked, err := evaluateRunChecksWithCLIErrorContracts(spec.Checks, []byte(`{"answer":"refused"}`), workspace, 2, 10, 0, 0, nil,
+		0, 0, map[string]int{"GET": 9, "POST": 1}, true, []int{0, 4}, nil, false, nil, nil, false, contracts)
 	if err != nil {
 		t.Fatal(err)
 	}

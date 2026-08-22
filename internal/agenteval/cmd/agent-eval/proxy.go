@@ -774,26 +774,26 @@ func runATLProxyWithWriteIntent(args []string, reviewedWriteIntent bool) int {
 			return rejectATLProxy(counterPath, "atl evaluation proxy rejected command arguments")
 		}
 		if match.Name == "atl_version" {
-			// This reserved family is emitted only by the backend-free calibration
-			// policy, binding its content-free receipt to that exact reviewed rule.
+			// Bind the content-free calibration receipt to its reserved rule.
 			commandFamily = match.Name
 		}
-		allowed, err := reserveCLIInvocation(counterPath, match.Name, match.MaxInvocations)
-		if err != nil {
-			return rejectATLProxy(counterPath, "atl evaluation proxy could not enforce its invocation budget")
-		}
-		if !allowed {
-			return rejectATLProxy(counterPath, "atl evaluation proxy rejected an exhausted command budget")
+		// Reserving before the broker could let a rejected hash exhaust the apply slot.
+		if brokerPath == "" {
+			if allowed, err := reserveCLIInvocation(counterPath, match.Name, match.MaxInvocations); err != nil || !allowed {
+				return rejectATLProxy(counterPath, "atl evaluation proxy could not admit its invocation budget")
+			}
 		}
 	} else if !allowedATLArgs(args, os.Getenv(agenteval.WrapperEnvAllowedCommands)) {
 		return rejectATLProxy(counterPath, "atl evaluation proxy rejected command arguments")
 	}
 	if brokerPath != "" {
-		brokerArgs := args
-		if brokerAllowsReviewedWrites && !reviewedWriteIntent && (len(args) == 0 || args[0] != "--read-only") {
-			brokerArgs = append([]string{"--read-only"}, args...)
+		var response agenteval.CommandBrokerResponse
+		var err error
+		if brokerAllowsReviewedWrites && !reviewedWriteIntent {
+			response, err = agenteval.CallCommandBrokerReadOnly(brokerPath, args)
+		} else {
+			response, err = agenteval.CallCommandBroker(brokerPath, args, false)
 		}
-		response, err := agenteval.CallCommandBroker(brokerPath, brokerArgs, false)
 		if err != nil {
 			return failATLProxy(counterPath, "atl evaluation proxy could not reach its confined command broker")
 		}

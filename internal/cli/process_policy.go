@@ -7,6 +7,8 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/spf13/cobra"
+
 	"github.com/isukharev/atl/internal/backendid"
 	"github.com/isukharev/atl/internal/config"
 	"github.com/isukharev/atl/internal/contentpolicy"
@@ -81,8 +83,8 @@ func (p *processPolicy) resolve() (*contentpolicy.Resolved, error) {
 	return p.resolved, p.err
 }
 
-func (p *processPolicy) requireActiveFor(registration commandRegistration) error {
-	if registration.policyIdentity == policyIdentityNone {
+func (p *processPolicy) requireActiveFor(cmd *cobra.Command, registration commandRegistration) error {
+	if registration.policyIdentity == policyIdentityNone || len(policyPreflightVerbs(cmd, registration.policyVerbs)) == 0 {
 		return nil
 	}
 	resolved, err := p.resolve()

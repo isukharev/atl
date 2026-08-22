@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Changed `jira issue create` to preview by default with exact proposal-hash
+  apply, immutable-ID readback proof, closed ambiguous outcomes, and optional
+  post-proof mirror registration. Added the read-only `create preview` child.
+
 - Added hash-guarded Jira link add/delete proposals with independent read-only
   preview leaves, strict reciprocal/type evidence, immutable-id writes, bounded
   no-replay reconciliation, and two-endpoint `kind:link` authorization. Existing

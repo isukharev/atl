@@ -102,7 +102,10 @@ Actual / Environment / error excerpt in a code fence / links to similar issues â
 then:
 
 ```sh
-atl jira issue create --project KEY --type Bug --summary '<Component>: <symptom> <condition>' --from-md desc.md
+atl jira issue create preview --project KEY --type Bug --summary '<Component>: <symptom> <condition>' --from-md desc.md
+# After explicit review, repeat the exact parent command with the reviewed hash:
+atl jira issue create --project KEY --type Bug --summary '<Component>: <symptom> <condition>' \
+  --from-md desc.md --apply --expected-proposal-hash '<reviewed hash>'
 ATL_READ_ONLY=1 atl jira issue link add preview NEW-1 --to OLD-9 --type Relates
 # After explicit review, repeat without ATL_READ_ONLY and add --apply plus the proposal hash.
 ```

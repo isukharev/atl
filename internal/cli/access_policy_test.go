@@ -149,7 +149,7 @@ update|jira-issue-arg|jira issue assign
 create|jira-issue-arg|jira issue attachment upload
 comment|jira-issue-arg|jira issue comment add
 delete|jira-issue-arg|jira issue comment delete
-create|jira-project-flag|jira issue create
+create?|jira-project-flag|jira issue create
 delete|jira-issue-arg|jira issue delete
 update,move?|jira-issue-arg|jira issue edit
 update,move?|jira-issue-arg|jira issue field set
@@ -211,7 +211,7 @@ remote-direct|-|jira issue assign
 remote-direct|-|jira issue attachment upload
 preview-apply|apply,expected-proposal-hash|jira issue comment add
 remote-direct|-|jira issue comment delete
-remote-direct|-|jira issue create
+preview-apply|apply,expected-proposal-hash|jira issue create
 preview-apply|apply,confirm,expected-proposal-hash,expected-updated|jira issue delete
 preview-apply|apply,expected-proposal-hash|jira issue edit
 preview-apply|apply,expected-proposal-hash,expected-updated|jira issue field set
@@ -481,7 +481,7 @@ func TestReadOnlyFlagBlocksMutationBeforeNetwork(t *testing.T) {
 	requests := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { requests++ }))
 	defer srv.Close()
-	_, code := runCLI(t, jiraEnv(srv), "--read-only", "jira", "issue", "create", "--project", "PROJ", "--type", "Task", "--summary", "blocked", "--from-file", "/definitely/missing/description.wiki")
+	_, code := runCLI(t, jiraEnv(srv), "--read-only", "jira", "issue", "create", "--project", "PROJ", "--type", "Task", "--summary", "blocked", "--from-file", "/definitely/missing/description.wiki", "--apply", "--expected-proposal-hash", strings.Repeat("a", 64))
 	if code != exitCheckFailed || requests != 0 {
 		t.Fatalf("exit=%d requests=%d", code, requests)
 	}

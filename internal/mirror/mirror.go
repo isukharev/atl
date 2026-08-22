@@ -651,18 +651,6 @@ func (b *SyncBatch) FlushCompletePull(checkpoint CompletePullCheckpoint) error {
 	return syncPublicationPath(b.m.Root, b.m.sidecarPath(), defaultCompletePullPublicationOps())
 }
 
-// EnsureScaffold writes a .gitignore guarding secrets in the mirror root.
-func (m *Mirror) EnsureScaffold() error {
-	if err := os.MkdirAll(m.Root, 0o755); err != nil {
-		return err
-	}
-	gi := filepath.Join(m.Root, ".gitignore")
-	if _, err := os.Stat(gi); os.IsNotExist(err) {
-		_ = safepath.WriteFileWithin(m.Root, gi, []byte("# atl mirror — never commit secrets\n.atl/\ncredentials.json\n*.pat\n"), 0o644)
-	}
-	return nil
-}
-
 // LocalCSF describes a tracked .csf file and its expected (last-synced) state.
 type LocalCSF struct {
 	Path             string // absolute path to the .csf

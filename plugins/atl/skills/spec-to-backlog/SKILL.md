@@ -55,8 +55,12 @@ into a ticket. Wait for approval or edits.
 ### 3. Create the Epic first
 
 ```sh
-env -u ATL_READ_ONLY atl jira issue create --project KEY --type '<exact epic type>' \
+atl jira issue create preview --project KEY --type '<exact epic type>' \
   --summary '<epic name>' --from-md epic.md
+# Review proposal_hash, then repeat the same candidate once:
+env -u ATL_READ_ONLY atl jira issue create --project KEY --type '<exact epic type>' \
+  --summary '<epic name>' --from-md epic.md --apply \
+  --expected-proposal-hash '<reviewed hash>'
 ```
 
 Epic description: one-paragraph goal, a link back to the spec page, success
@@ -67,8 +71,11 @@ criteria. Capture the returned key — every child needs it.
 Per ticket, sequentially (so a failure can't silently orphan half the batch):
 
 ```sh
-env -u ATL_READ_ONLY atl jira issue create --project KEY --type '<exact child type>' \
+atl jira issue create preview --project KEY --type '<exact child type>' \
   --summary '<verb-first title>' --from-md t1.md
+env -u ATL_READ_ONLY atl jira issue create --project KEY --type '<exact child type>' \
+  --summary '<verb-first title>' --from-md t1.md \
+  --apply --expected-proposal-hash '<reviewed hash>'
 env -u ATL_READ_ONLY atl jira issue link-epic KEY-101 --epic KEY-100
 ```
 
