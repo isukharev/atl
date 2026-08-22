@@ -62,6 +62,40 @@ type JiraCreateMetadata struct {
 	Fields    []JiraCreateField `json:"fields"`
 }
 
+// JiraCreateFieldSchema is the allowlisted, content-free subset of Jira's
+// create-field JsonTypeBean. Default values, autocomplete URLs, operations,
+// and backend-controlled option values never enter this domain contract.
+type JiraCreateFieldSchema struct {
+	Type     string `json:"type"`
+	Items    string `json:"items,omitempty"`
+	System   string `json:"system,omitempty"`
+	Custom   string `json:"custom,omitempty"`
+	CustomID *int64 `json:"custom_id,omitempty"`
+}
+
+// JiraQualifiedCreateField preserves metadata presence separately from false.
+// AllowedValuesPresent distinguishes an explicitly advertised empty inline
+// enumeration from a field for which Jira advertised no inline enumeration.
+type JiraQualifiedCreateField struct {
+	FieldID              string
+	Name                 string
+	Required             *bool
+	Schema               *JiraCreateFieldSchema
+	HasDefaultValue      *bool
+	AllowedValuesPresent bool
+	AllowedValuesCount   int
+	HasAutocomplete      bool
+}
+
+// JiraQualifiedCreateMetadata is one terminal, project/type-scoped create
+// metadata inventory. Implementations return an error instead of this value
+// when pagination or a hard collection bound is not qualified.
+type JiraQualifiedCreateMetadata struct {
+	Project   string
+	IssueType JiraIssueType
+	Fields    []JiraQualifiedCreateField
+}
+
 // JiraProjectReader is the optional atomic Jira Data Center project inventory.
 type JiraProjectReader interface {
 	ReadProjects(ctx context.Context, includeArchived bool) ([]JiraProject, error)
@@ -78,6 +112,13 @@ type JiraCreateIssueTypeReader interface {
 type JiraCreateMetadataReader interface {
 	JiraCreateIssueTypeReader
 	ReadCreateMetadata(ctx context.Context, project, issueType string) (*JiraCreateMetadata, error)
+}
+
+// JiraQualifiedCreateMetadataReader exposes the safe presence-qualified
+// create-screen facts used by bounded preflight. It remains separate from the
+// legacy create-check reader so that projection stays byte-compatible.
+type JiraQualifiedCreateMetadataReader interface {
+	ReadQualifiedCreateMetadata(ctx context.Context, project, issueType string) (*JiraQualifiedCreateMetadata, error)
 }
 
 // JiraEpicFieldLinker writes an already-resolved Epic Link field. The adapter

@@ -280,6 +280,7 @@ R remote-read json,text,id jira issue comment list
 R remote-read-with-local json,text jira issue comment preview
 M remote-write-local remote-direct create jira-project-flag - json,text,id jira issue create
 R remote-read json,text jira issue create-check
+R remote-read json,text jira issue create-metadata
 M remote-write preview-apply delete jira-issue-arg apply,confirm,expected-proposal-hash,expected-updated pre-config jira-issue-delete json jira issue delete
 M remote-write-with-local remote-direct update,move? jira-issue-arg - json,text jira issue edit
 R remote-read json,text jira issue field get

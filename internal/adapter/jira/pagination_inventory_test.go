@@ -16,20 +16,22 @@ import (
 
 func TestJiraPaginationOwnerInventoryIsClosed(t *testing.T) {
 	want := map[string][]string{
-		"agile.go:Boards":                                 {"qualifiedAgileValuesPage", "requestStartAt"},
-		"agile.go:SprintIssues":                           {"agileNext", "requestStartAt"},
-		"agile.go:Sprints":                                {"qualifiedAgileValuesPage", "requestStartAt"},
-		"agile.go:agileNext":                              {"advance", "matches", "requested", "requested", "requested", "requested"},
-		"agile.go:boardIssuePage":                         {"agileNext", "requestStartAt"},
-		"agile.go:qualifiedAgileValuesPage":               {"advance", "matches", "requested", "requested", "requested"},
-		"create_metadata.go:readCreateFields":             {"advance", "matches", "requestStartAt", "requested", "requested"},
-		"create_metadata.go:readCreateIssueTypes":         {"advance", "matches", "requestStartAt", "requested", "requested"},
-		"evidence.go:ListJiraCommentsQualified":           {"advance", "matches", "requestStartAt", "requested"},
-		"inverse_reference.go:SelectInverseReferencePage": {"requestStartAt"},
-		"jira.go:CompleteChangelog":                       {"advance", "matches", "requestStartAt", "requested", "requested", "requested"},
-		"jira.go:ListComments":                            {"advance", "matches", "requestStartAt", "requested", "requested", "requested", "requested", "requested", "requested", "requested", "requested", "requested", "requested"},
-		"jira.go:searchPage":                              {"advance", "matches", "requestStartAt"},
-		"worklogs.go:ListIssueWorklogs":                   {"advance", "matches", "requestStartAt", "requested", "requested", "requested", "requested", "requested", "requested", "requested", "requested"},
+		"agile.go:Boards":                                     {"qualifiedAgileValuesPage", "requestStartAt"},
+		"agile.go:SprintIssues":                               {"agileNext", "requestStartAt"},
+		"agile.go:Sprints":                                    {"qualifiedAgileValuesPage", "requestStartAt"},
+		"agile.go:agileNext":                                  {"advance", "matches", "requested", "requested", "requested", "requested"},
+		"agile.go:boardIssuePage":                             {"agileNext", "requestStartAt"},
+		"agile.go:qualifiedAgileValuesPage":                   {"advance", "matches", "requested", "requested", "requested"},
+		"create_metadata.go:collectQualifiedCreateFields":     {"advance", "matches", "requestStartAt", "requested"},
+		"create_metadata.go:collectQualifiedCreateIssueTypes": {"advance", "matches", "requestStartAt", "requested"},
+		"create_metadata.go:readCreateFields":                 {"advance", "matches", "requestStartAt", "requested", "requested"},
+		"create_metadata.go:readCreateIssueTypes":             {"advance", "matches", "requestStartAt", "requested", "requested"},
+		"evidence.go:ListJiraCommentsQualified":               {"advance", "matches", "requestStartAt", "requested"},
+		"inverse_reference.go:SelectInverseReferencePage":     {"requestStartAt"},
+		"jira.go:CompleteChangelog":                           {"advance", "matches", "requestStartAt", "requested", "requested", "requested"},
+		"jira.go:ListComments":                                {"advance", "matches", "requestStartAt", "requested", "requested", "requested", "requested", "requested", "requested", "requested", "requested", "requested", "requested"},
+		"jira.go:searchPage":                                  {"advance", "matches", "requestStartAt"},
+		"worklogs.go:ListIssueWorklogs":                       {"advance", "matches", "requestStartAt", "requested", "requested", "requested", "requested", "requested", "requested", "requested", "requested"},
 	}
 	trackedSelectors := map[string]bool{"advance": true, "matches": true, "requested": true}
 	got := map[string][]string{}
@@ -106,6 +108,10 @@ authorization.go:issueTargets:range:1
 authorization.go:put:for:1
 authorization.go:removeCanonical:range:1
 create_metadata.go:ReadCreateIssueTypes:range:1
+create_metadata.go:ReadQualifiedCreateMetadata:range:1
+create_metadata.go:ReadQualifiedCreateMetadata:range:2
+create_metadata.go:collectQualifiedCreateFields:for:1
+create_metadata.go:collectQualifiedCreateIssueTypes:for:1
 create_metadata.go:readCreateFields:for:1
 create_metadata.go:readCreateIssueTypes:for:1
 create_metadata.go:readCreateMetadataFields:range:1
@@ -187,12 +193,14 @@ worklogs.go:ListIssueWorklogs:range:1
 
 func TestJiraProductionLoopInventoryIsClosed(t *testing.T) {
 	pagination := map[string]bool{
-		"create_metadata.go:readCreateFields:for:1":     true,
-		"create_metadata.go:readCreateIssueTypes:for:1": true,
-		"evidence.go:ListJiraCommentsQualified:for:1":   true,
-		"jira.go:CompleteChangelog:for:1":               true,
-		"jira.go:ListComments:for:1":                    true,
-		"worklogs.go:ListIssueWorklogs:for:1":           true,
+		"create_metadata.go:collectQualifiedCreateFields:for:1":     true,
+		"create_metadata.go:collectQualifiedCreateIssueTypes:for:1": true,
+		"create_metadata.go:readCreateFields:for:1":                 true,
+		"create_metadata.go:readCreateIssueTypes:for:1":             true,
+		"evidence.go:ListJiraCommentsQualified:for:1":               true,
+		"jira.go:CompleteChangelog:for:1":                           true,
+		"jira.go:ListComments:for:1":                                true,
+		"worklogs.go:ListIssueWorklogs:for:1":                       true,
 	}
 	want := classifiedJiraLoops(strings.Fields(jiraProductionLoopKeys), pagination)
 	got := map[string]string{}

@@ -145,7 +145,7 @@
     },
     {
       "path": "jira/reference/commands.md",
-      "sha256": "fb5617d1ea1f830a7710c6f662ac097dcec3a340ecd14ddd97f8ccb7ba1493ac"
+      "sha256": "46a78984a462bb6b47b37ac91da24fe048be880ed75ca78178759b59a7331a4d"
     },
     {
       "path": "jira/reference/editing.md",
@@ -165,7 +165,7 @@
     },
     {
       "path": "jira/reference/fields.md",
-      "sha256": "21f5e87b7cc9f23f869cf40719a48aef96837c19d7cf8c30f9a26674b16e6dd0"
+      "sha256": "cf1b996e8adaba6ada0f2da4fc079e64c7f7dafdf49576e4ffe645c9c2e14b4e"
     },
     {
       "path": "jira/reference/jql.md",

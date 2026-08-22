@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Added `atl jira issue create-metadata` for bounded, completeness-qualified
+  create-field schema, default presence, allowed-value cardinality, and
+  omittability without exposing defaults, option values, or autocomplete URLs;
+  the existing `create-check` output remains unchanged.
+
 ## [0.8.0] - 2026-08-20
 
 ### Changed

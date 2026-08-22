@@ -97,3 +97,29 @@ func jiraIssueCreateCheckCmd() *cobra.Command {
 	c.Flags().StringVar(&issueType, "type", "", "exact issue type id or name")
 	return c
 }
+
+func jiraIssueCreateMetadataCmd() *cobra.Command {
+	var project, issueType string
+	c := &cobra.Command{
+		Use:   "create-metadata",
+		Short: "Inspect bounded, qualified create-field metadata",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if project == "" || issueType == "" {
+				return usageErr("--project and --type are required")
+			}
+			svc, err := jiraService(cmd)
+			if err != nil {
+				return err
+			}
+			result, err := svc.InspectCreateMetadata(cmd.Context(), project, issueType)
+			if err != nil {
+				return err
+			}
+			return emit(cmd, result, func() string { return app.JiraQualifiedCreateMetadataMarkdown(result) })
+		},
+	}
+	c.Flags().StringVar(&project, "project", "", "Jira project key or id")
+	c.Flags().StringVar(&issueType, "type", "", "exact issue type id or name")
+	return c
+}

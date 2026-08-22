@@ -382,7 +382,45 @@ The backend hostname and PAT are never written to the manifest.
 `{schema_version,project,issue_type,count,complete,fields}`. Each field contains
 only `{field_id,name,required,has_allowed_values}`. Jira's endpoint already
 limits the result to create-screen fields, so there is no redundant `on_screen`
-member; allowed-value labels and values are also omitted.
+member; allowed-value labels and values are also omitted. This legacy JSON and
+text shape is unchanged.
+
+`atl jira issue create-metadata` emits schema version 1 with the same project
+and exact resolved issue type, plus `qualification`, `bounds`, and a sorted
+field inventory. A field has this content-free shape:
+
+```json
+{
+  "field_id": "summary",
+  "name": "Summary",
+  "required": true,
+  "schema": {"type": "string", "system": "summary"},
+  "default_state": "absent",
+  "allowed_values": {
+    "mode": "not_advertised",
+    "inline_count": 0,
+    "exhaustive": false
+  },
+  "omittability": "must_supply",
+  "omittability_basis": "required_without_default"
+}
+```
+
+`required` and `schema` are `null` when Jira omitted them. `default_state` is
+`present|absent|unknown`; it never contains the default. Allowed-value `mode`
+is `inline|autocomplete|inline_and_autocomplete|not_advertised`, and
+`exhaustive:true` means Jira supplied an inline list without also advertising
+autocomplete. Labels, option values, and autocomplete URLs are never emitted.
+`omittability` is `omittable|must_supply|unknown`, paired respectively with a
+closed `omittability_basis` of `not_required|backend_default`,
+`required_without_default`, or `metadata_unqualified`.
+
+`complete:true` qualifies the bounded field inventory, while
+`qualification.{schema_complete,default_complete,omittability_complete}` says
+whether every field supplied enough facts for that projection. `bounds`
+declares the 1000-type, 1000-field, 64-request, 16-MiB, and 60-second limits and
+reports requests/response bytes used. The command fails instead of returning a
+partial inventory or backend-controlled error text.
 
 `atl jira export diff OLD NEW` reads JSONL/JSON/CSV compact exports and reports issue identifiers:
 

@@ -86,6 +86,7 @@ not display/short URLs, and no page body or backlink query is made.
 | `jira issue search -o id` | Print matching issue keys one per line | `-o id` |
 | `jira issue types` | Discover create-eligible issue types for one project | `--project`, `-o text/id` |
 | `jira issue create-check` | Inspect content-free create-screen field requirements | `--project`, exact `--type`, `-o text` |
+| `jira issue create-metadata` | Inspect bounded, qualified create schema and omittability without raw defaults/options | `--project`, exact `--type`, `-o text` |
 | `jira issue children <EPIC-KEY>` | Read direct epic children as a common IssueList without per-child reads | `--view`, `--columns`, `--limit 1..1000` (0 invalid), `--cursor`, `--epic-field`, `-o text/id` |
 | `jira epic digest <EPIC-KEY>` | Deterministic multi-source epic evidence with per-source completeness | `--projection compact|full`, period, includes, fields, caps, optional bounded Confluence heading expansion |
 | `jira issue create` | Create an issue; optionally register one authoritative readback in a mirror | `--project`, `--type`, `--summary`, `--from-md`, `--from-file`, `--field k=v`, `--field-json k=JSON`; `--register --into <ROOT>` |
