@@ -415,6 +415,13 @@ The backend hostname and PAT are never written to the manifest.
 
 ## Jira export comparison, reports, and field catalogs
 
+`atl jira issue create` and its read-only `create preview` child emit the
+schema-v1 guarded-create result documented under
+[registration and write guards](registration-and-write-guards.md#guarded-jira-issue-create).
+JSON is the complete safety result. The parent is preview-by-default; apply
+requires the exact proposal hash. `-o id` is apply-only and emits a key only for
+terminal `applied`; text is unsupported.
+
 `atl jira issue create-check` emits
 `{schema_version,project,issue_type,count,complete,fields}`. Each field contains
 only `{field_id,name,required,has_allowed_values}`. Jira's endpoint already

@@ -80,9 +80,13 @@ discovery per task. Wait for confirmation or edits.
 ### 5. Create tasks — sequentially
 
 ```sh
-env -u ATL_READ_ONLY atl jira issue create --project KEY --type '<exact returned type>' \
+atl jira issue create preview --project KEY --type '<exact returned type>' \
   --summary '<verb-first action>' --from-md item.md \
   --field 'assignee={"name":"<username>"}' --field duedate=<YYYY-MM-DD>
+env -u ATL_READ_ONLY atl jira issue create --project KEY --type '<exact returned type>' \
+  --summary '<verb-first action>' --from-md item.md \
+  --field 'assignee={"name":"<username>"}' --field duedate=<YYYY-MM-DD> \
+  --apply --expected-proposal-hash '<reviewed hash>'
 ```
 
 Description: Context (meeting name + date + the source lines) / What to do /

@@ -2,13 +2,14 @@
   "schema_version":6,"scenario_file":"scenario.v1.json","category":"surface-native","surface":"cli-skill","provider":"claude-code","variant":"jira-triage-issue-workflow-v1","model":"claude-opus-4-8","reasoning":"high","prompt_file":"prompt.claude.v1.md","response_schema_file":"response-schema.v1.json","qualitative_rubric_file":"rubric.v1.json","workspace_template":"workspace","fixture_file":"fixture.json","repetitions":1,"timeout_seconds":600,"max_estimated_cost_microusd":10000000,
   "pricing":{"input_microusd_per_million_tokens":5000000,"output_microusd_per_million_tokens":25000000},
   "allowed_tools":["Bash(atl *)","Skill","Read"],
-  "allowed_atl_commands":[
-    "atl jira issue search --jql 'project = OPS AND text ~ \"LeaseRenewalError retry storm\" AND type = Bug ORDER BY updated DESC' --limit 10 --columns key,summary,status,updated --",
-    "atl jira issue search --jql 'project = OPS AND summary ~ \"indexer retry\" AND type = Bug ORDER BY updated DESC' --limit 10 --columns key,summary,status,updated --",
-    "atl jira issue get OPS-88 --",
-    "atl jira issue comment list OPS-88 --",
-    "atl jira issue create --project OPS --type Bug --summary 'Indexer: retry storm after lease renewal' --from-md new-bug.md --",
-    "atl jira issue comment add OPS-88 --from-md duplicate-comment.md --"
+  "allowed_cli_commands":[
+    {"name":"search_specific","command":["jira","issue","search"],"flags":[{"name":"--jql","values":["project = OPS AND text ~ \"LeaseRenewalError retry storm\" AND type = Bug ORDER BY updated DESC"],"required":true},{"name":"--limit","values":["10"],"required":true},{"name":"--columns","values":["key,summary,status,updated"],"required":true}],"max_invocations":1},
+    {"name":"search_broad","command":["jira","issue","search"],"flags":[{"name":"--jql","values":["project = OPS AND summary ~ \"indexer retry\" AND type = Bug ORDER BY updated DESC"],"required":true},{"name":"--limit","values":["10"],"required":true},{"name":"--columns","values":["key,summary,status,updated"],"required":true}],"max_invocations":1},
+    {"name":"candidate","command":["jira","issue","get"],"positionals":[{"values":["OPS-88"]}],"max_invocations":1},
+    {"name":"comments","command":["jira","issue","comment","list"],"positionals":[{"values":["OPS-88"]}],"max_invocations":2},
+    {"name":"preview_create","command":["jira","issue","create","preview"],"flags":[{"name":"--project","values":["OPS"],"required":true},{"name":"--type","values":["Bug"],"required":true},{"name":"--summary","values":["Indexer: retry storm after lease renewal"],"required":true},{"name":"--from-md","values":["new-bug.md"],"required":true}],"binds_proposal_hash":"create","max_invocations":1},
+    {"name":"create","command":["jira","issue","create"],"flags":[{"name":"--project","values":["OPS"],"required":true},{"name":"--type","values":["Bug"],"required":true},{"name":"--summary","values":["Indexer: retry storm after lease renewal"],"required":true},{"name":"--from-md","values":["new-bug.md"],"required":true},{"name":"--apply","required":true},{"name":"--expected-proposal-hash","value_format":"sha256","required":true}],"requires_proposal_hash":"create","max_invocations":1},
+    {"name":"comment","command":["jira","issue","comment","add"],"positionals":[{"values":["OPS-88"]}],"flags":[{"name":"--from-md","values":["duplicate-comment.md"],"required":true}],"max_invocations":1}
   ],
   "allow_synthetic_writes":true,
   "checks":[

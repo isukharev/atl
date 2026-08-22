@@ -191,9 +191,13 @@ func (codexAgentAdapter) layoutPolicy(spec RunSpec) agentAdapterLayoutPolicy {
 
 func (claudeAgentAdapter) layoutPolicy(spec RunSpec) agentAdapterLayoutPolicy {
 	privateCLI := spec.EffectiveBackendMode() == BackendModePrivateLive && spec.EffectiveToolTransport() == "cli"
+	syntheticBroker := isSyntheticBrokerCLI(spec)
+	syntheticWrite := syntheticBroker && spec.AllowSyntheticWrites
 	privateWrite := privateCLI && spec.AllowLiveWrites
-	return agentAdapterLayoutPolicy{privateCLI: privateCLI, privateLiveWriteCLI: privateWrite,
-		reviewedWriteCLI: privateWrite, brokerCLI: privateCLI, directFinalCaptureCLI: privateCLI}
+	return agentAdapterLayoutPolicy{privateCLI: privateCLI, syntheticBrokerCLI: syntheticBroker,
+		syntheticBrokerWriteCLI: syntheticWrite, privateLiveWriteCLI: privateWrite,
+		reviewedWriteCLI: syntheticWrite || privateWrite, guardedBrokerCLI: syntheticBroker,
+		brokerCLI: privateCLI || syntheticBroker, directFinalCaptureCLI: privateCLI}
 }
 
 func (codexAgentAdapter) reviewedMCPTools(RunSpec) []string { return nil }

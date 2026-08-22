@@ -1546,20 +1546,28 @@ func TestATLProxyPreservesReadOnlyAcrossWriteAttestedBroker(t *testing.T) {
 	writes := filepath.Join(directory, "writes")
 	realBinary := filepath.Join(directory, "real-atl")
 	script := "#!/bin/sh\nprintf '%s\\n' \"$*\" >>\"$TEST_EXECUTIONS\"\n" +
-		"if [ \"$1\" = \"--read-only\" ]; then exit 8; fi\n" +
-		"printf 'write\\n' >>\"$TEST_WRITES\"\n"
+		"if [ \"$1\" = \"--read-only\" ]; then\n" +
+		"  if [ \"$5\" = \"preview\" ]; then printf '%s\\n' \"$TEST_PREVIEW\"; exit 0; fi\n" +
+		"  exit 8\n" +
+		"fi\n" +
+		"printf 'write\\n' >>\"$TEST_WRITES\"\n" +
+		"printf '{}\\n'\n"
 	if err := os.WriteFile(realBinary, []byte(script), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	policy := agenteval.CLICommandPolicy{SchemaVersion: agenteval.CLICommandPolicySchemaVersion, Rules: []agenteval.CLICommandRule{{
-		Name: "apply", Command: []string{"conf", "plan", "apply"},
-		Positionals: []agenteval.CLIArgumentRule{{Values: []string{"plan.json"}}},
-		Flags: []agenteval.CLIFlagRule{
-			{Name: "--confirm", Values: []string{"APPLY"}, Required: true},
-			{Name: "--expected-proposal-hash", ValueFormat: "sha256", Required: true},
-		},
-		MaxInvocations: 4,
-	}}}
+	hash := strings.Repeat("a", 64)
+	preview := `{"schema_version":1,"operation":"jira_issue_create","backend_sha256":"x","requested_project":"TEST","project":{"id":"1","key":"TEST","archived":false},"type_selector":{},"issue_type":{"id":"2","name":"Task","subtask":false},"summary":{},"description":{},"fields":{},"metadata_count":1,"metadata_sha256":"x","request_sha256":"x","request_bytes":1,"registration_requested":false,"bounds":{},"proposal_hash":"` + hash + `","mode":"preview","status":"would_apply","write_attempted":false,"readback_reconciled":false,"usage":{}}`
+	baseFlags := []agenteval.CLIFlagRule{
+		{Name: "--project", Values: []string{"TEST"}, Required: true},
+		{Name: "--type", Values: []string{"Task"}, Required: true},
+		{Name: "--summary", Values: []string{"reviewed fixture"}, Required: true},
+	}
+	policy := agenteval.CLICommandPolicy{SchemaVersion: agenteval.CLICommandPolicySchemaVersion, Rules: []agenteval.CLICommandRule{
+		{Name: "preview", Command: []string{"jira", "issue", "create", "preview"}, Flags: append([]agenteval.CLIFlagRule(nil), baseFlags...), BindsProposalHash: "create", MaxInvocations: 1},
+		{Name: "apply", Command: []string{"jira", "issue", "create"}, Flags: append(append([]agenteval.CLIFlagRule(nil), baseFlags...),
+			agenteval.CLIFlagRule{Name: "--apply", Required: true}, agenteval.CLIFlagRule{Name: "--expected-proposal-hash", ValueFormat: "sha256", Required: true}),
+			RequiresProposalHash: "create", MaxInvocations: 1},
+	}}
 	policyData, err := agenteval.EncodeCLICommandPolicy(policy)
 	if err != nil {
 		t.Fatal(err)
@@ -1572,7 +1580,7 @@ func TestATLProxyPreservesReadOnlyAcrossWriteAttestedBroker(t *testing.T) {
 	broker, err := agenteval.StartCommandBroker(agenteval.CommandBrokerConfig{
 		RequestDirectory: requests, ResponseDirectory: responses, ManifestPath: manifest,
 		RealBinary: realBinary, WorkingDirectory: directory, Policy: policy,
-		Environment:    []string{"TEST_EXECUTIONS=" + executions, "TEST_WRITES=" + writes},
+		Environment:    []string{"TEST_EXECUTIONS=" + executions, "TEST_WRITES=" + writes, "TEST_PREVIEW=" + preview},
 		MaxStdoutBytes: 4096, MaxStderrBytes: 4096, CommandTimeout: time.Second,
 		AllowReviewedWrites: true,
 	})
@@ -1586,22 +1594,13 @@ func TestATLProxyPreservesReadOnlyAcrossWriteAttestedBroker(t *testing.T) {
 	t.Setenv("ATL_EVAL_CLI_POLICY_FILE", policyPath)
 	t.Setenv("ATL_EVAL_COMMAND_BROKER_FILE", manifest)
 	t.Setenv("ATL_EVAL_ALLOW_REVIEWED_WRITES", "1")
-	args := []string{"conf", "plan", "apply", "plan.json", "--confirm", "APPLY", "--expected-proposal-hash", strings.Repeat("a", 64)}
+	previewArgs := []string{"jira", "issue", "create", "preview", "--project", "TEST", "--type", "Task", "--summary", "reviewed fixture"}
+	args := []string{"jira", "issue", "create", "--project", "TEST", "--type", "Task", "--summary", "reviewed fixture", "--apply", "--expected-proposal-hash", hash}
 	t.Setenv("ATL_READ_ONLY", "1")
-	if code := runATLProxy(args); code != 8 {
-		t.Fatalf("read-only brokered mutation code=%d", code)
+	if code := runATLProxy(previewArgs); code != 0 {
+		t.Fatalf("read-only brokered preview code=%d", code)
 	}
-	if _, err := os.Stat(writes); !os.IsNotExist(err) {
-		t.Fatalf("read-only brokered mutation executed a write: %v", err)
-	}
-	t.Setenv("ATL_READ_ONLY", "")
-	if code := runATLProxy(args); code != 8 {
-		t.Fatalf("ordinary brokered mutation without ambient read-only code=%d", code)
-	}
-	if _, err := os.Stat(writes); !os.IsNotExist(err) {
-		t.Fatalf("ordinary brokered mutation without ambient read-only executed a write: %v", err)
-	}
-	if code := runATLProxy(append([]string{"--read-only"}, args...)); code != 8 {
+	if code := runATLProxy(append([]string{"--read-only"}, args...)); code != 2 {
 		t.Fatalf("explicit global read-only brokered mutation code=%d", code)
 	}
 	if _, err := os.Stat(writes); !os.IsNotExist(err) {
@@ -1611,16 +1610,17 @@ func TestATLProxyPreservesReadOnlyAcrossWriteAttestedBroker(t *testing.T) {
 	if code := runReviewedWriteEnv(envArgs); code != 0 {
 		t.Fatalf("explicit reviewed write code=%d", code)
 	}
-	executed, err := os.ReadFile(executions)
-	if err != nil || strings.Count(string(executed), "--read-only conf plan apply ") != 3 || strings.Count(string(executed), "\n") != 4 || strings.Contains(string(executed), "--read-only --read-only") {
-		t.Fatalf("executions=%q err=%v", executed, err)
-	}
 	written, err := os.ReadFile(writes)
 	if err != nil || string(written) != "write\n" {
 		t.Fatalf("writes=%q err=%v", written, err)
 	}
+	wantExecutions := "--read-only " + strings.Join(previewArgs, " ") + "\n" + strings.Join(args, " ") + "\n"
+	executed, err := os.ReadFile(executions)
+	if err != nil || string(executed) != wantExecutions || strings.Contains(string(executed), "--read-only --read-only") {
+		t.Fatalf("executions=%q want=%q err=%v", executed, wantExecutions, err)
+	}
 	records, err := os.ReadFile(counter)
-	if err != nil || bytes.Count(records, []byte{'\n'}) != 4 {
+	if err != nil || bytes.Count(records, []byte{'\n'}) != 3 {
 		t.Fatalf("proxy records=%q err=%v", records, err)
 	}
 }

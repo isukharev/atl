@@ -10,6 +10,7 @@ import (
 	"slices"
 	"sort"
 	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -121,6 +122,213 @@ func prepareSyntheticJiraCreateMetadata(t *testing.T, fixture MockFixture) MockF
 	return prepared
 }
 
+// prepareSyntheticJiraGuardedCreate upgrades the selected spec-to-backlog
+// fixture from its explicitly historical direct-create wire to the current
+// preview/apply product contract. Other retained workflow corpora keep using
+// prepareSyntheticJiraCreateMetadata until their own reviewed migrations.
+func prepareSyntheticJiraGuardedCreate(t *testing.T, fixture MockFixture) MockFixture {
+	t.Helper()
+	prepared := prepareSyntheticJiraCreateMetadata(t, fixture)
+	originalSequence := slices.Clone(fixture.RequestSequence)
+	projectIDs := map[string]string{}
+	typeNames := map[string]string{}
+	createRoutes := map[string]struct {
+		project, projectID, typeID, typeName, id, key, summary, description string
+		success                                                             bool
+		readbackFields                                                      map[string]any
+	}{}
+	extraFieldsByType := map[string]map[string]string{}
+
+	for index := range prepared.Routes {
+		route := &prepared.Routes[index]
+		if route.Method != http.MethodPost || route.Path != prepared.JiraContext+"/rest/api/2/issue" {
+			continue
+		}
+		var request struct {
+			Fields struct {
+				Project struct {
+					Key string `json:"key"`
+				} `json:"project"`
+				IssueType struct {
+					ID string `json:"id"`
+				} `json:"issuetype"`
+				Summary, Description string
+			} `json:"fields"`
+		}
+		var response struct {
+			Key string `json:"key"`
+		}
+		var rawRequest struct {
+			Fields map[string]json.RawMessage `json:"fields"`
+		}
+		if err := json.Unmarshal(route.RequestBody, &request); err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal(route.Body, &response); err != nil && route.Status >= 200 && route.Status < 300 {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal(route.RequestBody, &rawRequest); err != nil {
+			t.Fatal(err)
+		}
+		projectID := projectIDs[request.Fields.Project.Key]
+		if projectID == "" {
+			projectID = strconv.Itoa(len(projectIDs) + 1)
+			projectIDs[request.Fields.Project.Key] = projectID
+		}
+		id := strings.TrimPrefix(response.Key, request.Fields.Project.Key+"-")
+		success := route.Status >= 200 && route.Status < 300
+		if success && id == "" {
+			t.Fatalf("guarded create route %q has no immutable id", route.Name)
+		}
+		typeKey := request.Fields.Project.Key + "\x00" + request.Fields.IssueType.ID
+		extraFields := map[string]string{}
+		readbackFields := map[string]any{}
+		for field := range rawRequest.Fields {
+			switch field {
+			case "project", "issuetype", "summary", "description":
+				continue
+			case "assignee":
+				extraFields[field] = "user"
+			case "duedate":
+				extraFields[field] = "date"
+			default:
+				extraFields[field] = "string"
+			}
+			var value any
+			if err := json.Unmarshal(rawRequest.Fields[field], &value); err != nil {
+				t.Fatal(err)
+			}
+			readbackFields[field] = value
+		}
+		if extraFieldsByType[typeKey] == nil {
+			extraFieldsByType[typeKey] = map[string]string{}
+		}
+		for field, typ := range extraFields {
+			extraFieldsByType[typeKey][field] = typ
+		}
+		createRoutes[route.Name] = struct {
+			project, projectID, typeID, typeName, id, key, summary, description string
+			success                                                             bool
+			readbackFields                                                      map[string]any
+		}{request.Fields.Project.Key, projectID, request.Fields.IssueType.ID, typeKey, id, response.Key, request.Fields.Summary, request.Fields.Description, success, readbackFields}
+		if success {
+			route.Body, _ = json.Marshal(map[string]string{"id": id, "key": response.Key})
+		}
+	}
+
+	for index := range prepared.Routes {
+		route := &prepared.Routes[index]
+		if !strings.HasPrefix(route.Name, "create-metadata-") {
+			continue
+		}
+		var page struct {
+			Values []struct{ ID, Name string }
+		}
+		if err := json.Unmarshal(route.Body, &page); err != nil {
+			t.Fatal(err)
+		}
+		for _, value := range page.Values {
+			for project := range projectIDs {
+				if strings.Contains(route.Path, "/"+project+"/") {
+					typeNames[project+"\x00"+value.ID] = value.Name
+				}
+			}
+		}
+		route.Body, _ = json.Marshal(map[string]any{"startAt": 0, "total": len(page.Values), "isLast": true, "values": page.Values})
+	}
+
+	for name, create := range createRoutes {
+		create.typeName = typeNames[create.typeName]
+		createRoutes[name] = create
+	}
+	projects := make([]map[string]any, 0, len(projectIDs))
+	for project, id := range projectIDs {
+		projects = append(projects, map[string]any{"id": id, "key": project, "name": project, "archived": false})
+	}
+	sort.Slice(projects, func(i, j int) bool { return projects[i]["key"].(string) < projects[j]["key"].(string) })
+	projectBody, _ := json.Marshal(projects)
+	prepared.Routes = append(prepared.Routes, MockRoute{
+		Name: "guarded-create-projects", Method: http.MethodGet, Path: prepared.JiraContext + "/rest/api/2/project",
+		QueryEquals: map[string]string{"includeArchived": "true"}, Status: http.StatusOK, Body: projectBody, closedQuery: true,
+	})
+
+	fieldRouteNames := map[string]string{}
+	for _, create := range createRoutes {
+		key := create.project + "\x00" + create.typeID
+		if fieldRouteNames[key] != "" {
+			continue
+		}
+		name := "guarded-create-fields-" + strings.ToLower(create.project) + "-" + create.typeID
+		fieldRouteNames[key] = name
+		field := func(id, typ string, required bool) map[string]any {
+			return map[string]any{"fieldId": id, "name": id, "required": required, "schema": map[string]any{"type": typ, "system": id}, "hasDefaultValue": false, "allowedValues": []any{}, "autoCompleteUrl": nil}
+		}
+		values := []map[string]any{field("project", "project", true), field("issuetype", "issuetype", true), field("summary", "string", true), field("description", "string", false)}
+		extraNames := make([]string, 0, len(extraFieldsByType[key]))
+		for name := range extraFieldsByType[key] {
+			extraNames = append(extraNames, name)
+		}
+		sort.Strings(extraNames)
+		for _, name := range extraNames {
+			values = append(values, field(name, extraFieldsByType[key][name], false))
+		}
+		body, _ := json.Marshal(map[string]any{"startAt": 0, "total": len(values), "isLast": true, "values": values})
+		prepared.Routes = append(prepared.Routes, MockRoute{
+			Name: name, Method: http.MethodGet,
+			Path:        prepared.JiraContext + "/rest/api/2/issue/createmeta/" + url.PathEscape(create.project) + "/issuetypes/" + url.PathEscape(create.typeID),
+			QueryEquals: map[string]string{"startAt": "0", "maxResults": "200"}, Status: http.StatusOK, Body: body, closedQuery: true,
+		})
+	}
+
+	sequence := make([]string, 0, len(originalSequence)+len(createRoutes)*10)
+	for _, name := range originalSequence {
+		create, ok := createRoutes[name]
+		if !ok {
+			sequence = append(sequence, name)
+			continue
+		}
+		typeRoute := ""
+		for _, route := range prepared.Routes {
+			if strings.HasPrefix(route.Name, "create-metadata-") && strings.Contains(route.Path, "/"+create.project+"/") {
+				typeRoute = route.Name
+				break
+			}
+		}
+		fieldRoute := fieldRouteNames[create.project+"\x00"+create.typeID]
+		for range 3 {
+			sequence = append(sequence, "guarded-create-projects", typeRoute, fieldRoute)
+		}
+		sequence = append(sequence, name)
+		if !create.success {
+			continue
+		}
+		readName := name + "-readback"
+		sequence = append(sequence, readName)
+		readback := map[string]any{
+			"project":   map[string]string{"id": create.projectID, "key": create.project},
+			"issuetype": map[string]string{"id": create.typeID, "name": create.typeName},
+			"summary":   create.summary, "description": create.description,
+			"created": "2026-08-22T10:00:00.000+0000", "updated": "2026-08-22T10:00:01.000+0000",
+		}
+		readbackFieldNames := []string{"created", "description", "issuetype", "project", "summary", "updated"}
+		for field, value := range create.readbackFields {
+			readback[field] = value
+			readbackFieldNames = append(readbackFieldNames, field)
+		}
+		sort.Strings(readbackFieldNames)
+		readBody, _ := json.Marshal(map[string]any{
+			"id": create.id, "key": create.key,
+			"fields": readback,
+		})
+		prepared.Routes = append(prepared.Routes, MockRoute{
+			Name: readName, Method: http.MethodGet, Path: prepared.JiraContext + "/rest/api/2/issue/" + create.id,
+			QueryEquals: map[string]string{"fields": strings.Join(readbackFieldNames, ",")}, Status: http.StatusOK, Body: readBody, closedQuery: true,
+		})
+	}
+	prepared.RequestSequence = sequence
+	return prepared
+}
+
 func TestPrepareSyntheticJiraCreateMetadataSplicesPreflightAndIDWrite(t *testing.T) {
 	fixture := MockFixture{
 		SchemaVersion: 1, JiraContext: "/jira", ConfluenceContext: "/wiki",
@@ -172,18 +380,13 @@ func TestPrepareSyntheticJiraCreateMetadataSplicesPreflightAndIDWrite(t *testing
 	}
 }
 
-// syntheticJiraCreateHistoricalContract is the frozen corpus contract. The
-// selected-process tests derive a separate current-product contract below so
-// the historical scenario and HTTP oracle remain independently observable.
+// syntheticJiraCreateHistoricalContract records an exact committed corpus
+// contract. Historical fixture owners and current run-spec owners both use the
+// same assertion without deriving replacement geometry in memory.
 type syntheticJiraCreateHistoricalContract struct {
 	HTTPMethods                 map[string]int
 	MaxBackendRequests          int
 	MaxDuplicateBackendRequests int
-}
-
-type syntheticJiraCreateCurrentContract struct {
-	Spec     RunSpec
-	Scenario Scenario
 }
 
 func assertSyntheticJiraCreateHistoricalContract(
@@ -214,99 +417,4 @@ func assertSyntheticJiraCreateHistoricalContract(
 		t.Fatalf("historical backend budgets=%+v want requests=%d duplicates=%d",
 			scenario.Budgets, want.MaxBackendRequests, want.MaxDuplicateBackendRequests)
 	}
-}
-
-func deriveSyntheticJiraCreateCurrentContract(
-	t *testing.T,
-	spec RunSpec,
-	scenario Scenario,
-	methods map[string]int,
-	duplicates int,
-) syntheticJiraCreateCurrentContract {
-	t.Helper()
-	expected, err := json.Marshal(methods)
-	if err != nil {
-		t.Fatal(err)
-	}
-	current := syntheticJiraCreateCurrentContract{Spec: spec, Scenario: scenario}
-	current.Spec.Checks = slices.Clone(spec.Checks)
-	found := 0
-	for index := range current.Spec.Checks {
-		if current.Spec.Checks[index].Kind != "http_methods_equal" {
-			continue
-		}
-		current.Spec.Checks[index].Expected = expected
-		found++
-	}
-	if found != 1 {
-		t.Fatalf("expected one HTTP method oracle, got %d", found)
-	}
-	requests := 0
-	for method, count := range methods {
-		if count < 1 || !slices.Contains(current.Scenario.Budgets.AllowedHTTPMethods, method) {
-			t.Fatalf("current HTTP method geometry %s=%d is outside the scenario allowlist %v", method, count, current.Scenario.Budgets.AllowedHTTPMethods)
-		}
-		requests += count
-	}
-	if duplicates < 0 || duplicates > requests {
-		t.Fatalf("current duplicate request geometry=%d requests=%d", duplicates, requests)
-	}
-	current.Scenario.Budgets.MaxBackendRequests = requests
-	current.Scenario.Budgets.MaxDuplicateBackendRequests = duplicates
-	if err := current.Spec.ValidateAgainstScenario(current.Scenario); err != nil {
-		t.Fatalf("derive current Jira create contract: %v", err)
-	}
-	return current
-}
-
-func TestDeriveSyntheticJiraCreateCurrentContractKeepsHistoricalContract(t *testing.T) {
-	root := "../../benchmarks/agent-eval/jira-meeting-tasks-workflow"
-	historicalSpec := loadRepositoryRunSpec(t, root+"/run.cli.codex.json")
-	historicalScenario := loadRepositoryScenario(t, root+"/scenario.v1.json")
-	historical := syntheticJiraCreateHistoricalContract{
-		HTTPMethods:        map[string]int{"GET": 4, "POST": 3},
-		MaxBackendRequests: 7, MaxDuplicateBackendRequests: 2,
-	}
-	assertSyntheticJiraCreateHistoricalContract(t, historicalSpec, historicalScenario, historical)
-
-	currentMethods := map[string]int{"GET": 7, "POST": 3}
-	current := deriveSyntheticJiraCreateCurrentContract(t, historicalSpec, historicalScenario, currentMethods, 4)
-	if current.Scenario.Budgets.MaxBackendRequests != 10 || current.Scenario.Budgets.MaxDuplicateBackendRequests != 4 {
-		t.Fatalf("current backend budgets=%+v", current.Scenario.Budgets)
-	}
-	assertSyntheticJiraCreateHistoricalContract(t, current.Spec, current.Scenario, syntheticJiraCreateHistoricalContract{
-		HTTPMethods: currentMethods, MaxBackendRequests: 10, MaxDuplicateBackendRequests: 4,
-	})
-	coverage := make(map[string]bool, len(current.Scenario.RequiredMetrics))
-	for _, metric := range current.Scenario.RequiredMetrics {
-		coverage[metric] = true
-	}
-	checks := make(map[string]bool, len(current.Spec.Checks))
-	for _, check := range current.Spec.Checks {
-		checks[check.Name] = true
-	}
-	observation := Observation{
-		SchemaVersion: ObservationSchemaVersion, ScenarioID: current.Scenario.ID,
-		Variant: current.Spec.Variant, Surface: current.Spec.Surface,
-		BackendObservation: BackendObservationHTTP, SafetyAssurance: SafetyAssuranceObservedHTTP,
-		Runtime: Runtime{Provider: "deterministic", ATLVersion: "test"},
-		Metrics: InputMetrics{
-			AgentTurns: 1, ToolCalls: 1, ATLInvocations: 1, DuplicateBackendRequests: 4,
-			OutputBytes: 1, InputTokens: 1, OutputTokens: 1, MainThreadInputTokens: 1,
-			MainThreadOutputTokens: 1, EstimatedCostMicroUSD: 1, DurationMillis: 1,
-		},
-		Coverage: coverage, HTTPMethods: currentMethods, Checks: checks,
-	}
-	result, err := Evaluate(current.Scenario, observation)
-	if err != nil || result.Status != "pass" || result.Metrics.BackendRequests != 10 || result.Metrics.DuplicateBackendRequests != 4 {
-		t.Fatalf("current geometry did not satisfy derived budget: result=%+v err=%v", result, err)
-	}
-	overBudget := maps.Clone(currentMethods)
-	overBudget[http.MethodGet]++
-	observation.HTTPMethods = overBudget
-	result, err = Evaluate(current.Scenario, observation)
-	if err != nil || result.Status != "fail" || !containsViolation(result.Violations, "budget_exceeded", "backend_requests") {
-		t.Fatalf("derived request budget did not reject added metadata read: result=%+v err=%v", result, err)
-	}
-	assertSyntheticJiraCreateHistoricalContract(t, historicalSpec, historicalScenario, historical)
 }

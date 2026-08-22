@@ -94,6 +94,7 @@ const (
 	mutationGuardJiraIssueDelete
 	mutationGuardJiraDescriptionEdit
 	mutationGuardJiraGuardedLink
+	mutationGuardJiraGuardedCreate
 )
 
 type mutationGuardSpec struct {
@@ -281,7 +282,8 @@ M remote-write-with-local preview-apply comment jira-issue-arg apply,expected-pr
 M remote-write remote-direct delete jira-issue-arg - json jira issue comment delete
 R remote-read json,text,id jira issue comment list
 R remote-read-with-local json,text jira issue comment preview
-M remote-write-local remote-direct create jira-project-flag - json,text,id jira issue create
+M guarded-create-apply preview-apply create? jira-project-flag apply,expected-proposal-hash pre-config jira-guarded-create json,id jira issue create
+R guarded-create-preview json jira issue create preview
 R remote-read json,text jira issue create-check
 R remote-read json,text jira issue create-metadata
 M remote-write preview-apply delete jira-issue-arg apply,confirm,expected-proposal-hash,expected-updated pre-config jira-issue-delete json jira issue delete
@@ -614,6 +616,13 @@ func installPureGroupFallbacks(cmd *cobra.Command) {
 
 func validateMutationInvocation(cmd *cobra.Command) error {
 	path := commandRegistryPath(cmd.Root(), cmd)
+	// The dedicated create preview is independently read-only, but it retains
+	// the exact same pure candidate validation boundary as its mutation-classed
+	// parent. Run that validation here so malformed inputs fail before config,
+	// credentials, stdin, self-update, or network access.
+	if path == "jira issue create preview" {
+		return validateJiraGuardedCreateInvocation(cmd, false)
+	}
 	registration, ok := commandRegistry.nodes[path]
 	if !ok || registration.traits&commandMutating == 0 {
 		return nil
@@ -692,6 +701,8 @@ func validateMutationGuardFamily(cmd *cobra.Command, family mutationGuardFamily,
 		return validateJiraDescriptionEditInvocation(cmd, applyRequested)
 	case mutationGuardJiraGuardedLink:
 		return validateJiraGuardedLinkInvocation(cmd, applyRequested)
+	case mutationGuardJiraGuardedCreate:
+		return validateJiraGuardedCreateInvocation(cmd, applyRequested)
 	default:
 		return &accessPolicyInvariantError{Command: fmt.Sprintf("%s has invalid mutation guard family", cmd.CommandPath())}
 	}
@@ -845,6 +856,10 @@ func enforceContentPolicyPreflight(cmd *cobra.Command, args []string, registrati
 	if len(registration.policyVerbs) == 0 {
 		return nil
 	}
+	verbs := policyPreflightVerbs(cmd, registration.policyVerbs)
+	if len(verbs) == 0 {
+		return nil
+	}
 	resolved, err := invocationRuntimeFor(cmd).processPolicy.resolve()
 	if err != nil || resolved == nil || len(resolved.Layers) == 0 {
 		return err
@@ -859,10 +874,6 @@ func enforceContentPolicyPreflight(cmd *cobra.Command, args []string, registrati
 				return denial
 			}
 		}
-		return nil
-	}
-	verbs := policyPreflightVerbs(cmd, registration.policyVerbs)
-	if len(verbs) == 0 {
 		return nil
 	}
 	targets, err := policyPreflightTargets(cmd, args, registration.policyIdentity)
@@ -900,6 +911,9 @@ func policyVerbConditionPresent(cmd *cobra.Command, verb domain.WriteVerb) bool 
 				}
 			}
 		}
+	case domain.WriteVerbCreate:
+		apply, err := cmd.Flags().GetBool("apply")
+		return err == nil && apply
 	}
 	return false
 }
@@ -994,6 +1008,10 @@ func enforceAccessPolicy(cmd *cobra.Command, enabled bool) error {
 		return &accessPolicyInvariantError{Command: cmd.CommandPath()}
 	}
 	if access != "mutating" {
+		return nil
+	}
+	if registration, ok := commandRegistry.nodes[commandRegistryPath(cmd.Root(), cmd)]; ok &&
+		len(registration.policyVerbs) != 0 && len(policyPreflightVerbs(cmd, registration.policyVerbs)) == 0 {
 		return nil
 	}
 	if enabled {

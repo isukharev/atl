@@ -6,9 +6,9 @@ Shared created-object registration and guarded copy proposal/result shapes.
 
 ## Explicit created-object registration
 
-`conf page create` and `jira issue create` preserve their remote-only behavior
-when `--register` and `--into` are omitted. `conf page copy` is independently
-preview-first; the two registration flags are part of its reviewed proposal and
+`conf page create` preserves its remote-only behavior when registration is
+omitted. `jira issue create` and `conf page copy` are independently
+preview-first; the two registration flags are part of their reviewed proposals and
 must also be supplied together. In default JSON mode, an explicit registration
 adds this object to the created page/issue result:
 
@@ -38,11 +38,30 @@ failure, stdout still identifies the created object. JSON uses
 `registration.status:"not_registered"`, `readback_reconciled:false` until a
 readback has qualified the object, a stable `reason`, and recovery text when an
 identifier is available. The command then emits its normal structured error on
-stderr and exits `8`. `-o id` for `conf page copy` and `jira issue create` still
-prints the identifier before that non-zero exit; Jira `-o text` still prints
-`created <KEY>`. This is not authorization to replay the non-idempotent create.
+stderr and exits `8`. Guarded Jira `-o id` is apply-only and emits a key only
+for terminal `applied`; text is unsupported. This is not authorization to replay the non-idempotent create.
 Preserve local files and use the reported narrow `conf pull --id ... --into ...`
 or `jira pull --jql 'key = ...' --limit 1 --into ...` recovery.
+
+Guarded Jira create instead uses outer status `applied_not_registered` after
+remote proof. Its registration object is `not_registered` for a definite local
+failure, or `registration_outcome_unknown` when exact state and artifacts are
+visible after a late durability failure but their durable commit cannot be
+proved. In the latter case, preserve and inspect those files; do not pull or
+replay. `registration_effects.planned_files` is present from preview onward,
+and `actual_files` reports only coordination, privacy scaffold, backend-binding,
+and mirror-state files created by that apply, including on blocked or
+`applied_not_registered` results.
+
+## Guarded Jira issue create
+
+Both create leaves emit schema version 1. The proposal contains content-free
+project/type, summary/description/typed-field, request, metadata, optional
+registration, bound, and backend digests plus `proposal_hash`; it never emits
+raw candidate values. Apply requires `--apply --expected-proposal-hash`. Only a
+positive immutable-ID acknowledgement plus exact ID readback is `applied`.
+Definitive HTTP refusal is `not_applied`; ambiguous or unproved writes are
+`outcome_unknown` and never automatically replayed.
 
 ## Guarded Confluence page copy
 

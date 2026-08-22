@@ -500,6 +500,17 @@ func (s *JiraService) resolveRenderFieldSelectors(ctx context.Context, rs Render
 	if err != nil {
 		return rs, err
 	}
+	return resolveRenderFieldSelectorsFromCatalog(rs, defs)
+}
+
+func resolveRenderFieldSelectorsFromCatalog(rs RenderSettings, defs []domain.FieldDef) (RenderSettings, error) {
+	selectors := append([]string(nil), rs.CustomFields...)
+	for _, view := range rs.FieldViews {
+		selectors = append(selectors, view.ID)
+	}
+	if len(selectors) == 0 {
+		return rs, nil
+	}
 	bySelector := map[string]domain.FieldDef{}
 	for _, selector := range selectors {
 		resolved, resolveErr := ResolveJiraFieldSelectors(defs, []string{selector})

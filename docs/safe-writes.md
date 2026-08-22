@@ -58,6 +58,22 @@ also refuse redirects for reads. After an ambiguous result, inspect the exact
 target before deciding whether a separately reviewed command is justified;
 never wrap a write in a retry loop.
 
+## Jira: guarded issue creation
+
+Build the final candidate with the read-only child, review its content-free
+evidence, then apply the same inputs and exact hash once:
+
+```sh
+ATL_READ_ONLY=1 atl jira issue create preview --project PROJ --type Task \
+  --summary 'Reviewed task' --from-md issue.md
+env -u ATL_READ_ONLY atl jira issue create --project PROJ --type Task \
+  --summary 'Reviewed task' --from-md issue.md --apply \
+  --expected-proposal-hash <reviewed-hash>
+```
+
+Treat `outcome_unknown` as possibly committed. Do not search by title/body,
+retry, or replay; use only safely returned immutable-ID/key recovery evidence.
+
 ## Confluence: edit without losing native content
 
 Pull one page into a dedicated mirror:

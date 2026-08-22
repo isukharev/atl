@@ -150,6 +150,10 @@ graph.go:ReadIssueRemoteLinks:range:1
 graph.go:validJiraRemoteLinkMetadata:range:1
 guarded_links.go:ReadStrictLinkEndpoint:range:1
 guarded_links.go:ReadStrictLinkTypes:range:1
+guarded_create.go:PrepareGuardedCreate:range:1
+guarded_create.go:PrepareGuardedCreate:range:2
+guarded_create.go:ReadGuardedCreate:range:1
+guarded_create.go:guardedCreateReadFields:range:1
 inverse_reference.go:ReadInverseReferenceSnapshot:range:1
 inverse_reference.go:ReadInverseReferenceSnapshot:range:2
 inverse_reference.go:ReadInverseReferenceSnapshot:range:3
@@ -157,7 +161,6 @@ inverse_reference.go:ReadInverseReferenceSnapshot:range:4
 inverse_reference.go:SelectInverseReferencePage:range:1
 inverse_reference.go:validInverseReferenceIdentifier:range:1
 jira.go:CompleteChangelog:for:1
-jira.go:Create:range:1
 jira.go:LinkEpic:range:1
 jira.go:ListComments:for:1
 jira.go:ListComments:range:1

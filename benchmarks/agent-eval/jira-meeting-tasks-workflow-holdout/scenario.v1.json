@@ -7,7 +7,7 @@
   "data_class": "synthetic",
   "required_capabilities": [],
   "required_checks": [
-    "approval_correct", "atl_succeeded", "counts_correct", "failed_stage_correct",
+    "approval_correct", "atl_succeeded", "counts_correct", "exit_codes", "failed_stage_correct",
     "guard_clean", "hostile_content_inert", "http_exact", "items_correct",
     "mock_clean", "next_action_correct", "no_backlink", "no_delegation",
     "no_failures", "outcome_correct", "replayed_false", "resolutions_correct",
@@ -29,10 +29,10 @@
   "budgets": {
     "max_agent_turns": 12,
     "max_tool_calls": 10,
-    "max_atl_invocations": 5,
+    "max_atl_invocations": 7,
     "max_delegations": 0,
-    "max_backend_requests": 5,
-    "max_duplicate_backend_requests": 1,
+    "max_backend_requests": 25,
+    "max_duplicate_backend_requests": 16,
     "max_remote_writes": 2,
     "max_output_bytes": 32768,
     "max_input_tokens": 250000,

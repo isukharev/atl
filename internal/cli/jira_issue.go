@@ -96,63 +96,7 @@ func jiraIssueCmd() *cobra.Command {
 	children.Flags().StringVar(&childrenCursor, "cursor", "", "pagination cursor (startAt)")
 	children.Flags().StringVar(&childrenEpicField, "epic-field", "", "Epic Link field id or display name (auto-detected when omitted)")
 
-	var project, issueType, summary, fromFile, fromMD, createInto string
-	var createRegister bool
-	var fieldKV, fieldJSON []string
-	create := &cobra.Command{
-		Use:   "create",
-		Short: "Create an issue (description = wiki via --from-file, or markdown via --from-md)",
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			if project == "" || issueType == "" || summary == "" {
-				return usageErr("--project, --type and --summary are required")
-			}
-			if createRegister != (strings.TrimSpace(createInto) != "") {
-				return usageErr("--register and a non-empty --into must be used together")
-			}
-			body, err := wikiBody(cmd, fromFile, fromMD)
-			if err != nil {
-				return err
-			}
-			kv, err := parseJiraFieldInputs(fieldKV, fieldJSON, false)
-			if err != nil {
-				return err
-			}
-			svc, err := jiraService(cmd)
-			if err != nil {
-				return err
-			}
-			if !createRegister {
-				is, err := svc.Create(cmd.Context(), project, issueType, summary, body, kv)
-				if err != nil {
-					return err
-				}
-				return emitID(cmd, is, func() string { return "created " + is.Key },
-					func() []string { return []string{is.Key} })
-			}
-			is, registration, createErr := svc.CreateAndRegister(cmd.Context(), project, issueType, summary, body, kv, createInto)
-			if registration != nil {
-				warnRender(cmd.ErrOrStderr(), registration.Warnings)
-			}
-			var emitErr error
-			if is != nil {
-				out := struct {
-					*domain.Issue
-					Registration *app.CreatedMirrorRegistration `json:"registration"`
-				}{Issue: is, Registration: registration}
-				emitErr = emitID(cmd, out, func() string { return "created " + is.Key }, func() []string { return []string{is.Key} })
-			}
-			return createdRegistrationResultErr(createErr, emitErr)
-		},
-	}
-	create.Flags().StringVar(&project, "project", "", "project key")
-	create.Flags().StringVar(&issueType, "type", "", "exact issue type id or name from project create metadata")
-	create.Flags().StringVar(&summary, "summary", "", "summary")
-	create.Flags().StringVar(&fromFile, "from-file", "", "description (wiki) file or - for stdin")
-	create.Flags().StringVar(&fromMD, "from-md", "", "markdown description file or - for stdin (converted to wiki; unsupported constructs are refused)")
-	create.Flags().StringArrayVar(&fieldKV, "field", nil, "extra field key=value (repeatable); JSON objects/arrays are sent as JSON")
-	create.Flags().StringArrayVar(&fieldJSON, "field-json", nil, "extra field key=JSON (repeatable); sends an explicit JSON value including scalars")
-	create.Flags().BoolVar(&createRegister, "register", false, "register the created issue in the mirror named by --into from an authoritative readback")
-	create.Flags().StringVar(&createInto, "into", "", "mirror root for explicit post-create registration (requires --register)")
+	create := jiraIssueCreateCmd()
 
 	var upSummary, upFile, upMD string
 	var upFieldKV, upFieldJSON []string

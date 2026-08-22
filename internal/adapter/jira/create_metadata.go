@@ -41,13 +41,29 @@ type createFieldSchemaDTO struct {
 }
 
 type qualifiedCreateFieldDTO struct {
-	FieldID         string                            `json:"fieldId"`
-	Name            string                            `json:"name"`
-	Required        *bool                             `json:"required"`
-	Schema          *createFieldSchemaDTO             `json:"schema"`
-	HasDefaultValue *bool                             `json:"hasDefaultValue"`
-	AllowedValues   qualifiedCreateAllowedValuesDTO   `json:"allowedValues"`
-	AutoCompleteURL qualifiedCreateAutocompleteMarker `json:"autoCompleteUrl"`
+	FieldID             string                            `json:"fieldId"`
+	Name                string                            `json:"name"`
+	Required            *bool                             `json:"required"`
+	Schema              *createFieldSchemaDTO             `json:"schema"`
+	HasDefaultValue     *bool                             `json:"hasDefaultValue"`
+	AllowedValues       qualifiedCreateAllowedValuesDTO   `json:"allowedValues"`
+	AutoCompleteURL     qualifiedCreateAutocompleteMarker `json:"autoCompleteUrl"`
+	AutocompletePresent bool                              `json:"-"`
+}
+
+func (f *qualifiedCreateFieldDTO) UnmarshalJSON(data []byte) error {
+	type wire qualifiedCreateFieldDTO
+	var decoded wire
+	var members map[string]json.RawMessage
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	if err := json.Unmarshal(data, &members); err != nil {
+		return err
+	}
+	*f = qualifiedCreateFieldDTO(decoded)
+	_, f.AutocompletePresent = members["autoCompleteUrl"]
+	return nil
 }
 
 // qualifiedCreateAllowedValuesDTO records only member presence and array
@@ -372,6 +388,7 @@ func (j *Jira) ReadQualifiedCreateMetadata(ctx context.Context, project, selecto
 			HasDefaultValue:      raw.HasDefaultValue,
 			AllowedValuesPresent: raw.AllowedValues.Present,
 			AllowedValuesCount:   raw.AllowedValues.Count,
+			AutocompletePresent:  raw.AutocompletePresent,
 			HasAutocomplete:      bool(raw.AutoCompleteURL),
 		}
 		if raw.Schema != nil {

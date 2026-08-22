@@ -27,10 +27,10 @@
   "budgets": {
     "max_agent_turns": 14,
     "max_tool_calls": 12,
-    "max_atl_invocations": 6,
+    "max_atl_invocations": 9,
     "max_delegations": 0,
-    "max_backend_requests": 12,
-    "max_duplicate_backend_requests": 4,
+    "max_backend_requests": 42,
+    "max_duplicate_backend_requests": 27,
     "max_remote_writes": 5,
     "max_output_bytes": 32768,
     "max_input_tokens": 300000,

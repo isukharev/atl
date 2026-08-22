@@ -21,7 +21,7 @@ func TestCommandEffectCatalogClassifiesEveryExecutableLeaf(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if catalog.SchemaVersion != commandEffectCatalogSchemaVersion || catalog.Enforcement != "informational" || catalog.Selection.Count != 179 {
+	if catalog.SchemaVersion != commandEffectCatalogSchemaVersion || catalog.Enforcement != "informational" || catalog.Selection.Count != 180 {
 		t.Fatalf("catalog metadata=%+v", catalog)
 	}
 	profiles := capabilitydef.EffectProfiles()
@@ -298,7 +298,6 @@ func TestRemoteWriteLocalPossibleArtifactsMapToExactRegistrationLeaves(t *testin
 		"conf page create",
 		"conf plan apply",
 		"conf push",
-		"jira issue create",
 		"jira push",
 	}
 	var gotProfileCommands []string
@@ -331,6 +330,19 @@ func TestRemoteWriteLocalPossibleArtifactsMapToExactRegistrationLeaves(t *testin
 		if register.Value.Type() != "bool" || register.DefValue != "false" || into == nil || into.DefValue != "" {
 			t.Fatalf("%q registration flags register=%+v into=%+v", command.Command, register, into)
 		}
+		if command.Command == "jira issue create preview" {
+			if command.EffectProfile != capabilitydef.EffectGuardedCreatePreview {
+				t.Fatalf("registration preview command %q uses profile %q", command.Command, command.EffectProfile)
+			}
+			continue
+		}
+		if command.Command == "jira issue create" {
+			if command.EffectProfile != capabilitydef.EffectGuardedCreateApply {
+				t.Fatalf("guarded create command %q uses profile %q", command.Command, command.EffectProfile)
+			}
+			gotRegistrationCommands = append(gotRegistrationCommands, command.Command)
+			continue
+		}
 		if command.EffectProfile != capabilitydef.EffectRemoteWriteLocal {
 			t.Fatalf("registration-capable command %q uses profile %q", command.Command, command.EffectProfile)
 		}
@@ -338,6 +350,24 @@ func TestRemoteWriteLocalPossibleArtifactsMapToExactRegistrationLeaves(t *testin
 	}
 	if !reflect.DeepEqual(gotRegistrationCommands, wantRegistrationCommands) {
 		t.Fatalf("registration-capable commands=%v want=%v", gotRegistrationCommands, wantRegistrationCommands)
+	}
+}
+
+func TestGuardedCreateEffectProfilesDisableStartupUpdateExactly(t *testing.T) {
+	wants := map[string]string{
+		"jira issue create":         capabilitydef.EffectGuardedCreateApply,
+		"jira issue create preview": capabilitydef.EffectGuardedCreatePreview,
+	}
+	for commandPath, profileID := range wants {
+		catalog, err := buildCommandEffectCatalog(commandEffectSelection{Command: commandPath})
+		if err != nil || len(catalog.Commands) != 1 || len(catalog.Profiles) != 1 {
+			t.Fatalf("command=%q catalog=%+v err=%v", commandPath, catalog, err)
+		}
+		command, profile := catalog.Commands[0], catalog.Profiles[0]
+		if command.EffectProfile != profileID || profile.ID != profileID || profile.SelfUpdate != "disabled" ||
+			profile.NetworkBound != "fixed" || profile.Configuration != "read" || profile.CredentialAccess != "required" {
+			t.Fatalf("command=%q effect=%+v profile=%+v", commandPath, command, profile)
+		}
 	}
 }
 

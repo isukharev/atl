@@ -301,7 +301,9 @@ separate Jira binding.
 
 When creating a Confluence page, copying a page, or creating a Jira issue that
 must immediately join a durable mirror, opt in explicitly with both `--register`
-and `--into <ROOT>`. Omit both for legacy remote-only creation. Registration
+and `--into <ROOT>`. Jira creation still requires a separate preview followed by
+the exact `--apply --expected-proposal-hash`; omission of `--apply` is preview,
+never legacy creation. Omit only the registration pair for remote-only apply. Registration
 performs one authoritative readback and saves mirror sync state only after the exact
 native/base/view artifacts are present. If the remote object was created but
 registration fails, retain its stdout id/key and exit 8 as evidence; never replay
@@ -364,9 +366,9 @@ deterministic offline render/apply.
 
 **Jira additions:** typed `render.jira.field_views` (including opt-in editable
 rich-text sections with explicit pending state) and opt-in `epic_children` views;
-explicit post-create `jira issue create --register --into <ROOT>` from one
-authoritative readback, with state committed last and no create replay on local
-registration failure;
+explicit preview/apply `jira issue create [preview] --register --into <ROOT>`
+with exact `--expected-proposal-hash` on apply, from one authoritative readback,
+with state committed last and no create replay on local registration failure;
 preview-first permanent issue deletion bound to immutable id, freshness,
 complete permission-relative subtask evidence, and explicit cascade intent;
 value-free metadata and compact named issue-field inspection; qualified, filterable issue

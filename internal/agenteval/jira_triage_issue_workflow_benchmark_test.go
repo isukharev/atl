@@ -36,7 +36,6 @@ type triageCohort struct {
 	methods                                           map[string]int
 	exitCodes                                         []int
 	duplicates, failures                              int
-	historical                                        syntheticJiraCreateHistoricalContract
 }
 
 var triageCohorts = []triageCohort{
@@ -54,10 +53,7 @@ var triageCohorts = []triageCohort{
 		},
 		decision: "create", createdKey: "LAB-101", newSummary: "Cache: refresh fails after token rotation",
 		sequence: []string{"search_specific", "search_broad", "candidate_one", "candidate_two", "create"},
-		methods:  map[string]int{"GET": 5, "POST": 1}, exitCodes: []int{0, 0, 0, 0, 0},
-		historical: syntheticJiraCreateHistoricalContract{
-			HTTPMethods: map[string]int{"GET": 4, "POST": 1}, MaxBackendRequests: 7, MaxDuplicateBackendRequests: 1,
-		},
+		methods:  map[string]int{"GET": 14, "POST": 1}, exitCodes: []int{0, 0, 0, 0, 0, 0}, duplicates: 6,
 	},
 	{
 		directory: triageHoldoutDirectory, project: "OPS", signature: "LeaseRenewalError", component: "Indexer", trigger: "lease renewal",
@@ -73,9 +69,6 @@ var triageCohorts = []triageCohort{
 		decision: "comment", targetKey: "OPS-88", commentID: "801", newSummary: "Indexer: retry storm after lease renewal",
 		sequence: []string{"search_specific", "search_broad", "candidate", "comments", "comment", "comments"},
 		methods:  map[string]int{"GET": 5, "POST": 1}, exitCodes: []int{0, 0, 0, 0, 1, 0}, duplicates: 1, failures: 1,
-		historical: syntheticJiraCreateHistoricalContract{
-			HTTPMethods: map[string]int{"GET": 5, "POST": 1}, MaxBackendRequests: 6, MaxDuplicateBackendRequests: 1,
-		},
 	},
 }
 
@@ -91,7 +84,7 @@ func TestRepositoryJiraTriageIssueFixturesDriveSelectedCLIAndHistoricalOracles(t
 		assertTriageFixtureTopology(t, fixture, primary)
 		policy := triageCodexPolicy(t, root)
 		evidence := executeJiraTriagePrimaryProcess(t, startJiraTriagePrimaryProcess(t, root, fixture, primary, policy), primary)
-		assertTriageProviderOracles(t, root, primary, triageFinal(t, primary), evidence.Summary.HTTPMethods, evidence.Summary.DuplicateRequests, true)
+		assertTriageProviderOracles(t, root, primary, triageFinal(t, primary), evidence.Summary.HTTPMethods, evidence.Summary.DuplicateRequests)
 		assertJiraTriagePrimaryProcessAdmissionRefused(t, root, fixture, primary, policy)
 	})
 
@@ -101,10 +94,10 @@ func TestRepositoryJiraTriageIssueFixturesDriveSelectedCLIAndHistoricalOracles(t
 		fixture := loadRepositoryMockFixture(t, filepath.Join(root, "fixture.json"))
 		assertTriageFixtureTopology(t, fixture, holdout)
 		assertTriageHistoricalFixtureReconciliation(t, fixture, holdout)
-		// The corpus deliberately records an earlier raw POST failure followed by
-		// readback. Its static schema, checks, failure count, topology, and final
-		// are frozen; current guarded-preview compatibility lives in its own test.
-		assertTriageProviderOracles(t, root, holdout, triageFinal(t, holdout), holdout.methods, holdout.duplicates, false)
+		// The fixture deliberately records an earlier raw POST failure followed by
+		// readback. The active provider contract still describes that selected
+		// comment branch exactly; guarded create remains its unused alternative.
+		assertTriageProviderOracles(t, root, holdout, triageFinal(t, holdout), holdout.methods, holdout.duplicates)
 	})
 }
 
@@ -259,16 +252,16 @@ func triageFinal(t *testing.T, cohort triageCohort) []byte {
 	return encoded
 }
 
-func assertTriageProviderOracles(t *testing.T, root string, cohort triageCohort, final []byte, methods map[string]int, duplicates int, currentProduct bool) {
+func assertTriageProviderOracles(t *testing.T, root string, cohort triageCohort, final []byte, methods map[string]int, duplicates int) {
 	t.Helper()
 	for _, provider := range []string{"codex", "claude"} {
-		historicalSpec := loadRepositoryRunSpec(t, filepath.Join(root, "run.cli."+provider+".json"))
-		historicalScenario := loadRepositoryScenario(t, filepath.Join(root, historicalSpec.ScenarioFile))
-		assertSyntheticJiraCreateHistoricalContract(t, historicalSpec, historicalScenario, cohort.historical)
-		spec := historicalSpec
-		if currentProduct {
-			spec = deriveSyntheticJiraCreateCurrentContract(t, historicalSpec, historicalScenario, methods, duplicates).Spec
-			assertSyntheticJiraCreateHistoricalContract(t, historicalSpec, historicalScenario, cohort.historical)
+		spec := loadRepositoryRunSpec(t, filepath.Join(root, "run.cli."+provider+".json"))
+		scenario := loadRepositoryScenario(t, filepath.Join(root, spec.ScenarioFile))
+		assertSyntheticJiraCreateHistoricalContract(t, spec, scenario, syntheticJiraCreateHistoricalContract{
+			HTTPMethods: methods, MaxBackendRequests: methods[http.MethodGet] + methods[http.MethodPost], MaxDuplicateBackendRequests: duplicates,
+		})
+		if err := spec.ValidateAgainstScenario(scenario); err != nil {
+			t.Fatal(err)
 		}
 		schema, err := os.ReadFile(filepath.Join(root, spec.ResponseSchemaFile))
 		if err != nil {
@@ -563,8 +556,8 @@ func triageRequestIndex(backend *MockBackend) int {
 func TestRepositoryJiraTriageIssueSamplingPromptsAndPolicies(t *testing.T) {
 	primaryRoot, holdoutRoot := triageRoot(triagePrimaryDirectory), triageRoot(triageHoldoutDirectory)
 	primaryScenario := loadRepositoryScenario(t, filepath.Join(primaryRoot, "scenario.v1.json"))
-	if primaryScenario.Budgets.MaxATLInvocations != 7 || primaryScenario.Budgets.MaxBackendRequests != 7 ||
-		primaryScenario.Budgets.MaxDuplicateBackendRequests != 1 {
+	if primaryScenario.Budgets.MaxATLInvocations != 6 || primaryScenario.Budgets.MaxBackendRequests != 15 ||
+		primaryScenario.Budgets.MaxDuplicateBackendRequests != 6 {
 		t.Fatalf("primary authority envelope leaks the expected branch: %+v", primaryScenario.Budgets)
 	}
 	for _, root := range []string{primaryRoot, holdoutRoot} {
@@ -606,22 +599,19 @@ func TestRepositoryJiraTriageIssueSamplingPromptsAndPolicies(t *testing.T) {
 				t.Fatal(readErr)
 			}
 			assertTriagePromptBoundary(t, prompt, spec.Provider)
-			if spec.Provider == "codex" {
-				policy := CLICommandPolicy{SchemaVersion: CLICommandPolicySchemaVersion, Rules: spec.AllowedCLICommands}
-				if err := policy.Validate(); err != nil {
-					t.Fatal(err)
-				}
-				assertTriagePolicyAlternativesAndMutations(t, policy, root == holdoutRoot)
-			} else {
-				cohort := triageCohorts[0]
-				if root == holdoutRoot {
-					cohort = triageCohorts[1]
-				}
-				assertTriageClaudeCandidateCommands(t, prompt, spec, cohort)
+			policy := CLICommandPolicy{SchemaVersion: CLICommandPolicySchemaVersion, Rules: spec.AllowedCLICommands}
+			if err := policy.Validate(); err != nil {
+				t.Fatal(err)
 			}
+			assertTriagePolicyAlternativesAndMutations(t, policy, root == holdoutRoot)
+			cohort := triageCohorts[0]
+			if root == holdoutRoot {
+				cohort = triageCohorts[1]
+			}
+			assertTriageCandidateCommands(t, prompt, policy, cohort)
 		}
 		if primary.Provider == "claude-code" {
-			checks, evalErr := evaluateRunChecks(primary.Checks, triageFinal(t, triageCohorts[0]), "", 5, 0, 0, 1,
+			checks, evalErr := evaluateRunChecks(primary.Checks, triageFinal(t, triageCohorts[0]), "", len(triageCohorts[0].exitCodes), 0, 0, 1,
 				map[string]int{"atl:jira": 1}, 0, 0, triageCohorts[0].methods, true, triageCohorts[0].exitCodes)
 			if evalErr != nil {
 				t.Fatal(evalErr)
@@ -643,38 +633,40 @@ func assertTriagePromptBoundary(t *testing.T, prompt []byte, provider string) {
 		t.Fatal("prompt lost approval, threshold, or mutual exclusion")
 	}
 	if provider == "claude-code" {
-		if strings.Contains(text, "env -u ATL_READ_ONLY") || !strings.Contains(text, "atl:triage-issue") || strings.Count(text, "\natl ") != 7 {
+		if !strings.Contains(text, "atl:triage-issue") {
 			t.Fatal("Claude prompt command/Skill boundary drifted")
 		}
-		for _, line := range strings.Split(text, "\n") {
-			if strings.HasPrefix(line, "atl ") && !strings.HasSuffix(line, " --") {
-				t.Fatalf("Claude command lacks trailing --: %q", line)
-			}
-		}
 	} else {
-		if !strings.Contains(text, "$triage-issue") || strings.Count(text, "env -u ATL_READ_ONLY atl ") != 2 {
+		if !strings.Contains(text, "$triage-issue") {
 			t.Fatal("Codex prompt command/Skill boundary drifted")
 		}
 	}
+	if strings.Count(text, "env -u ATL_READ_ONLY atl ") != 2 ||
+		strings.Count(text, "--expected-proposal-hash PREVIEW_PROPOSAL_HASH") != 1 {
+		t.Fatal("prompt guarded-write boundary drifted")
+	}
 }
 
-func assertTriageClaudeCandidateCommands(t *testing.T, prompt []byte, spec RunSpec, cohort triageCohort) {
+func assertTriageCandidateCommands(t *testing.T, prompt []byte, policy CLICommandPolicy, cohort triageCohort) {
 	t.Helper()
 	for _, candidate := range cohort.candidates {
-		command := "atl jira issue get " + candidate.key
+		argv := []string{"jira", "issue", "get", candidate.key}
+		command := "atl " + strings.Join(argv, " ")
 		if cohort.directory == triagePrimaryDirectory {
+			argv = append(argv, "--fields", cohort.candidateFields)
 			command += " --fields " + cohort.candidateFields
 		}
-		command += " --"
-		if !slices.Contains(spec.AllowedATLCommands, command) {
-			t.Fatalf("Claude policy does not contain exact candidate command %q: %v", command, spec.AllowedATLCommands)
+		if !slices.ContainsFunc(policy.Rules, func(rule CLICommandRule) bool { return matchCLICommandRule(rule, argv) }) {
+			t.Fatalf("policy does not contain exact candidate command %q", command)
 		}
 		if !strings.Contains(string(prompt), "\n"+command+"\n") {
 			t.Fatalf("Claude prompt does not contain exact candidate command %q", command)
 		}
 		if cohort.directory == triagePrimaryDirectory {
-			broad := "atl jira issue get " + candidate.key + " --"
-			if slices.Contains(spec.AllowedATLCommands, broad) || strings.Contains(string(prompt), "\n"+broad+"\n") {
+			broad := "atl jira issue get " + candidate.key
+			if slices.ContainsFunc(policy.Rules, func(rule CLICommandRule) bool {
+				return matchCLICommandRule(rule, []string{"jira", "issue", "get", candidate.key})
+			}) || strings.Contains(string(prompt), "\n"+broad+"\n") {
 				t.Fatalf("Claude primary workflow admitted broad candidate command %q", broad)
 			}
 		}
@@ -687,15 +679,28 @@ func assertTriagePolicyAlternativesAndMutations(t *testing.T, policy CLICommandP
 	for _, rule := range policy.Rules {
 		names[rule.Name] = rule.MaxInvocations
 	}
-	if names["create"] != 1 || names["comment"] != 1 || names["comments"] != 2 {
+	if names["preview_create"] != 1 || names["create"] != 1 || names["comment"] != 1 || names["comments"] != 2 {
 		t.Fatalf("policy alternatives/counts=%v", names)
+	}
+	var producers, consumers int
+	for _, rule := range policy.Rules {
+		if rule.BindsProposalHash == "create" {
+			producers++
+		}
+		if rule.RequiresProposalHash == "create" {
+			consumers++
+		}
+	}
+	if producers != 1 || consumers != 1 {
+		t.Fatalf("create binding producers=%d consumers=%d", producers, consumers)
 	}
 	project, key, specific, summary := "LAB", "LAB-52", triageCohorts[0].queries[0], triageCohorts[0].newSummary
 	if holdout {
 		project, key, specific, summary = "OPS", "OPS-88", triageCohorts[1].queries[0], triageCohorts[1].newSummary
 	}
 	alternatives := [][]string{
-		{"jira", "issue", "create", "--project", project, "--type", "Bug", "--summary", summary, "--from-md", "new-bug.md"},
+		{"jira", "issue", "create", "preview", "--project", project, "--type", "Bug", "--summary", summary, "--from-md", "new-bug.md"},
+		{"jira", "issue", "create", "--project", project, "--type", "Bug", "--summary", summary, "--from-md", "new-bug.md", "--apply", "--expected-proposal-hash", strings.Repeat("a", 64)},
 		{"jira", "issue", "comment", "list", key},
 		{"jira", "issue", "comment", "add", key, "--from-md", "duplicate-comment.md"},
 	}
@@ -737,7 +742,7 @@ func triageRoot(directory string) string {
 func triageCodexPolicy(t *testing.T, root string) CLICommandPolicy {
 	t.Helper()
 	spec := loadRepositoryRunSpec(t, filepath.Join(root, "run.cli.codex.json"))
-	policy := CLICommandPolicy{SchemaVersion: CLICommandPolicySchemaVersion, Rules: slices.Clone(spec.AllowedCLICommands)}
+	policy := CLICommandPolicy{SchemaVersion: CLICommandPolicySchemaVersion, Rules: spec.AllowedCLICommands}
 	if err := policy.Validate(); err != nil {
 		t.Fatal(err)
 	}

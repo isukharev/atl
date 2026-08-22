@@ -340,9 +340,12 @@ shell/workspace configuration implicitly.
 
 ## Common mutation invariants
 
-- Use `jira issue create --register --into <ROOT>` only when the new issue must
-  immediately join that exact mirror. Omit both flags for legacy remote-only
-  creation. Registration uses one authoritative readback, never the submitted
+- Use the read-only `jira issue create preview`, then repeat the exact candidate
+  once with `--apply --expected-proposal-hash`. Add `--register --into <ROOT>`
+  to both preview and apply only when the new issue must immediately join that
+  exact mirror. Omitting `--apply` is always preview and never legacy creation;
+  omit only the registration pair on preview and apply for remote-only creation.
+  Registration uses one authoritative readback, never the submitted
   description as baseline, and commits sync state last. If stdout identifies a
   created issue but registration exits 8, never replay create; preserve local
   files and recover only that key with

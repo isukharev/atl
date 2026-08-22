@@ -30,6 +30,12 @@ func runSelfUpdate(cmd *cobra.Command) {
 // the explicitly bounded environment diagnostic, where an unrelated update
 // request would violate the reviewed request inventory.
 func skipSelfUpdate(cmd *cobra.Command) bool {
+	if cmd != nil {
+		path := commandRegistryPath(cmd.Root(), cmd)
+		if path == "jira issue create" || path == "jira issue create preview" {
+			return true
+		}
+	}
 	if localMirrorStatus(cmd) {
 		return true
 	}

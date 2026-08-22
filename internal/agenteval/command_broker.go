@@ -44,6 +44,7 @@ type CommandBrokerRequest struct {
 	ID            string   `json:"id"`
 	Capability    string   `json:"capability"`
 	Probe         bool     `json:"probe,omitempty"`
+	ReadOnly      bool     `json:"read_only,omitempty"`
 	Args          []string `json:"args,omitempty"`
 }
 
@@ -72,14 +73,15 @@ type CommandBrokerConfig struct {
 }
 
 type CommandBroker struct {
-	config     CommandBrokerConfig
-	capability string
-	ctx        context.Context
-	cancel     context.CancelFunc
-	done       chan struct{}
-	closeOnce  sync.Once
-	closeErr   error
-	counts     map[string]int
+	config         CommandBrokerConfig
+	capability     string
+	ctx            context.Context
+	cancel         context.CancelFunc
+	done           chan struct{}
+	closeOnce      sync.Once
+	closeErr       error
+	counts         map[string]int
+	proposalHashes map[string]string
 }
 
 func StartCommandBroker(config CommandBrokerConfig) (*CommandBroker, error) {
@@ -118,7 +120,7 @@ func StartCommandBroker(config CommandBrokerConfig) (*CommandBroker, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	broker := &CommandBroker{
 		config: config, capability: capability, ctx: ctx, cancel: cancel,
-		done: make(chan struct{}), counts: map[string]int{},
+		done: make(chan struct{}), counts: map[string]int{}, proposalHashes: map[string]string{},
 	}
 	go broker.serve()
 	return broker, nil
@@ -146,6 +148,17 @@ func (b *CommandBroker) Close() error {
 		}
 	})
 	return b.closeErr
+}
+
+// invocationCounts returns a stable snapshot after the broker has stopped.
+// Callers must close the broker first so the single serve goroutine can no
+// longer mutate the map.
+func (b *CommandBroker) invocationCounts() map[string]int {
+	counts := make(map[string]int, len(b.counts))
+	for name, count := range b.counts {
+		counts[name] = count
+	}
+	return counts
 }
 
 func (b *CommandBroker) serve() {
@@ -218,11 +231,33 @@ func (b *CommandBroker) processOne(path, id string) CommandBrokerResponse {
 	if err != nil || b.counts[match.Name] >= match.MaxInvocations {
 		return response
 	}
+	// A provider's ordinary atl invocation remains read-only even when the
+	// broker also holds reviewed write authority. Match the reviewed policy
+	// against the provider's original arguments, but reject a proposal-hash
+	// consumer before it can consume the one-use binding or reach the binary.
+	if request.ReadOnly && match.RequiresProposalHash != "" {
+		return response
+	}
+	if match.RequiresProposalHash != "" {
+		expected, ok := cliCommandFlagValue(request.Args, "--expected-proposal-hash")
+		bound, found := b.proposalHashes[match.RequiresProposalHash]
+		if !ok || !found || !subtleCLIStringEqual(bound, expected) {
+			return response
+		}
+		// A write admission is single-use even when execution has an ambiguous
+		// outcome. Never permit a provider to replay it after the broker starts
+		// the non-replay-safe selected binary.
+		delete(b.proposalHashes, match.RequiresProposalHash)
+	}
 	b.counts[match.Name]++
+	executionArgs := request.Args
+	if request.ReadOnly && (len(executionArgs) == 0 || executionArgs[0] != "--read-only") {
+		executionArgs = append([]string{"--read-only"}, executionArgs...)
+	}
 	result, err := executeBoundedCommand(
 		b.ctx,
 		b.config.RealBinary,
-		request.Args,
+		executionArgs,
 		b.config.WorkingDirectory,
 		b.config.Environment,
 		b.config.CommandTimeout,
@@ -233,6 +268,18 @@ func (b *CommandBroker) processOne(path, id string) CommandBrokerResponse {
 		response.Status = "failed"
 		return response
 	}
+	if match.BindsProposalHash != "" {
+		preview, decodeErr := DecodeJiraGuardedCreateResult(bytes.NewReader(result.stdout))
+		if decodeErr != nil || result.exitCode != 0 || len(result.stderr) != 0 || preview.Mode != "preview" || preview.Status != "would_apply" {
+			response.Status = "failed"
+			return response
+		}
+		if _, exists := b.proposalHashes[match.BindsProposalHash]; exists {
+			response.Status = "failed"
+			return response
+		}
+		b.proposalHashes[match.BindsProposalHash] = preview.ProposalHash
+	}
 	response.Status = "executed"
 	response.Stdout = result.stdout
 	response.Stderr = result.stderr
@@ -241,6 +288,16 @@ func (b *CommandBroker) processOne(path, id string) CommandBrokerResponse {
 }
 
 func CallCommandBroker(manifestPath string, args []string, probe bool) (CommandBrokerResponse, error) {
+	return callCommandBroker(manifestPath, args, probe, false)
+}
+
+// CallCommandBrokerReadOnly asks the broker to enforce the global read-only
+// mode at execution without changing the arguments used for policy matching.
+func CallCommandBrokerReadOnly(manifestPath string, args []string) (CommandBrokerResponse, error) {
+	return callCommandBroker(manifestPath, args, false, true)
+}
+
+func callCommandBroker(manifestPath string, args []string, probe, readOnly bool) (CommandBrokerResponse, error) {
 	manifest, err := loadCommandBrokerManifest(manifestPath)
 	if err != nil {
 		return CommandBrokerResponse{}, err
@@ -249,9 +306,10 @@ func CallCommandBroker(manifestPath string, args []string, probe bool) (CommandB
 	if err != nil {
 		return CommandBrokerResponse{}, err
 	}
-	request := CommandBrokerRequest{SchemaVersion: CommandBrokerSchemaVersion, ID: id, Capability: manifest.Capability, Probe: probe, Args: append([]string(nil), args...)}
+	request := CommandBrokerRequest{SchemaVersion: CommandBrokerSchemaVersion, ID: id, Capability: manifest.Capability, Probe: probe, ReadOnly: readOnly, Args: append([]string(nil), args...)}
 	if probe {
 		request.Args = nil
+		request.ReadOnly = false
 	}
 	data, err := json.Marshal(request)
 	if err != nil || len(data) > maxCommandBrokerFileBytes {

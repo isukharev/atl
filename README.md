@@ -174,10 +174,10 @@ env -u ATL_READ_ONLY atl conf push \
   "$ATL_WORKSPACE_ROOT/SPACE/page/page.csf" --dry-run
 ```
 
-After reviewing the complete result, run the same command without `--dry-run`.
-A Confluence version conflict exits `5`; preserve the local candidate and use
+After reviewing the result, run the same command without `--dry-run`.
+A Confluence version conflict exits `5`; preserve the candidate and use
 `conf reconcile preview` instead of auto-forcing. Proposal-bound comment,
-create/copy, trash, Jira field, transition, and deletion workflows require the
+Jira create, Confluence copy, trash, field, transition, and deletion workflows require the
 emitted expected values and never retry ambiguous writes. Follow the
 [safe-write guide](docs/safe-writes.md) for exact apply and recovery commands.
 Confluence page trash accepts only a canonical positive numeric `--id`; page

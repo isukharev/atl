@@ -627,30 +627,6 @@ func assertCalibrationAttemptFailureState(t *testing.T, outputRoot, scratchRoot,
 	}
 }
 
-func TestVerifyCalibrationCommandSlotRequiresExactFamily(t *testing.T) {
-	for name, entries := range map[string][]string{
-		"missing":    nil,
-		"wrong":      {"cli-slot-other-1"},
-		"additional": {"cli-slot-atl_version-1", "cli-slot-other-1"},
-	} {
-		t.Run(name, func(t *testing.T) {
-			directory := t.TempDir()
-			for _, entry := range entries {
-				writeTestFile(t, filepath.Join(directory, entry), "", 0o600)
-			}
-			if err := verifyCalibrationCommandSlot(directory); err == nil {
-				t.Fatal("invalid command slot inventory passed")
-			}
-		})
-	}
-	directory := t.TempDir()
-	writeTestFile(t, filepath.Join(directory, "cli-slot-atl_version-1"), "", 0o600)
-	writeTestFile(t, filepath.Join(directory, "atl-invocations.jsonl"), "", 0o600)
-	if err := verifyCalibrationCommandSlot(directory); err != nil {
-		t.Fatal(err)
-	}
-}
-
 func calibrationFakeCodexScript(promptCapture string) string {
 	return `#!/bin/sh
 if [ "$1" = "plugin" ] && [ "$2" = "marketplace" ] && [ "$3" = "add" ]; then

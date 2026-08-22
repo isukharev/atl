@@ -84,6 +84,7 @@ type JiraQualifiedCreateField struct {
 	HasDefaultValue      *bool
 	AllowedValuesPresent bool
 	AllowedValuesCount   int
+	AutocompletePresent  bool
 	HasAutocomplete      bool
 }
 

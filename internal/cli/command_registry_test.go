@@ -93,7 +93,6 @@ jira issue children
 jira issue comment add
 jira issue comment list
 jira issue comment preview
-jira issue create
 jira issue create-check
 jira issue create-metadata
 jira issue edit
@@ -285,8 +284,8 @@ func TestCommandRegistryPreservesReviewedOutputModes(t *testing.T) {
 	}
 	walk(root)
 
-	if leafCount != 179 || textCount != 152 || idCount != 35 {
-		t.Fatalf("leaves/text/id=%d/%d/%d want=179/152/35", leafCount, textCount, idCount)
+	if leafCount != 180 || textCount != 151 || idCount != 35 {
+		t.Fatalf("leaves/text/id=%d/%d/%d want=180/151/35", leafCount, textCount, idCount)
 	}
 	for path := range reviewedTextOutputCommandPaths {
 		if !seen[path] {

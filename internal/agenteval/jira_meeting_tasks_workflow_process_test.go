@@ -5,6 +5,7 @@ import (
 	"maps"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -28,11 +29,13 @@ func startJiraMeetingTasksProcess(
 		if item.state == "unattempted" {
 			break
 		}
-		match, err := policy.Match(meetingTasksCreateCommand(cohort, item))
-		if err != nil {
-			t.Fatalf("reconcile meeting task %q with CLI policy: %v", item.file, err)
+		for _, command := range [][]string{meetingTasksPreviewCommand(cohort, item), meetingTasksApplyCommand(cohort, item, strings.Repeat("a", 64))} {
+			match, err := policy.Match(command)
+			if err != nil {
+				t.Fatalf("reconcile meeting task %q with CLI policy: %v", item.file, err)
+			}
+			writeRules = append(writeRules, match.Name)
 		}
-		writeRules = append(writeRules, match.Name)
 	}
 	process, err := StartSyntheticATLProcess(t.Context(), SyntheticATLProcessConfig{
 		Binary: repositorySyntheticATLBinary(t), Fixture: prepared, ScratchRoot: privateSyntheticATLScratch(t),
@@ -54,7 +57,7 @@ func prepareJiraMeetingTasksProcessFixture(t *testing.T, fixture MockFixture, co
 	if !slices.Equal(fixture.RequestSequence, cohort.sequence) {
 		t.Fatalf("meeting process fixture shape drifted: routes=%d sequence=%v want=%v", len(fixture.Routes), fixture.RequestSequence, cohort.sequence)
 	}
-	prepared := prepareSyntheticJiraCreateMetadata(t, fixture)
+	prepared := prepareSyntheticJiraGuardedCreate(t, fixture)
 	seen := make(map[string]struct{}, len(cohort.sequence))
 	for index := range prepared.Routes {
 		prepared.Routes[index].closedQuery = true
@@ -105,9 +108,18 @@ func executeJiraMeetingTasksProcess(
 		if item.state == "unattempted" {
 			break
 		}
-		result, err := process.RunSyntheticWriteCLIJSON(t.Context(), meetingTasksCreateCommand(cohort, item)...)
+		previewResult, err := process.RunSyntheticWriteCLIJSON(t.Context(), meetingTasksPreviewCommand(cohort, item)...)
 		if err != nil {
-			t.Fatalf("selected meeting create %q: %v", item.summary, err)
+			t.Fatalf("selected meeting create preview %q: %v", item.summary, err)
+		}
+		exits = append(exits, previewResult.ExitCode)
+		preview, decodeErr := DecodeJiraGuardedCreateResult(bytes.NewReader(previewResult.JSON))
+		if decodeErr != nil || previewResult.ExitCode != 0 || len(previewResult.Stderr) != 0 || preview.Status != "would_apply" || preview.Mode != "preview" {
+			t.Fatalf("selected meeting create preview %q=%+v exit=%d stderr=%q err=%v", item.summary, preview, previewResult.ExitCode, previewResult.Stderr, decodeErr)
+		}
+		result, err := process.RunSyntheticWriteCLIJSON(t.Context(), meetingTasksApplyCommand(cohort, item, preview.ProposalHash)...)
+		if err != nil {
+			t.Fatalf("selected meeting create apply %q: %v", item.summary, err)
 		}
 		exits = append(exits, result.ExitCode)
 		if item.state == "failed" {
@@ -115,14 +127,15 @@ func executeJiraMeetingTasksProcess(
 			break
 		}
 		if result.ExitCode != 0 || len(result.JSON) == 0 || len(result.Stderr) != 0 {
-			t.Fatalf("selected meeting create %q exit=%d stdout_bytes=%d stderr_bytes=%d", item.summary, result.ExitCode, len(result.JSON), len(result.Stderr))
+			t.Fatalf("selected meeting create %q exit=%d stdout_bytes=%d stderr=%q", item.summary, result.ExitCode, len(result.JSON), result.Stderr)
 		}
-		created, decodeErr := DecodeJiraIssueCreate(bytes.NewReader(result.JSON))
+		created, decodeErr := DecodeJiraGuardedCreateResult(bytes.NewReader(result.JSON))
 		if decodeErr != nil {
 			t.Fatalf("decode selected meeting create %q: %v", item.summary, decodeErr)
 		}
-		if created.Key != item.key || created.Summary != item.summary || created.Project != cohort.project || created.Type != "Task" || created.Status != "" {
-			t.Fatalf("selected meeting create=%+v want key=%q summary=%q project=%q", created, item.key, item.summary, cohort.project)
+		if created.Status != "applied" || created.Mode != "apply" || created.Issue == nil || created.Issue.Key != item.key ||
+			created.Project.Key != cohort.project || created.IssueType.Name != "Task" || !created.ReadbackReconciled {
+			t.Fatalf("selected meeting create=%+v want key=%q project=%q", created, item.key, cohort.project)
 		}
 	}
 
@@ -130,9 +143,23 @@ func executeJiraMeetingTasksProcess(
 		t.Fatalf("selected meeting exits=%v want=%v", exits, cohort.exitCodes)
 	}
 	summary := process.Summary()
-	expectedCLI := make(map[string]int, len(cohort.sequence))
+	expectedCLI := map[string]int{"source_read": 1}
 	for _, name := range cohort.sequence {
-		expectedCLI[name]++
+		if strings.HasPrefix(name, "user_") {
+			expectedCLI[name]++
+		}
+	}
+	for _, item := range cohort.items {
+		if item.state == "unattempted" {
+			break
+		}
+		for _, command := range [][]string{meetingTasksPreviewCommand(cohort, item), meetingTasksApplyCommand(cohort, item, strings.Repeat("a", 64))} {
+			match, err := process.config.CLIPolicy.Match(command)
+			if err != nil {
+				t.Fatal(err)
+			}
+			expectedCLI[match.Name]++
+		}
 	}
 	if !process.RequestSequenceComplete() || !maps.Equal(summary.HTTPMethods, cohort.methods) ||
 		summary.UnexpectedRequests != 0 || summary.DuplicateRequests != cohort.duplicates ||
@@ -188,6 +215,15 @@ func meetingTasksCreateCommand(cohort meetingTasksCohort, item meetingTaskItem) 
 	return args
 }
 
+func meetingTasksPreviewCommand(cohort meetingTasksCohort, item meetingTaskItem) []string {
+	args := meetingTasksCreateCommand(cohort, item)
+	return append(append(slices.Clone(args[:3]), "preview"), args[3:]...)
+}
+
+func meetingTasksApplyCommand(cohort meetingTasksCohort, item meetingTaskItem, proposalHash string) []string {
+	return append(meetingTasksCreateCommand(cohort, item), "--apply", "--expected-proposal-hash", proposalHash)
+}
+
 func assertJiraSyntheticWriteForbidden(t *testing.T, result SyntheticCLIResult, operation string) CLIErrorContract {
 	t.Helper()
 	if result.ExitCode != 6 || len(result.JSON) != 0 || len(result.Stderr) == 0 {
@@ -241,7 +277,7 @@ func assertJiraMeetingTasksProcessAdmissionRefused(
 		}
 	}
 	process = startJiraMeetingTasksProcess(t, root, fixture, cohort, policy)
-	assertJiraSyntheticWriteReadOnlyByDefault(t, process, meetingTasksCreateCommand(cohort, attempted))
+	assertJiraSyntheticWriteReadOnlyByDefault(t, process, meetingTasksApplyCommand(cohort, attempted, strings.Repeat("a", 64)))
 }
 
 func assertJiraSyntheticWriteReadOnlyByDefault(t *testing.T, process *SyntheticATLProcess, args []string) {

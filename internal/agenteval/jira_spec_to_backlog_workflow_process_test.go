@@ -23,9 +23,9 @@ func startJiraSpecBacklogProcess(
 	policy CLICommandPolicy,
 ) *SyntheticATLProcess {
 	t.Helper()
-	writeRules := SyntheticWriteRules{"create_epic", "create_child_one", "link_child_one"}
+	writeRules := SyntheticWriteRules{"preview_epic", "create_epic", "preview_child_one", "create_child_one", "link_child_one"}
 	if !cohort.holdout {
-		writeRules = append(writeRules, "create_child_two", "link_child_two")
+		writeRules = append(writeRules, "preview_child_two", "create_child_two", "link_child_two")
 	}
 	process, err := StartSyntheticATLProcess(t.Context(), SyntheticATLProcessConfig{
 		Binary: repositorySyntheticATLBinary(t), Fixture: prepareJiraSpecBacklogProcessFixture(t, fixture, cohort),
@@ -46,10 +46,10 @@ func startJiraSpecBacklogProcess(
 
 func prepareJiraSpecBacklogProcessFixture(t *testing.T, fixture MockFixture, cohort specBacklogCohort) MockFixture {
 	t.Helper()
-	if !slices.Equal(fixture.RequestSequence, cohort.sequence) {
-		t.Fatalf("spec backlog process fixture shape drifted: routes=%d sequence=%v want=%v", len(fixture.Routes), fixture.RequestSequence, cohort.sequence)
+	prepared := prepareSyntheticJiraGuardedCreate(t, fixture)
+	if !slices.Equal(prepared.RequestSequence, cohort.sequence) {
+		t.Fatalf("spec backlog guarded fixture shape drifted: routes=%d sequence=%v want=%v", len(prepared.Routes), prepared.RequestSequence, cohort.sequence)
 	}
-	prepared := prepareSyntheticJiraCreateMetadata(t, fixture)
 	seen := make(map[string]struct{}, len(cohort.sequence))
 	for index := range prepared.Routes {
 		prepared.Routes[index].closedQuery = true
@@ -80,17 +80,17 @@ func executeJiraSpecBacklogProcess(
 	}
 
 	epic := callJiraSpecBacklogCreate(t, process, cohort, "Epic", cohort.epicSummary, "epic.md")
-	exits = append(exits, epic.exitCode)
-	if epic.issue.Key != cohort.epicKey {
-		t.Fatalf("selected spec backlog epic key=%q want=%q", epic.issue.Key, cohort.epicKey)
+	exits = append(exits, epic.previewExitCode, epic.applyExitCode)
+	if epic.key != cohort.epicKey {
+		t.Fatalf("selected spec backlog epic key=%q want=%q", epic.key, cohort.epicKey)
 	}
 	childOne := callJiraSpecBacklogCreate(t, process, cohort, "Task", cohort.childSummaries[0], "child-1.md")
-	exits = append(exits, childOne.exitCode)
-	if childOne.issue.Key != cohort.childKeys[0] {
-		t.Fatalf("selected spec backlog child one key=%q want=%q", childOne.issue.Key, cohort.childKeys[0])
+	exits = append(exits, childOne.previewExitCode, childOne.applyExitCode)
+	if childOne.key != cohort.childKeys[0] {
+		t.Fatalf("selected spec backlog child one key=%q want=%q", childOne.key, cohort.childKeys[0])
 	}
 
-	linkOne, err := process.RunSyntheticWriteCLIJSON(t.Context(), jiraSpecBacklogLinkCommand(childOne.issue.Key, epic.issue.Key)...)
+	linkOne, err := process.RunSyntheticWriteCLIJSON(t.Context(), jiraSpecBacklogLinkCommand(childOne.key, epic.key)...)
 	if err != nil {
 		t.Fatalf("selected spec backlog child one link: %v", err)
 	}
@@ -99,25 +99,26 @@ func executeJiraSpecBacklogProcess(
 		contract := assertJiraSyntheticWriteForbidden(t, linkOne, "spec backlog child one link")
 		return finishJiraSpecBacklogProcess(t, process, cohort, exits, []CLIErrorContract{contract}, 1)
 	}
-	assertJiraSpecBacklogLink(t, linkOne, childOne.issue.Key, epic.issue.Key)
+	assertJiraSpecBacklogLink(t, linkOne, childOne.key, epic.key)
 
 	childTwo := callJiraSpecBacklogCreate(t, process, cohort, "Task", cohort.childSummaries[1], "child-2.md")
-	exits = append(exits, childTwo.exitCode)
-	if childTwo.issue.Key != cohort.childKeys[1] {
-		t.Fatalf("selected spec backlog child two key=%q want=%q", childTwo.issue.Key, cohort.childKeys[1])
+	exits = append(exits, childTwo.previewExitCode, childTwo.applyExitCode)
+	if childTwo.key != cohort.childKeys[1] {
+		t.Fatalf("selected spec backlog child two key=%q want=%q", childTwo.key, cohort.childKeys[1])
 	}
-	linkTwo, err := process.RunSyntheticWriteCLIJSON(t.Context(), jiraSpecBacklogLinkCommand(childTwo.issue.Key, epic.issue.Key)...)
+	linkTwo, err := process.RunSyntheticWriteCLIJSON(t.Context(), jiraSpecBacklogLinkCommand(childTwo.key, epic.key)...)
 	if err != nil {
 		t.Fatalf("selected spec backlog child two link: %v", err)
 	}
 	exits = append(exits, linkTwo.ExitCode)
-	assertJiraSpecBacklogLink(t, linkTwo, childTwo.issue.Key, epic.issue.Key)
+	assertJiraSpecBacklogLink(t, linkTwo, childTwo.key, epic.key)
 	return finishJiraSpecBacklogProcess(t, process, cohort, exits, nil, 0)
 }
 
 type jiraSpecBacklogCreatedIssue struct {
-	issue    JiraIssueCreate
-	exitCode int
+	key             string
+	previewExitCode int
+	applyExitCode   int
 }
 
 func callJiraSpecBacklogCreate(
@@ -127,21 +128,33 @@ func callJiraSpecBacklogCreate(
 	issueType, summary, file string,
 ) jiraSpecBacklogCreatedIssue {
 	t.Helper()
-	result, err := process.RunSyntheticWriteCLIJSON(t.Context(), jiraSpecBacklogCreateCommand(cohort.project, issueType, summary, file)...)
+	previewResult, err := process.RunSyntheticWriteCLIJSON(t.Context(), jiraSpecBacklogPreviewCommand(cohort.project, issueType, summary, file)...)
 	if err != nil {
-		t.Fatalf("selected spec backlog create %q: %v", summary, err)
+		t.Fatalf("selected spec backlog create preview %q: %v", summary, err)
+	}
+	if previewResult.ExitCode != 0 || len(previewResult.JSON) == 0 || len(previewResult.Stderr) != 0 {
+		t.Fatalf("selected spec backlog create preview %q exit=%d stdout_bytes=%d stderr=%s", summary, previewResult.ExitCode, len(previewResult.JSON), previewResult.Stderr)
+	}
+	preview, err := DecodeJiraGuardedCreateResult(bytes.NewReader(previewResult.JSON))
+	if err != nil {
+		t.Fatalf("decode selected spec backlog create preview %q: %v", summary, err)
+	}
+	if preview.Status != "would_apply" || preview.Mode != "preview" || preview.Project.Key != cohort.project || preview.IssueType.Name != issueType || preview.ProposalHash == "" || preview.WriteAttempted {
+		t.Fatalf("selected spec backlog create preview %q=%+v", summary, preview)
+	}
+	applyCommand := jiraSpecBacklogApplyCommand(cohort.project, issueType, summary, file, preview.ProposalHash)
+	result, err := process.RunSyntheticWriteCLIJSON(t.Context(), applyCommand...)
+	if err != nil {
+		t.Fatalf("selected spec backlog create apply %q: %v", summary, err)
 	}
 	if result.ExitCode != 0 || len(result.JSON) == 0 || len(result.Stderr) != 0 {
-		t.Fatalf("selected spec backlog create %q exit=%d stdout_bytes=%d stderr_bytes=%d", summary, result.ExitCode, len(result.JSON), len(result.Stderr))
+		t.Fatalf("selected spec backlog create apply %q exit=%d stdout_bytes=%d stderr_bytes=%d", summary, result.ExitCode, len(result.JSON), len(result.Stderr))
 	}
-	issue, err := DecodeJiraIssueCreate(bytes.NewReader(result.JSON))
-	if err != nil {
-		t.Fatalf("decode selected spec backlog create %q: %v", summary, err)
+	applied, err := DecodeJiraGuardedCreateResult(bytes.NewReader(result.JSON))
+	if err != nil || applied.Status != "applied" || applied.Mode != "apply" || applied.Issue == nil || applied.Issue.Key == "" || !applied.WriteAttempted || !applied.ReadbackReconciled {
+		t.Fatalf("decode selected spec backlog create apply %q: result=%+v err=%v", summary, applied, err)
 	}
-	if issue.Summary != summary || issue.Project != cohort.project || issue.Type != issueType || issue.Status != "" {
-		t.Fatalf("selected spec backlog create %q=%+v", summary, issue)
-	}
-	return jiraSpecBacklogCreatedIssue{issue: issue, exitCode: result.ExitCode}
+	return jiraSpecBacklogCreatedIssue{key: applied.Issue.Key, previewExitCode: previewResult.ExitCode, applyExitCode: result.ExitCode}
 }
 
 func callJiraSpecBacklogSource(t *testing.T, process *SyntheticATLProcess, pageID string) SyntheticCLIBytesResult {
@@ -153,9 +166,16 @@ func callJiraSpecBacklogSource(t *testing.T, process *SyntheticATLProcess, pageI
 	return result
 }
 
-func jiraSpecBacklogCreateCommand(project, issueType, summary, file string) []string {
+func jiraSpecBacklogPreviewCommand(project, issueType, summary, file string) []string {
+	return []string{
+		"jira", "issue", "create", "preview", "--project", project, "--type", issueType, "--summary", summary, "--from-md", file,
+	}
+}
+
+func jiraSpecBacklogApplyCommand(project, issueType, summary, file, proposalHash string) []string {
 	return []string{
 		"jira", "issue", "create", "--project", project, "--type", issueType, "--summary", summary, "--from-md", file,
+		"--apply", "--expected-proposal-hash", proposalHash,
 	}
 }
 
@@ -191,9 +211,10 @@ func finishJiraSpecBacklogProcess(
 	}
 	summary := process.Summary()
 	expectedCLI := map[string]int{
-		"source_read": 1, "create_epic": 1, "create_child_one": 1, "link_child_one": 1,
+		"source_read": 1, "preview_epic": 1, "create_epic": 1, "preview_child_one": 1, "create_child_one": 1, "link_child_one": 1,
 	}
 	if !cohort.holdout {
+		expectedCLI["preview_child_two"] = 1
 		expectedCLI["create_child_two"] = 1
 		expectedCLI["link_child_two"] = 1
 	}
@@ -218,7 +239,7 @@ func assertJiraSpecBacklogProcessAdmissionRefused(
 	t.Helper()
 	mutations := [][]string{
 		{"conf", "page", "view", "wrong", "-o", "text"},
-		jiraSpecBacklogCreateCommand(cohort.project, "Epic", "wrong summary", "epic.md"),
+		jiraSpecBacklogPreviewCommand(cohort.project, "Epic", "wrong summary", "epic.md"),
 		jiraSpecBacklogLinkCommand("WRONG-1", cohort.epicKey),
 	}
 	for _, args := range mutations {

@@ -4,18 +4,23 @@ Score each fully fetched candidate with this fixed additive rule: stable error s
 
 Run these read commands in order:
 
-atl jira issue search --jql 'project = LAB AND text ~ "CacheRefreshError refresh token" AND type = Bug ORDER BY updated DESC' --limit 10 --columns key,summary,status,updated --
-atl jira issue search --jql 'project = LAB AND summary ~ "cache refresh" AND type = Bug ORDER BY updated DESC' --limit 10 --columns key,summary,status,updated --
-atl jira issue get LAB-41 --fields summary,description,status,issuetype,project --
-atl jira issue get LAB-52 --fields summary,description,status,issuetype,project --
+atl jira issue search --jql 'project = LAB AND text ~ "CacheRefreshError refresh token" AND type = Bug ORDER BY updated DESC' --limit 10 --columns key,summary,status,updated
+atl jira issue search --jql 'project = LAB AND summary ~ "cache refresh" AND type = Bug ORDER BY updated DESC' --limit 10 --columns key,summary,status,updated
+atl jira issue get LAB-41 --fields summary,description,status,issuetype,project
+atl jira issue get LAB-52 --fields summary,description,status,issuetype,project
 
-The two mutually exclusive reviewed write choices are exact. If the rule selects create, run only:
+The two mutually exclusive reviewed write choices are exact. If the rule
+selects create, run the adjacent preview/apply pair below. Strictly read the
+preview JSON `proposal_hash` and replace `PREVIEW_PROPOSAL_HASH` in the apply
+with that exact 64-character lowercase value. Do not use a shell variable,
+command substitution, pipeline, or value from another preview.
 
-atl jira issue create --project LAB --type Bug --summary 'Cache: refresh fails after token rotation' --from-md new-bug.md --
+atl jira issue create preview --project LAB --type Bug --summary 'Cache: refresh fails after token rotation' --from-md new-bug.md
+env -u ATL_READ_ONLY atl jira issue create --project LAB --type Bug --summary 'Cache: refresh fails after token rotation' --from-md new-bug.md --apply --expected-proposal-hash PREVIEW_PROPOSAL_HASH
 
 If the rule selects the open-duplicate alternative, first list its comments, then run only this write, and list comments once more only if the write response is ambiguous:
 
-atl jira issue comment list LAB-52 --
-atl jira issue comment add LAB-52 --from-md duplicate-comment.md --
+atl jira issue comment list LAB-52
+env -u ATL_READ_ONLY atl jira issue comment add LAB-52 --from-md duplicate-comment.md
 
 Return only the requested structured response. Search completeness comes from each search page contract. Report exact JQL, candidate signals and scores, decision, returned key or reconciled comment id, one write attempt, no replay, CLI failure count, and `next_action` `complete`.

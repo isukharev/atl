@@ -32,7 +32,8 @@ func TestAppProductionImportsStayTransportNeutral(t *testing.T) {
 		"confluence_plan.go": true, "confluence_pull.go": true, "confluence_render.go": true,
 		"confluence_view.go": true, "created_registration.go": true, "environment.go": true,
 		"jira.go": true, "jira_agile.go": true, "jira_apply.go": true, "jira_board.go": true,
-		"jira_fields.go": true, "jira_list_views.go": true, "jira_pull.go": true,
+		"jira_create_guarded_snapshot.go": true,
+		"jira_fields.go":                  true, "jira_list_views.go": true, "jira_pull.go": true,
 		"jira_pull_types.go": true, "jira_related.go": true, "jira_render.go": true, "jira_structure.go": true,
 		"jira_sync.go": true, "jira_view.go": true, "render.go": true, "wire.go": true,
 	}

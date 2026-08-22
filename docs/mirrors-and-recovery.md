@@ -166,23 +166,32 @@ permission to force or replay a write.
 
 ## Register newly created objects immediately
 
-Create commands remain remote-only unless both `--register` and `--into` are
-explicit. Registration uses an authoritative post-create readback rather than
-assuming the submitted body is the stored result:
+Confluence create remains remote-only unless both `--register` and `--into` are
+explicit. Guarded Jira create is always preview until the exact reviewed apply;
+omit the registration pair from both phases for a remote-only apply.
+Registration uses an authoritative post-create readback rather than assuming
+the submitted body is the stored result:
 
 ```sh
 env -u ATL_READ_ONLY atl conf page create \
   --space EXAMPLE --title 'Tracked page' --from-md page.md \
   --register --into "$ATL_WORKSPACE_ROOT"
 
-env -u ATL_READ_ONLY atl jira issue create \
+atl jira issue create preview \
   --project EXAMPLE --type Task --summary 'Tracked task' \
   --from-md description.md --register --into "$ATL_WORKSPACE_ROOT"
+# Review proposal_hash, then repeat the exact candidate and registration root:
+env -u ATL_READ_ONLY atl jira issue create \
+  --project EXAMPLE --type Task --summary 'Tracked task' \
+  --from-md description.md --register --into "$ATL_WORKSPACE_ROOT" \
+  --apply --expected-proposal-hash '<reviewed hash>'
 ```
 
 If the remote create succeeds but readback or local registration fails, the
-result still identifies the new object, reports `not_registered`, and exits
-`8`. Do not repeat the create. Preserve the input/result, remove the reported
+result still identifies the new object, reports the command-specific local
+registration failure (`not_registered` for legacy created-object workflows or
+`applied_not_registered` for guarded Jira create), and exits `8`. Do not repeat
+the create. Preserve the input/result, remove the reported
 local obstruction, and recover only the returned object:
 
 ```sh
