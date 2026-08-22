@@ -353,6 +353,18 @@ type createdJiraTracker struct {
 	readbackRedacted bool
 }
 
+func TestJiraCreateAndRegisterRejectsReservedFieldsBeforeMetadata(t *testing.T) {
+	for _, key := range []string{"project", " ISSUE TYPE ", "sum\u2003mary", "DESCRIP\tTION"} {
+		tracker := &createdJiraTracker{}
+		_, _, err := (&JiraService{tr: tracker, baseURL: testJiraBackendURL}).CreateAndRegister(
+			t.Context(), "PROJ", "Task", "Summary", nil,
+			map[string]domain.JiraFieldInput{key: {Value: "override"}}, t.TempDir())
+		if !errors.Is(err, domain.ErrUsage) || tracker.metadataCalls != 0 || tracker.createCalls != 0 {
+			t.Fatalf("key=%q err=%v metadata/create=%d/%d", key, err, tracker.metadataCalls, tracker.createCalls)
+		}
+	}
+}
+
 func (t *createdJiraTracker) Create(ctx context.Context, _ string, issueType string, _ string, _ []byte, _ map[string]domain.JiraFieldInput) (*domain.Issue, error) {
 	t.createCalls++
 	t.createType = issueType

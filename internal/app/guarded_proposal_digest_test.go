@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -57,6 +58,7 @@ func TestGuardedProposalHashDigestInventory(t *testing.T) {
 		"confluencePlanHash":                     {file: "confluence_plan.go", argument: "canonical"},
 		"confluenceTitleProposalHash":            {file: "confluence_title.go", argument: "canonical"},
 		"jiraCommentProposalHash":                {file: "jira_comments_guarded.go", argument: "canonical"},
+		"jiraDescriptionEditProposalHash":        {file: "jira_description_edit.go", argument: "canonical"},
 		"jiraFieldProposalHash":                  {file: "jira_field_set.go", argument: "encoded"},
 		"jiraIssueDeleteProposalHash":            {file: "jira_issue_delete.go", argument: "canonical"},
 		"jiraTransitionProposalHash":             {file: "jira_transition_guarded.go", argument: "encoded"},
@@ -76,6 +78,7 @@ func TestGuardedProposalHashDigestInventory(t *testing.T) {
 	digestCalls := make(map[string]contract)
 	allDigestCalls := make([]string, 0, len(want))
 	marshalCalls := make(map[string]int)
+	operationDiscriminators := make(map[string]string)
 	fset := token.NewFileSet()
 	for _, path := range paths {
 		if strings.HasSuffix(path, "_test.go") {
@@ -121,6 +124,9 @@ func TestGuardedProposalHashDigestInventory(t *testing.T) {
 					packageName, packageOK := selector.X.(*ast.Ident)
 					if isOwner && packageOK && packageName.Name == "json" && selector.Sel.Name == "Marshal" {
 						marshalCalls[name]++
+						if name == "jiraDescriptionEditProposalHash" && len(call.Args) == 1 {
+							operationDiscriminators[name] = guardedProposalOperationLiteral(t, call.Args[0])
+						}
 					}
 					return true
 				}
@@ -156,4 +162,42 @@ func TestGuardedProposalHashDigestInventory(t *testing.T) {
 			t.Errorf("%s: json.Marshal calls = %d, want exactly 1", name, marshalCalls[name])
 		}
 	}
+	if !reflect.DeepEqual(operationDiscriminators, map[string]string{"jiraDescriptionEditProposalHash": "edit_description"}) {
+		t.Fatalf("guarded proposal operation discriminators = %#v, want exact Jira edit member", operationDiscriminators)
+	}
+}
+
+func guardedProposalOperationLiteral(t *testing.T, expression ast.Expr) string {
+	t.Helper()
+	composite, ok := expression.(*ast.CompositeLit)
+	if !ok {
+		t.Fatalf("guarded proposal canonical value is %T, want anonymous struct composite literal", expression)
+	}
+	structure, ok := composite.Type.(*ast.StructType)
+	if !ok || structure.Fields == nil || len(structure.Fields.List) != len(composite.Elts) {
+		t.Fatalf("guarded proposal canonical value is not a positional anonymous struct literal")
+	}
+	for index, field := range structure.Fields.List {
+		if len(field.Names) != 1 || field.Names[0].Name != "Operation" {
+			continue
+		}
+		if field.Tag == nil {
+			t.Fatal("guarded proposal Operation member has no JSON tag")
+		}
+		tag, err := strconv.Unquote(field.Tag.Value)
+		if err != nil || tag != `json:"operation"` {
+			t.Fatalf("guarded proposal Operation tag=%q err=%v, want exact json operation member", field.Tag.Value, err)
+		}
+		literal, ok := composite.Elts[index].(*ast.BasicLit)
+		if !ok || literal.Kind != token.STRING {
+			t.Fatalf("guarded proposal Operation value is %T, want string literal", composite.Elts[index])
+		}
+		value, err := strconv.Unquote(literal.Value)
+		if err != nil {
+			t.Fatalf("decode guarded proposal Operation literal: %v", err)
+		}
+		return value
+	}
+	t.Fatal("guarded proposal canonical value has no Operation JSON member")
+	return ""
 }

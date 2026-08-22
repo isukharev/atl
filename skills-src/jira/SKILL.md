@@ -41,6 +41,11 @@ the block-level export. Remove the exported policy only for an explicitly
 approved write workflow, and restore it immediately afterward. Most mutating
 leaves remain mutation-classified during preview as well as apply.
 
+For a small targeted description change, use the independently read-only
+`jira issue edit preview` leaf first. Review its content-free schema-v1 hash,
+then repeat unchanged on the parent with `--apply
+--expected-proposal-hash`; `outcome_unknown` is terminal and never replay-safe.
+
 Permanent issue deletion has no trash and is preview-first. Review the exact
 `updated`, proposal hash, subtask count/hash, and cascade intent, then use the
 returned apply flags once. `write_attempted:true` or `outcome_unknown` always

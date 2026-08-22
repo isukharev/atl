@@ -213,7 +213,7 @@ preview-apply|apply,expected-proposal-hash|jira issue comment add
 remote-direct|-|jira issue comment delete
 remote-direct|-|jira issue create
 preview-apply|apply,confirm,expected-proposal-hash,expected-updated|jira issue delete
-remote-direct|-|jira issue edit
+preview-apply|apply,expected-proposal-hash|jira issue edit
 preview-apply|apply,expected-proposal-hash,expected-updated|jira issue field set
 remote-direct|-|jira issue labels
 remote-direct|-|jira issue link add

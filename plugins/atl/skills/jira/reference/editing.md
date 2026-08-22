@@ -7,8 +7,8 @@ reviewed command after approval.
 
 ## Choose one write surface
 
-- Small unique description replacement: `jira issue edit` with `--dry-run`;
-  the exact `--old` match is its drift guard.
+- Small unique description replacement: GET-only `jira issue edit preview`,
+  then the unchanged parent command with `--apply --expected-proposal-hash`.
 - Summary or whole body: fresh narrow get, then `jira issue update` using
   `--from-md` or native `--from-file`.
 - One large custom field: GET-only `jira issue field preview` with files and an
@@ -26,8 +26,11 @@ stronger match/CAS/proposal-hash guard.
 
 ## One-shot body edits
 
-Preview a targeted `issue edit` before applying. The unique old text doubles as
-the drift check; ambiguous/no-match failures require more context, never force.
+Preview with `ATL_READ_ONLY=1 atl jira issue edit preview <KEY> --old ... --new ...`.
+Review its content-free identity, matcher, byte hashes/lengths, and proposal
+hash; then repeat the unchanged inputs once on `jira issue edit` with `--apply
+--expected-proposal-hash`. Ambiguous/no-match failures require more context,
+never force. `outcome_unknown` may already have written and is never replayed.
 Use Markdown `--from-md` for supported headings/lists/tables/code and raw Jira
 wiki `--from-file` only when intentionally authoring native markup.
 

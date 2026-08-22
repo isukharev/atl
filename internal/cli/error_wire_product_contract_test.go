@@ -418,10 +418,17 @@ func productFunctionSwitchReturns(t *testing.T, parsed *ast.File, function strin
 		if !ok || functionDeclaration.Name.Name != function {
 			continue
 		}
-		if len(functionDeclaration.Body.List) != 1 {
-			t.Fatalf("%s must contain exactly one statement, got %d", function, len(functionDeclaration.Body.List))
+		statements := functionDeclaration.Body.List
+		if function == "codeFor" {
+			if len(statements) != 2 || !productTerminalAmbiguityPriority(statements[0]) {
+				t.Fatalf("%s must begin with the exact terminal-ambiguity check-failed priority before its sentinel switch", function)
+			}
+			statements = statements[1:]
 		}
-		statement, ok := functionDeclaration.Body.List[0].(*ast.SwitchStmt)
+		if len(statements) != 1 {
+			t.Fatalf("%s must contain exactly one classified switch statement, got %d", function, len(statements))
+		}
+		statement, ok := statements[0].(*ast.SwitchStmt)
 		if !ok || statement.Tag != nil {
 			t.Fatalf("%s must consist of one expressionless switch", function)
 		}
@@ -465,6 +472,25 @@ func productFunctionSwitchReturns(t *testing.T, parsed *ast.File, function strin
 	}
 	t.Fatalf("function %s not found", function)
 	return nil
+}
+
+func productTerminalAmbiguityPriority(statement ast.Stmt) bool {
+	priority, ok := statement.(*ast.IfStmt)
+	if !ok || priority.Else != nil || priority.Init != nil || len(priority.Body.List) != 1 {
+		return false
+	}
+	call, ok := priority.Cond.(*ast.CallExpr)
+	if !ok || len(call.Args) != 1 {
+		return false
+	}
+	callee, calleeOK := call.Fun.(*ast.Ident)
+	argument, argumentOK := call.Args[0].(*ast.Ident)
+	returned, returnOK := priority.Body.List[0].(*ast.ReturnStmt)
+	if !calleeOK || !argumentOK || !returnOK || callee.Name != "terminalAmbiguousCheckFailure" || argument.Name != "err" || len(returned.Results) != 1 {
+		return false
+	}
+	result, ok := returned.Results[0].(*ast.Ident)
+	return ok && result.Name == "exitCheckFailed"
 }
 
 func equalProductStringIntMaps(left, right map[string]int) bool {

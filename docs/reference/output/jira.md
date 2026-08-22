@@ -7,6 +7,7 @@ Jira mirrors, issue evidence and mutations, exports, graphs, references, and rep
 <!-- reference-navigation:start -->
 ## Navigate this reference
 
+- [Guarded targeted description edits](#guarded-targeted-description-edits)
 - [Jira mirrors and derived views](#jira-mirrors-and-derived-views)
 - [`jira attachment-bodies`](#jira-attachment-bodies)
 - [Jira mirror status, apply, and push](#jira-mirror-status-apply-and-push)
@@ -17,6 +18,22 @@ Jira mirrors, issue evidence and mutations, exports, graphs, references, and rep
 - [Attachments, guarded mutations, and worklogs](#attachments-guarded-mutations-and-worklogs)
 - [Jira epic digest](#jira-epic-digest)
 <!-- reference-navigation:end -->
+
+## Guarded targeted description edits
+
+`atl jira issue edit preview <KEY>` and the default preview of the
+mutation-classified parent emit the same content-free schema-v1 result. It
+contains `backend_sha256`, normalized `requested_key`, exact canonical `key`,
+positive numeric `issue_id`, parsed `updated`, `mode`, closed `status`, exact
+old/new and before/after SHA-256 plus byte lengths, `all`, matcher
+`pass|count|offsets`, `proposal_hash`, `write_attempted`, `reconciled`, and
+`complete`. Live description and replacement bytes are never emitted.
+
+Statuses are `would_apply`, `already_satisfied`, `blocked`, `not_applied`,
+`applied`, `recovered`, or `outcome_unknown`. Only `--apply` with the exact
+reviewed hash can attempt one PUT. `recovered` means an ambiguous response was
+followed by exact intended bytes and an advancing `updated`; every unavailable,
+unchanged, or conflicting readback is `outcome_unknown` and exit 8.
 
 ## Jira mirrors and derived views
 

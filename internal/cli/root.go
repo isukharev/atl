@@ -336,10 +336,14 @@ func setRootExecutionArgs(root *cobra.Command, args []string) {
 			continue
 		}
 		topLevel := matchingCommand(root.Commands(), argument)
-		if topLevel == nil || topLevel.Name() != "corpus" || index+1 >= len(args) {
+		if topLevel == nil || topLevel.Name() != "corpus" {
 			return
 		}
-		child := matchingCommand(topLevel.Commands(), args[index+1])
+		remaining := args[index+1:]
+		if len(remaining) == 0 {
+			return
+		}
+		child := matchingCommand(topLevel.Commands(), remaining[0])
 		if child != nil && child.Name() == "build" {
 			if root.Annotations == nil {
 				root.Annotations = map[string]string{}
@@ -377,6 +381,9 @@ func matchingCommand(commands []*cobra.Command, token string) *cobra.Command {
 }
 
 func codeFor(err error) int {
+	if terminalAmbiguousCheckFailure(err) {
+		return exitCheckFailed
+	}
 	switch {
 	case errors.Is(err, domain.ErrAuth):
 		return exitAuth
@@ -395,6 +402,11 @@ func codeFor(err error) int {
 	default:
 		return exitGeneric
 	}
+}
+
+func terminalAmbiguousCheckFailure(err error) bool {
+	var ambiguous interface{ DiagnosticAmbiguousWrite() bool }
+	return errors.Is(err, domain.ErrCheckFailed) && errors.As(err, &ambiguous) && ambiguous.DiagnosticAmbiguousWrite()
 }
 
 // emit renders v as JSON (default) or, when -o text and a texter is given, text.

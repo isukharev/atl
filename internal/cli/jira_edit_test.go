@@ -1,236 +1,216 @@
 package cli
 
 import (
+	"context"
+	"encoding/json"
+	"errors"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+
+	"github.com/isukharev/atl/internal/diagnostic"
+	"github.com/isukharev/atl/internal/domain"
 )
 
-// --- jira issue edit: one-command targeted description edit -----------------
+type guardedEditHTTPFixture struct {
+	srv            *httptest.Server
+	mu             sync.Mutex
+	written        bool
+	puts           int
+	requests       int
+	putPath        string
+	putBody        string
+	before         string
+	after          string
+	readbackStatus int
+}
 
-const editIssueJSON = `{"key":"ENG-7","fields":{"description":"h2. Params\n\n* timeout = 300\n\nh2. Check"}}`
-
-func editServer(t *testing.T) *jiraServer {
+func newGuardedEditHTTPFixture(t *testing.T) *guardedEditHTTPFixture {
 	t.Helper()
-	js := newJiraServer(t)
-	js.route(http.MethodGet, "/rest/api/2/issue/ENG-7", http.StatusOK, editIssueJSON)
-	js.route(http.MethodPut, "/rest/api/2/issue/ENG-7", http.StatusNoContent, ``)
-	return js
+	return newGuardedEditHTTPFixtureBodies(t, "h2. Params\n\n* timeout = 300\n\nh2. Check", "h2. Params\n\n* timeout = 600\n\nh2. Check")
 }
 
-// TestJiraEdit_Replace: the spliced description — untouched bytes preserved —
-// is what reaches the wire, and only the description field is sent.
-func TestJiraEdit_Replace(t *testing.T) {
-	js := editServer(t)
-
-	out, code := runCLI(t, jiraEnv(js.srv),
-		"jira", "issue", "edit", "ENG-7", "--old", "timeout = 300", "--new", "timeout = 600")
-	if code != exitOK {
-		t.Fatalf("edit: exit %d (stdout=%q)", code, out)
-	}
-	writes := js.writeReqsTo("/rest/api/2/issue/ENG-7")
-	if len(writes) != 1 {
-		t.Fatalf("expected 1 PUT, got %d", len(writes))
-	}
-	fl := jiraFields(t, writes[0].body)
-	if got := fl["description"]; got != "h2. Params\n\n* timeout = 600\n\nh2. Check" {
-		t.Fatalf("description = %q", got)
-	}
-	if _, ok := fl["summary"]; ok {
-		t.Fatal("edit must not send summary")
-	}
-	for _, want := range []string{`"pass": "exact"`, `"count": 1`, `"region_before"`, `"region_after"`} {
-		if !strings.Contains(out, want) {
-			t.Errorf("output missing %s: %q", want, out)
+func newGuardedEditHTTPFixtureBodies(t *testing.T, before, after string) *guardedEditHTTPFixture {
+	t.Helper()
+	fixture := &guardedEditHTTPFixture{before: before, after: after}
+	fixture.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := readAll(r)
+		fixture.mu.Lock()
+		defer fixture.mu.Unlock()
+		fixture.requests++
+		w.Header().Set("Content-Type", "application/json")
+		switch r.Method {
+		case http.MethodGet:
+			if fixture.written && fixture.readbackStatus != 0 {
+				w.WriteHeader(fixture.readbackStatus)
+				_, _ = w.Write([]byte(`{"errorMessages":["PRIVATE_BACKEND_CANARY"]}`))
+				return
+			}
+			description := fixture.before
+			updated := "2026-08-22T10:00:00.000+0000"
+			if fixture.written {
+				description = fixture.after
+				updated = "2026-08-22T10:00:01.000+0000"
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"id": "10007", "key": "ENG-7", "fields": map[string]any{"description": description, "updated": updated}})
+		case http.MethodPut:
+			fixture.puts++
+			fixture.putPath = r.URL.Path
+			fixture.putBody = string(body)
+			fixture.written = true
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			w.WriteHeader(http.StatusNotFound)
 		}
+	}))
+	t.Cleanup(fixture.srv.Close)
+	return fixture
+}
+
+func TestJiraEditFullDescriptionClearSendsEmptyString(t *testing.T) {
+	fixture := newGuardedEditHTTPFixtureBodies(t, "obsolete", "")
+	previewOut, code := runCLI(t, jiraEnv(fixture.srv), "jira", "issue", "edit", "ENG-7", "--old", "obsolete", "--new", "")
+	var preview struct {
+		ProposalHash string `json:"proposal_hash"`
+	}
+	if code != exitOK || json.Unmarshal([]byte(previewOut), &preview) != nil || preview.ProposalHash == "" {
+		t.Fatalf("preview exit=%d out=%q", code, previewOut)
+	}
+	applyOut, code := runCLI(t, jiraEnv(fixture.srv), "jira", "issue", "edit", "ENG-7", "--old", "obsolete", "--new", "", "--apply", "--expected-proposal-hash", preview.ProposalHash)
+	fields := jiraFields(t, fixture.putBody)
+	description, present := fields["description"]
+	if code != exitOK || fixture.puts != 1 || len(fields) != 1 || !present || description != "" || !strings.Contains(applyOut, `"status": "applied"`) {
+		t.Fatalf("exit=%d puts=%d fields=%#v out=%q", code, fixture.puts, fields, applyOut)
 	}
 }
 
-// TestJiraEdit_DryRun: the match is reported but no PUT is sent.
-func TestJiraEdit_DryRun(t *testing.T) {
-	js := editServer(t)
-
-	out, code := runCLI(t, jiraEnv(js.srv),
-		"jira", "issue", "edit", "ENG-7", "--old", "timeout = 300", "--new", "timeout = 600", "--dry-run")
-	if code != exitOK {
-		t.Fatalf("dry-run: exit %d (stdout=%q)", code, out)
+func TestJiraEditParentDefaultsToPreviewAndMatchesReadOnlyChild(t *testing.T) {
+	parentServer := newGuardedEditHTTPFixture(t)
+	parentOut, code := runCLI(t, jiraEnv(parentServer.srv), "jira", "issue", "edit", "ENG-7", "--old", "timeout = 300", "--new", "timeout = 600")
+	if code != exitOK || parentServer.puts != 0 {
+		t.Fatalf("parent preview: exit=%d puts=%d out=%q", code, parentServer.puts, parentOut)
 	}
-	if writes := js.writeReqsTo("/rest/api/2/issue"); len(writes) != 0 {
-		t.Fatalf("dry-run must not PUT, got %d writes", len(writes))
+	childOut, code := runCLI(t, map[string]string{"ATL_JIRA_URL": parentServer.srv.URL, "ATL_JIRA_PAT": "test-pat", "ATL_READ_ONLY": "1"}, "jira", "issue", "edit", "preview", "ENG-7", "--old", "timeout = 300", "--new", "timeout = 600")
+	if code != exitOK || parentServer.puts != 0 {
+		t.Fatalf("child preview: exit=%d puts=%d out=%q", code, parentServer.puts, childOut)
 	}
-	if !strings.Contains(out, `"dry_run": true`) {
-		t.Errorf("output missing dry_run marker: %q", out)
+	if parentOut != childOut || !strings.Contains(parentOut, `"status": "would_apply"`) || strings.Contains(parentOut, "Params") || strings.Contains(parentOut, "timeout") {
+		t.Fatalf("preview mismatch or content leak:\nparent=%s\nchild=%s", parentOut, childOut)
 	}
 }
 
-// TestJiraEdit_NoMatchExit4: a missed needle is a refusal (exit 4), not an
-// overwrite, and nothing is written.
-func TestJiraEdit_NoMatchExit4(t *testing.T) {
-	js := editServer(t)
-
-	_, code := runCLI(t, jiraEnv(js.srv),
-		"jira", "issue", "edit", "ENG-7", "--old", "no such text", "--new", "x")
-	if code != exitNotFound {
-		t.Fatalf("no-match: exit %d, want %d", code, exitNotFound)
+func TestJiraEditApplyRequiresReviewedHashAndUsesIDDescriptionOnly(t *testing.T) {
+	fixture := newGuardedEditHTTPFixture(t)
+	previewOut, code := runCLI(t, jiraEnv(fixture.srv), "jira", "issue", "edit", "ENG-7", "--old", "timeout = 300", "--new", "timeout = 600")
+	var preview struct {
+		ProposalHash string `json:"proposal_hash"`
 	}
-	if writes := js.writeReqsTo("/rest/api/2/issue"); len(writes) != 0 {
-		t.Fatalf("no-match must not PUT, got %d writes", len(writes))
+	if code != exitOK || json.Unmarshal([]byte(previewOut), &preview) != nil || preview.ProposalHash == "" {
+		t.Fatalf("preview exit=%d out=%q", code, previewOut)
 	}
-}
-
-// TestJiraEdit_AmbiguousExit2: two matches without --all refuse with exit 2.
-func TestJiraEdit_AmbiguousExit2(t *testing.T) {
-	js := editServer(t)
-
-	_, code := runCLI(t, jiraEnv(js.srv),
-		"jira", "issue", "edit", "ENG-7", "--old", "h2. ", "--new", "h3. ")
-	if code != exitUsage {
-		t.Fatalf("ambiguous: exit %d, want %d", code, exitUsage)
+	applyOut, code := runCLI(t, jiraEnv(fixture.srv), "jira", "issue", "edit", "ENG-7", "--old", "timeout = 300", "--new", "timeout = 600", "--apply", "--expected-proposal-hash", preview.ProposalHash)
+	if code != exitOK || fixture.puts != 1 || fixture.putPath != "/rest/api/2/issue/10007" {
+		t.Fatalf("apply exit=%d puts=%d path=%q out=%q", code, fixture.puts, fixture.putPath, applyOut)
 	}
-	if writes := js.writeReqsTo("/rest/api/2/issue"); len(writes) != 0 {
-		t.Fatalf("ambiguous must not PUT, got %d writes", len(writes))
+	fields := jiraFields(t, fixture.putBody)
+	if len(fields) != 1 || fields["description"] != "h2. Params\n\n* timeout = 600\n\nh2. Check" || !strings.Contains(applyOut, `"status": "applied"`) || !strings.Contains(applyOut, `"write_attempted": true`) {
+		t.Fatalf("fields=%#v out=%q", fields, applyOut)
 	}
 }
 
-// TestJiraEdit_AllReplacesEvery: --all lifts the uniqueness requirement.
-func TestJiraEdit_All(t *testing.T) {
-	js := editServer(t)
-
-	_, code := runCLI(t, jiraEnv(js.srv),
-		"jira", "issue", "edit", "ENG-7", "--old", "h2. ", "--new", "h3. ", "--all")
-	if code != exitOK {
-		t.Fatalf("--all: exit %d", code)
+func TestJiraEditDryRunAndApplyValidationBeforeConfiguration(t *testing.T) {
+	configDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(configDir, "config.json"), []byte(`{"read_only":`), 0o600); err != nil {
+		t.Fatal(err)
 	}
-	writes := js.writeReqsTo("/rest/api/2/issue/ENG-7")
-	if len(writes) != 1 {
-		t.Fatalf("expected 1 PUT, got %d", len(writes))
-	}
-	if got := jiraFields(t, writes[0].body)["description"]; got != "h3. Params\n\n* timeout = 300\n\nh3. Check" {
-		t.Fatalf("description = %q", got)
-	}
-}
-
-// TestJiraEdit_DeleteWithEmptyNew: --new ” deletes the matched text.
-func TestJiraEdit_DeleteWithEmptyNew(t *testing.T) {
-	js := editServer(t)
-
-	_, code := runCLI(t, jiraEnv(js.srv),
-		"jira", "issue", "edit", "ENG-7", "--old", "* timeout = 300\n\n", "--new", "")
-	if code != exitOK {
-		t.Fatalf("delete: exit %d", code)
-	}
-	writes := js.writeReqsTo("/rest/api/2/issue/ENG-7")
-	if len(writes) != 1 {
-		t.Fatalf("expected 1 PUT, got %d", len(writes))
-	}
-	if got := jiraFields(t, writes[0].body)["description"]; got != "h2. Params\n\nh2. Check" {
-		t.Fatalf("description = %q", got)
-	}
-}
-
-// TestJiraEdit_ClearWholeDescription: matching the entire body with --new ”
-// sends description:"" on the wire (clears it), not a no-op PUT.
-func TestJiraEdit_ClearWholeDescription(t *testing.T) {
-	js := newJiraServer(t)
-	js.route(http.MethodGet, "/rest/api/2/issue/ENG-9", http.StatusOK, `{"key":"ENG-9","fields":{"description":"obsolete text"}}`)
-	js.route(http.MethodPut, "/rest/api/2/issue/ENG-9", http.StatusNoContent, ``)
-
-	_, code := runCLI(t, jiraEnv(js.srv),
-		"jira", "issue", "edit", "ENG-9", "--old", "obsolete text", "--new", "")
-	if code != exitOK {
-		t.Fatalf("clear: exit %d", code)
-	}
-	writes := js.writeReqsTo("/rest/api/2/issue/ENG-9")
-	if len(writes) != 1 {
-		t.Fatalf("expected 1 PUT, got %d", len(writes))
-	}
-	fl := jiraFields(t, writes[0].body)
-	got, ok := fl["description"]
-	if !ok || got != "" {
-		t.Fatalf("description = %v (present=%v), want empty string", got, ok)
-	}
-}
-
-// TestJiraEdit_CrossLineWhitespaceExit8: a whitespace-pass match crossing a
-// line break refuses with exit 8 and writes nothing.
-func TestJiraEdit_CrossLineWhitespaceExit8(t *testing.T) {
-	js := newJiraServer(t)
-	js.route(http.MethodGet, "/rest/api/2/issue/ENG-9", http.StatusOK, `{"key":"ENG-9","fields":{"description":"h2. Verify\nsteps here"}}`)
-
-	_, code := runCLI(t, jiraEnv(js.srv),
-		"jira", "issue", "edit", "ENG-9", "--old", "Verify steps", "--new", "Checked")
-	if code != exitCheckFailed {
-		t.Fatalf("cross-line: exit %d, want %d", code, exitCheckFailed)
-	}
-	if writes := js.writeReqsTo("/rest/api/2/issue"); len(writes) != 0 {
-		t.Fatalf("cross-line refusal must not PUT, got %d writes", len(writes))
-	}
-}
-
-// TestJiraEdit_EmptyDescriptionExit4: nothing to edit is a not-found refusal
-// with a pointer to issue update.
-func TestJiraEdit_EmptyDescriptionExit4(t *testing.T) {
-	js := newJiraServer(t)
-	js.route(http.MethodGet, "/rest/api/2/issue/ENG-8", http.StatusOK, `{"key":"ENG-8","fields":{}}`)
-
-	_, code := runCLI(t, jiraEnv(js.srv),
-		"jira", "issue", "edit", "ENG-8", "--old", "x", "--new", "y")
-	if code != exitNotFound {
-		t.Fatalf("empty description: exit %d, want %d", code, exitNotFound)
-	}
-	if writes := js.writeReqsTo("/rest/api/2/issue"); len(writes) != 0 {
-		t.Fatalf("empty description must not PUT, got %d writes", len(writes))
-	}
-}
-
-// TestJiraEdit_FlagValidation: missing/conflicting flags exit 2 before any
-// HTTP traffic.
-func TestJiraEdit_FlagValidation(t *testing.T) {
-	cases := []struct {
+	env := map[string]string{"ATL_CONFIG_DIR": configDir}
+	tests := []struct {
 		name string
 		args []string
 	}{
-		{"missing old", []string{"jira", "issue", "edit", "ENG-7", "--new", "x"}},
-		{"empty old", []string{"jira", "issue", "edit", "ENG-7", "--old", "", "--new", "x"}},
-		{"missing new", []string{"jira", "issue", "edit", "ENG-7", "--old", "x"}},
-		{"old and old-file", []string{"jira", "issue", "edit", "ENG-7", "--old", "x", "--old-file", "f", "--new", "y"}},
-		{"new and new-file", []string{"jira", "issue", "edit", "ENG-7", "--old", "x", "--new", "y", "--new-file", "f"}},
+		{name: "explicit false", args: []string{"jira", "issue", "edit", "ENG-7", "--old", "x", "--new", "y", "--dry-run=false"}},
+		{name: "dry-run and apply", args: []string{"jira", "issue", "edit", "ENG-7", "--old", "x", "--new", "y", "--dry-run", "--apply", "--expected-proposal-hash", strings.Repeat("a", 64)}},
+		{name: "missing hash", args: []string{"jira", "issue", "edit", "ENG-7", "--old", "x", "--new", "y", "--apply"}},
+		{name: "malformed hash", args: []string{"jira", "issue", "edit", "ENG-7", "--old", "x", "--new", "y", "--apply", "--expected-proposal-hash", strings.Repeat("A", 64)}},
+		{name: "hash without apply", args: []string{"jira", "issue", "edit", "ENG-7", "--old", "x", "--new", "y", "--expected-proposal-hash", strings.Repeat("a", 64)}},
 	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			js := newJiraServer(t)
-			_, code := runCLI(t, jiraEnv(js.srv), tc.args...)
-			if code != exitUsage {
-				t.Fatalf("exit %d, want %d", code, exitUsage)
-			}
-			if n := len(js.requests()); n != 0 {
-				t.Fatalf("flag validation must not hit the backend, got %d requests", n)
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			stdout, stderr, err := executeCLIRaw(t, env, test.args...)
+			if !errors.Is(err, domain.ErrUsage) || errors.Is(err, domain.ErrConfig) || codeFor(err) != exitUsage || stdout != "" || stderr != "" {
+				t.Fatalf("err=%v exit=%d stdout=%q stderr=%q", err, codeFor(err), stdout, stderr)
 			}
 		})
 	}
 }
 
-// TestJiraEdit_NewFileStripsOneNewline: --new-file drops exactly one trailing
-// newline (editor/Write-tool artifact), like conf edit.
-func TestJiraEdit_NewFileStripsOneNewline(t *testing.T) {
-	js := editServer(t)
-	nf := filepath.Join(t.TempDir(), "new.txt")
-	if err := os.WriteFile(nf, []byte("timeout = 600\n"), 0o644); err != nil {
-		t.Fatal(err)
+func TestJiraEditAmbiguousReadbackKeepsTerminalCheckFailure(t *testing.T) {
+	for _, status := range []int{http.StatusUnauthorized, http.StatusForbidden} {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			fixture := newGuardedEditHTTPFixture(t)
+			previewOut, code := runCLI(t, jiraEnv(fixture.srv), "jira", "issue", "edit", "ENG-7", "--old", "timeout = 300", "--new", "timeout = 600")
+			var preview struct {
+				ProposalHash string `json:"proposal_hash"`
+			}
+			if code != exitOK || json.Unmarshal([]byte(previewOut), &preview) != nil {
+				t.Fatalf("preview exit=%d out=%q", code, previewOut)
+			}
+			fixture.readbackStatus = status
+			stdout, _, execErr := executeCLIRaw(t, jiraEnv(fixture.srv), "jira", "issue", "edit", "ENG-7", "--old", "timeout = 300", "--new", "timeout = 600", "--apply", "--expected-proposal-hash", preview.ProposalHash)
+			var result struct {
+				Status         string `json:"status"`
+				WriteAttempted bool   `json:"write_attempted"`
+			}
+			if json.Unmarshal([]byte(stdout), &result) != nil || result.Status != "outcome_unknown" || !result.WriteAttempted || codeFor(execErr) != exitCheckFailed {
+				t.Fatalf("result=%+v exit=%d err=%v stdout=%q", result, codeFor(execErr), execErr, stdout)
+			}
+			var ambiguous interface{ DiagnosticAmbiguousWrite() bool }
+			if !errors.Is(execErr, domain.ErrCheckFailed) || !errors.As(execErr, &ambiguous) || !ambiguous.DiagnosticAmbiguousWrite() {
+				t.Fatalf("terminal ambiguity lost: %v", execErr)
+			}
+			if status == http.StatusUnauthorized && !errors.Is(execErr, domain.ErrAuth) || status == http.StatusForbidden && !errors.Is(execErr, domain.ErrForbidden) {
+				t.Fatalf("safe nested status identity lost: status=%d err=%v", status, execErr)
+			}
+			var rendered strings.Builder
+			writeErrorWithContext(&rendered, "json", execErr, codeFor(execErr), diagnostic.OperationWrite)
+			var envelope struct {
+				Code     int                 `json:"code"`
+				Kind     string              `json:"kind"`
+				Recovery diagnostic.Recovery `json:"recovery"`
+			}
+			if json.Unmarshal([]byte(rendered.String()), &envelope) != nil || envelope.Code != exitCheckFailed || envelope.Kind != "check_failed" || envelope.Recovery.Action != diagnostic.RecoveryReconcileWriteOutcome || strings.Contains(rendered.String(), "PRIVATE_BACKEND_CANARY") {
+				t.Fatalf("terminal diagnostic=%s", rendered.String())
+			}
+		})
 	}
+}
 
-	_, code := runCLI(t, jiraEnv(js.srv),
-		"jira", "issue", "edit", "ENG-7", "--old", "timeout = 300", "--new-file", nf)
-	if code != exitOK {
-		t.Fatalf("--new-file: exit %d", code)
+func TestJiraEditDryRunTrueAliasesPreview(t *testing.T) {
+	fixture := newGuardedEditHTTPFixture(t)
+	out, code := runCLI(t, jiraEnv(fixture.srv), "jira", "issue", "edit", "ENG-7", "--old", "timeout = 300", "--new", "timeout = 600", "--dry-run=true")
+	if code != exitOK || fixture.puts != 0 || !strings.Contains(out, `"mode": "dry-run"`) {
+		t.Fatalf("exit=%d puts=%d out=%q", code, fixture.puts, out)
 	}
-	writes := js.writeReqsTo("/rest/api/2/issue/ENG-7")
-	if len(writes) != 1 {
-		t.Fatalf("expected 1 PUT, got %d", len(writes))
+}
+
+func TestJiraEditEmissionFailureAfterPUTRemainsClosed(t *testing.T) {
+	fixture := newGuardedEditHTTPFixture(t)
+	previewOut, code := runCLI(t, jiraEnv(fixture.srv), "jira", "issue", "edit", "ENG-7", "--old", "timeout = 300", "--new", "timeout = 600")
+	var preview struct {
+		ProposalHash string `json:"proposal_hash"`
 	}
-	if got := jiraFields(t, writes[0].body)["description"]; got != "h2. Params\n\n* timeout = 600\n\nh2. Check" {
-		t.Fatalf("description = %q", got)
+	if code != exitOK || json.Unmarshal([]byte(previewOut), &preview) != nil {
+		t.Fatalf("preview exit=%d out=%q", code, previewOut)
+	}
+	root := newRoot()
+	root.SetOut(errWriter{cause: errors.New("stdout unavailable")})
+	setRootExecutionArgs(root, []string{"jira", "issue", "edit", "ENG-7", "--old", "timeout = 300", "--new", "timeout = 600", "--apply", "--expected-proposal-hash", preview.ProposalHash})
+	err := root.ExecuteContext(context.Background())
+	if fixture.puts != 1 || !errors.Is(err, domain.ErrCheckFailed) {
+		t.Fatalf("puts=%d err=%v", fixture.puts, err)
 	}
 }

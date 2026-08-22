@@ -143,7 +143,9 @@ evidence.go:ListJiraCommentsQualified:for:1
 evidence.go:ListJiraCommentsQualified:range:1
 evidence.go:RevalidateJiraAttachmentDownload:range:1
 evidence.go:jiraCommentConservativeEncodedBytes:range:1
+fields.go:coerceCreateFields:range:1
 fields.go:coerceFields:range:1
+fields.go:reservedCreateField:range:1
 graph.go:ReadIssueRemoteLinks:range:1
 graph.go:validJiraRemoteLinkMetadata:range:1
 inverse_reference.go:ReadInverseReferenceSnapshot:range:1

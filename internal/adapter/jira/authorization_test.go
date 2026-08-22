@@ -403,7 +403,7 @@ func TestJiraNoncanonicalReferenceCannotGroundPolicyAllow(t *testing.T) {
 	}
 }
 
-func TestJiraCreateProjectOverrideIsScopeContradiction(t *testing.T) {
+func TestJiraCreateProjectOverrideIsRejectedBeforeAuthorization(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		t.Fatal("policy contradiction reached backend")
 	}))
@@ -418,9 +418,8 @@ func TestJiraCreateProjectOverrideIsScopeContradiction(t *testing.T) {
 	}}}
 	adapter := New(server.URL, "token", "test", WithWriteAuthorizer(contentpolicy.NewAuthorizer(allow)))
 	_, err := adapter.Create(context.Background(), "ML", "Task", "summary", nil, map[string]domain.JiraFieldInput{"project": {Value: `{"key":"OPS"}`}})
-	var denial *contentpolicy.DenialError
-	if !errors.As(err, &denial) || denial.Reason != contentpolicy.ReasonScopeContradiction {
-		t.Fatalf("error=%v denial=%+v", err, denial)
+	if !errors.Is(err, domain.ErrUsage) {
+		t.Fatalf("error=%v, want usage rejection", err)
 	}
 }
 

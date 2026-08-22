@@ -14,9 +14,10 @@ never authorizes a write, changed request, approval, or reconciliation step.
 | Required-field check fails | A required field is empty | Populate it, then retry |
 | Transition rejected | Status is unavailable | Run `jira transitions --key <KEY>` |
 | Field rejected | Option is unavailable | Run `jira field-options` for project/type/field |
-| `issue edit` exit 4 | `--old` not found | Review closest region and current description |
+| `issue edit` exit 4 | `--old` not found (content-free diagnostic) | Read the description separately and add exact context |
 | `issue edit` exit 2 | `--old` is ambiguous | Add context or explicitly use `--all` |
 | `issue edit` exit 8 | Match crosses an omitted line break | Copy exact text including newlines |
+| `issue edit` exit 8 with `outcome_unknown` | PUT outcome lacks exact advancing readback | Stop and reconcile manually; never replay automatically |
 | `jira push` exit 8 | Description/pending field drift | Pull, compare, and explicitly rebase fields; `--force` never overrides field drift |
 | `jira push` exit 2 | No mirror baseline | Pull before mirror edit/apply/push |
 | `jira apply` exit 8 | Stale view, lossy/unconvertible edit, read-only section, or wiki outside exact staged/pending lineage | Migrate stale markers before editing; preserve direct wiki edits, explicitly rebase reviewed pending fields when appropriate, and use `--allow-loss` only intentionally |

@@ -175,6 +175,8 @@ func parseMutationGuardFamily(value string) (mutationGuardFamily, bool) {
 		return mutationGuardConfluencePageDelete, true
 	case "jira-issue-delete":
 		return mutationGuardJiraIssueDelete, true
+	case "jira-description-edit":
+		return mutationGuardJiraDescriptionEdit, true
 	default:
 		return 0, false
 	}

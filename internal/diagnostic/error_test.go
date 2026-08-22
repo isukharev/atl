@@ -10,6 +10,24 @@ import (
 	"github.com/isukharev/atl/internal/httpx"
 )
 
+type classifiedAmbiguousWrite struct{ cause error }
+
+func (*classifiedAmbiguousWrite) Error() string                  { return "content-free ambiguous write" }
+func (e *classifiedAmbiguousWrite) Unwrap() []error              { return []error{domain.ErrCheckFailed, e.cause} }
+func (*classifiedAmbiguousWrite) DiagnosticAmbiguousWrite() bool { return true }
+
+func TestClassifyTerminalAmbiguityPrecedesSafeNestedCauses(t *testing.T) {
+	for _, cause := range []error{domain.ErrAuth, domain.ErrNotFound, domain.ErrForbidden, domain.ErrConfig} {
+		err := &classifiedAmbiguousWrite{cause: cause}
+		if !errors.Is(err, cause) || !errors.Is(err, domain.ErrCheckFailed) {
+			t.Fatalf("safe identities lost for %v", cause)
+		}
+		if kind, remediation := Classify(err); kind != "check_failed" || remediation != "review_failed_check" {
+			t.Fatalf("cause=%v classification=%q/%q", cause, kind, remediation)
+		}
+	}
+}
+
 func TestClassifyOutputLimitBeforeGenericCheckFailure(t *testing.T) {
 	err := fmt.Errorf("%w: %w: encoded result exceeds max_bytes", domain.ErrCheckFailed, domain.ErrOutputLimit)
 	if !errors.Is(err, domain.ErrCheckFailed) || !errors.Is(err, domain.ErrOutputLimit) {

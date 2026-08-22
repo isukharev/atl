@@ -263,6 +263,11 @@ larger values fail before backend access.
 
 Create an issue. The description is either Jira wiki markup (`--from-file`) or
 markdown converted to wiki (`--from-md`) — the two flags are mutually exclusive.
+Generic `--field`/`--field-json` keys that normalize to `project`, `issuetype`,
+`summary`, or `description` are rejected before metadata discovery or any
+request; use the dedicated inputs. Normalization removes Unicode whitespace
+and folds ASCII case only for this reserved-name check. Other field keys retain
+their exact bytes and existing coercion behavior.
 
 `--from-md` accepts the same markdown subset as the Confluence md surface
 (headings, emphasis/links, bullet/numbered lists, GFM tables, fenced code,
@@ -420,32 +425,39 @@ Flags:
 
 ## `atl jira issue edit`
 
-Targeted description edit in one command: fetch the current description,
-replace `--old` with `--new` (the same whitespace/invisible-tolerant matcher
-as `conf edit`), and write the result back. Small fixes and
-insert-after-anchor edits skip the get → compose → update ceremony.
+Guarded targeted description edit: fetch the native Jira wiki description,
+replace `--old` with `--new` through the whitespace/invisible-tolerant matcher,
+and emit a content-free proposal by default. The independently read-only
+`edit preview` child emits the identical schema and works under
+`ATL_READ_ONLY=1`. The parent remains mutation-classified during preview.
 
 ```bash
-atl jira issue edit PROJ-1 --old 'timeout = 300' --new 'timeout = 600'
+ATL_READ_ONLY=1 atl jira issue edit preview PROJ-1 \
+  --old 'timeout = 300' --new 'timeout = 600'
 # insert a section by replacing an anchor heading with new text + the anchor
-atl jira issue edit PROJ-1 --old 'h2. Verify' \
+env -u ATL_READ_ONLY atl jira issue edit PROJ-1 --old 'h2. Verify' \
   --new $'h2. Rollback\n\nRestore the previous snapshot.\n\nh2. Verify'
-atl jira issue edit PROJ-1 --old 'obsolete paragraph' --new ''   # delete
-atl jira issue edit PROJ-1 --old 'foo' --new 'bar' --dry-run     # preview only
+# after reviewing the exact proposal hash, repeat unchanged once:
+env -u ATL_READ_ONLY atl jira issue edit PROJ-1 \
+  --old 'timeout = 300' --new 'timeout = 600' \
+  --apply --expected-proposal-hash '<reviewed hash>'
 ```
 
 The match must be unique unless `--all` is passed: ambiguous → exit 2, no
-match → exit 4 with a quoted region dump showing the closest candidate (and
-any hidden bytes that broke exact matching). An empty description is exit 4 —
-set one with `issue update`. A whitespace-tolerant match that would cross a
+match → exit 4 with a content-free diagnostic. An empty description is exit
+4. A whitespace-tolerant match that would cross a
 line break is refused with exit 8: Jira wiki is line-sensitive (`h2.`, `*`,
 `{code}` are line-start tokens), so a cross-line splice could silently merge
 lines — copy `--old` exactly, newlines included. Replacement text is native wiki markup, spliced
 verbatim; for a full markdown rewrite use `issue update --from-md` instead.
 
-Jira DC updates are last-writer-wins (no version gate), so the `--old` match
-doubles as the drift guard: if the description changed underneath, the needle
-misses and the command refuses instead of overwriting.
+The schema-v1 hash binds backend origin, requested/canonical key, immutable
+numeric issue id, parsed `updated`, old/new byte hashes and lengths, matcher
+pass/count/ordered byte offsets, `--all`, and exact before/after body hashes and
+lengths. Apply repeats `description,updated` by immutable id immediately before
+one description-only PUT and then reads back by id. Exact advancing readback is
+`applied`, or `recovered` after an ambiguous response. Unavailable, unchanged,
+or conflicting readback is terminal `outcome_unknown`; never replay it.
 
 Flags:
 
@@ -456,7 +468,9 @@ Flags:
 | `--new` | replacement wiki text (required; pass `--new ''` to delete the match) |
 | `--old-file` / `--new-file` | read either side from a file (`-` for stdin); one trailing newline is stripped |
 | `--all` | replace every match instead of requiring a unique one |
-| `--dry-run` | report the match and regions without updating the issue |
+| `--apply` | perform at most one reviewed PUT; requires the exact proposal hash |
+| `--expected-proposal-hash` | exact lowercase proposal hash returned by preview |
+| `--dry-run` / `--dry-run=true` | compatibility alias for default preview; explicit false and use with `--apply` are rejected |
 
 ## `atl jira issue transition`
 

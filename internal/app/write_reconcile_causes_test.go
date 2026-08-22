@@ -117,6 +117,7 @@ func TestGuardedWriteErrorCauseAdapters(t *testing.T) {
 		{name: "page trash", err: &confluencePageTrashWriteError{cause: typed, closed: true}, closed: true},
 		{name: "jira comment", err: &jiraCommentWriteError{cause: typed, closed: true}, closed: true},
 		{name: "jira transition", err: &jiraTransitionWriteError{cause: typed, closed: true}, closed: true},
+		{name: "jira description edit", err: &jiraDescriptionEditError{cause: typed, closed: true}, closed: true},
 		{name: "attachment delete", err: &confluenceAttachmentDeleteWriteError{cause: typed}, closed: true},
 		{name: "jira issue delete", err: &jiraIssueDeleteWriteError{cause: typed}, closed: true},
 	}
@@ -171,6 +172,7 @@ func TestGuardedWriteErrorCauseAdapterInventory(t *testing.T) {
 		"jiraTransitionWriteError":             {file: "jira_transition_guarded.go", causeArg: "e.cause", closedArg: "e.closed"},
 		"confluenceAttachmentDeleteWriteError": {file: "confluence_attachment_delete.go", causeArg: "e.cause", closedArg: "true"},
 		"jiraIssueDeleteWriteError":            {file: "jira_issue_delete.go", causeArg: "e.cause", closedArg: "true"},
+		"jiraDescriptionEditError":             {file: "jira_description_edit.go", causeArg: "e.cause", closedArg: "e.closed"},
 	}
 
 	paths, err := filepath.Glob("*.go")

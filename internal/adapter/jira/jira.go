@@ -252,7 +252,7 @@ func (j *Jira) searchPage(ctx context.Context, jql string, fields []string, limi
 // compatibility contract. Explicit JSON fields are decoded as their requested
 // JSON type, including scalars.
 func (j *Jira) Create(ctx context.Context, project, issueType, summary string, body []byte, fields map[string]domain.JiraFieldInput) (*domain.Issue, error) {
-	typedFields, err := coerceFields(fields)
+	typedFields, err := coerceCreateFields(fields)
 	if err != nil {
 		return nil, err
 	}

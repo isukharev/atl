@@ -133,7 +133,7 @@
     },
     {
       "path": "jira/SKILL.md",
-      "sha256": "c3ebb7a856c246f27cc60be6e8ee76e6b837cec1346456ed32e60169518fbc61"
+      "sha256": "9a945c7dcbcc15a759845f39c9acb6efa3e4ed1725de92cea367171a256d1253"
     },
     {
       "path": "jira/agents/openai.yaml",
@@ -145,15 +145,15 @@
     },
     {
       "path": "jira/reference/commands.md",
-      "sha256": "46a78984a462bb6b47b37ac91da24fe048be880ed75ca78178759b59a7331a4d"
+      "sha256": "e4ec39b2ea0fc1d4ebdb98688006e36340724798c4a7cd1cdf0607096c40effd"
     },
     {
       "path": "jira/reference/editing.md",
-      "sha256": "f6ed7bc8f5e9e660a6b99b1b3c68c168a273923bf50b79e6f4007d248c6d3327"
+      "sha256": "f596691e66003a73303191dc4f41fd32c2fd97e4e71d71cf13febf8096bb24bf"
     },
     {
       "path": "jira/reference/errors.md",
-      "sha256": "3fab9e82003b04bf0accea1330283c505a434ffabb48fa9e97ad111a027fcb65"
+      "sha256": "7501171e0134329927f143519f08347f12110bea25afa517239ce9351be2b0cf"
     },
     {
       "path": "jira/reference/evidence-workflow.md",
@@ -165,7 +165,7 @@
     },
     {
       "path": "jira/reference/fields.md",
-      "sha256": "cf1b996e8adaba6ada0f2da4fc079e64c7f7dafdf49576e4ffe645c9c2e14b4e"
+      "sha256": "d0d6ab0165ded7104612ce2d744d6cc8b5eb40801bae6bb486c6b200a603c7e1"
     },
     {
       "path": "jira/reference/jql.md",
