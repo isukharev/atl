@@ -2,6 +2,7 @@ package jira
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -56,6 +57,99 @@ func TestReadCreateMetadataSelectsExactTypeAndKeepsValuesPrivate(t *testing.T) {
 	}
 	if len(paths) != 2 {
 		t.Fatalf("requests=%v, want exactly two", paths)
+	}
+}
+
+func TestReadCreateMetadataPreservesLegacyShortPageFallback(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		switch r.URL.Path {
+		case "/rest/api/2/issue/createmeta/OPS/issuetypes":
+			_, _ = io.WriteString(w, `{"isLast":false,"values":[{"id":"10","name":"Task"}]}`)
+		case "/rest/api/2/issue/createmeta/OPS/issuetypes/10":
+			_, _ = io.WriteString(w, `{"isLast":false,"values":[{"fieldId":"summary","name":"Summary","required":true}]}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	metadata, err := newTestJira(server).ReadCreateMetadata(context.Background(), "OPS", "Task")
+	if err != nil || requests != 2 || len(metadata.Fields) != 1 || metadata.Fields[0].FieldID != "summary" {
+		t.Fatalf("metadata=%+v requests=%d err=%v", metadata, requests, err)
+	}
+}
+
+func TestReadQualifiedCreateMetadataPreservesSafeFactsOnly(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/rest/api/2/issue/createmeta/OPS/issuetypes":
+			_, _ = io.WriteString(w, `{"startAt":0,"total":1,"isLast":true,"values":[{"id":"10","name":"Task"}]}`)
+		case "/rest/api/2/issue/createmeta/OPS/issuetypes/10":
+			_, _ = io.WriteString(w, `{"startAt":0,"total":2,"isLast":true,"values":[
+				{"fieldId":"summary","name":"Summary","required":true,"hasDefaultValue":false,"schema":{"type":"string","system":"summary"}},
+				{"fieldId":"customfield_42","name":"Choice","required":false,"hasDefaultValue":true,"defaultValue":{"secret":"private default"},"schema":{"type":"array","items":"option","custom":"example:choice","customId":42},"allowedValues":[{"name":"Private option","value":"private-id"}],"autoCompleteUrl":"https://private.example.test/options"}
+			]}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	metadata, err := newTestJira(server).ReadQualifiedCreateMetadata(context.Background(), "OPS", "Task")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(metadata.Fields) != 2 || metadata.Fields[0].FieldID != "customfield_42" || metadata.Fields[0].AllowedValuesCount != 1 ||
+		!metadata.Fields[0].AllowedValuesPresent || !metadata.Fields[0].HasAutocomplete || metadata.Fields[0].Schema == nil ||
+		metadata.Fields[0].Schema.CustomID == nil || *metadata.Fields[0].Schema.CustomID != 42 || metadata.Fields[1].Required == nil || !*metadata.Fields[1].Required {
+		t.Fatalf("metadata=%+v", metadata)
+	}
+	encoded, err := json.Marshal(metadata)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, private := range []string{"private default", "Private option", "private-id", "private.example.test"} {
+		if strings.Contains(string(encoded), private) {
+			t.Fatalf("qualified metadata leaked %q: %s", private, encoded)
+		}
+	}
+}
+
+func TestReadQualifiedCreateMetadataRejectsUnqualifiedAndDuplicateFields(t *testing.T) {
+	tests := []struct {
+		name      string
+		typePage  string
+		fieldPage string
+		want      string
+	}{
+		{name: "unqualified types", typePage: `{"values":[{"id":"10","name":"Task"}]}`, want: "pagination is unqualified"},
+		{name: "explicit nonterminal short page", typePage: `{"startAt":0,"isLast":false,"values":[{"id":"10","name":"Task"}]}`, want: "read attempt budget exhausted"},
+		{name: "duplicate fields", typePage: `{"startAt":0,"total":1,"isLast":true,"values":[{"id":"10","name":"Task"}]}`, fieldPage: `{"startAt":0,"total":2,"isLast":true,"values":[{"fieldId":"summary","name":"Summary"},{"fieldId":"summary","name":"Summary"}]}`, want: "duplicate field id"},
+		{name: "null allowed values", typePage: `{"startAt":0,"total":1,"isLast":true,"values":[{"id":"10","name":"Task"}]}`, fieldPage: `{"startAt":0,"total":1,"isLast":true,"values":[{"fieldId":"summary","name":"Summary","allowedValues":null}]}`, want: "allowed-values metadata is not an array"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if strings.HasSuffix(r.URL.Path, "/10") {
+					_, _ = io.WriteString(w, test.fieldPage)
+					return
+				}
+				_, _ = io.WriteString(w, test.typePage)
+			}))
+			t.Cleanup(server.Close)
+			ctx := context.Background()
+			if test.name == "explicit nonterminal short page" {
+				budget, err := domain.NewReadBudget(1, 1<<20)
+				if err != nil {
+					t.Fatal(err)
+				}
+				ctx = domain.WithReadBudget(ctx, budget)
+			}
+			_, err := newTestJira(server).ReadQualifiedCreateMetadata(ctx, "OPS", "Task")
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("error=%v, want %q", err, test.want)
+			}
+		})
 	}
 }
 

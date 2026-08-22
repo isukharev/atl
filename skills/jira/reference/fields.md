@@ -5,6 +5,14 @@
 
 Jira rejects unknown field ids, status names, and link types — discover the valid values first:
 
+- `atl jira issue create-metadata --project PROJ --type Task` → a complete,
+  bounded create-screen inventory with presence-aware required/default facts,
+  allowlisted schema, allowed-value count/mode, and `omittability`. Use it before
+  composing an unfamiliar project/type create. Proceed from `omittability` only
+  when the inventory is `complete:true` and the relevant top-level
+  `qualification` boolean is true; `unknown` is never permission to omit a
+  field. The command does not return defaults, option labels/values, or
+  autocomplete URLs.
 - `atl jira fields` → `{schema_version, projection, source, complete, total,
   count, custom_count, system_count, fields:[{id,name,custom,schema}]}` without
   values. Custom fields look like `customfield_10001`; exact ids and unambiguous

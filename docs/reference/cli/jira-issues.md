@@ -12,7 +12,7 @@ Issue reads, fields, creation, guarded edits, transitions, relationships, attach
 - [`atl jira issue field get`](#atl-jira-issue-field-get)
 - [`atl jira issue view`](#atl-jira-issue-view)
 - [`atl jira issue search`](#atl-jira-issue-search)
-- [`atl jira issue types` / `create-check`](#atl-jira-issue-types--create-check)
+- [`atl jira issue types` / `create-check` / `create-metadata`](#atl-jira-issue-types--create-check--create-metadata)
 - [`atl jira issue children`](#atl-jira-issue-children)
 - [`atl jira issue create`](#atl-jira-issue-create)
 - [`atl jira issue update`](#atl-jira-issue-update)
@@ -195,7 +195,7 @@ page with an advertised remainder is `complete:false` with
 the query has no matches. `pagination_unqualified` reports inconsistent paging
 coordinates. Partial reasons are closed static values and never backend text.
 
-## `atl jira issue types` / `create-check`
+## `atl jira issue types` / `create-check` / `create-metadata`
 
 Discover the issue types and content-free create-screen schema that Jira Data
 Center exposes for one project before attempting a create:
@@ -204,6 +204,7 @@ Center exposes for one project before attempting a create:
 atl jira issue types --project PROJ
 atl jira issue types --project PROJ -o id
 atl jira issue create-check --project PROJ --type Task
+atl jira issue create-metadata --project PROJ --type Task
 ```
 
 `types` accepts a project key or id, returns the exact backend type ids/names
@@ -214,11 +215,26 @@ project metadata and sends Jira the resolved immutable type id.
 Its fields report only id, name, required, and whether allowed values exist;
 option labels and values are deliberately omitted. Every returned field is on
 Jira's create screen by definition of the endpoint, so the output does not emit
-a redundant `on_screen` boolean. If an exact type is not found, refresh it with
-`jira issue types` rather than guessing case or spelling. Both commands read
-paginated metadata with a 1000-item hard bound and explicit completeness. They
-are preflight reads, not proof that a later create will succeed after permissions
-or workflow configuration change.
+a redundant `on_screen` boolean. This legacy `create-check` JSON and text
+contract remains unchanged.
+
+`create-metadata` adds presence-aware `required`, an allowlisted field `schema`,
+default presence, allowed-value mode/count/exhaustiveness, and derived
+`omittability`. It never returns default values, option labels or values, or an
+autocomplete URL. `omittability` is `omittable` when Jira says the field is not
+required or advertises a backend default, `must_supply` when it is required and
+has no default, and `unknown` when those facts are incomplete. Inspect
+`omittability_basis` and the top-level `qualification` booleans instead of
+interpreting a missing fact as `false`.
+
+If an exact type is not found, refresh it with `jira issue types` rather than
+guessing case or spelling. The qualified command succeeds only after terminal,
+consistent pagination and rejects malformed or duplicate rows. Its fixed
+bounds are 1000 issue types, 1000 fields, 64 requests, 16 MiB of responses, and
+60 seconds; usage is reported in `bounds`. Failures expose a static,
+content-free error instead of a backend response. These commands are preflight
+reads, not proof that a later create will succeed after permissions or workflow
+configuration change.
 
 ## `atl jira issue children`
 

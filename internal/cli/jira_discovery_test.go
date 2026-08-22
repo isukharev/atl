@@ -45,9 +45,9 @@ type appProjectListWire struct {
 func TestJiraCreateMetadataCommandsAreContentFree(t *testing.T) {
 	js := newJiraServer(t)
 	js.route(http.MethodGet, "/rest/api/2/issue/createmeta/OPS/issuetypes/10", http.StatusOK,
-		`{"isLast":true,"values":[{"fieldId":"summary","name":"Summary","required":true},{"fieldId":"priority","name":"Priority","allowedValues":[{"name":"Private","value":"private-id"}]}]}`)
+		`{"startAt":0,"total":2,"isLast":true,"values":[{"fieldId":"summary","name":"Summary","required":true,"hasDefaultValue":false,"schema":{"type":"string","system":"summary"}},{"fieldId":"priority","name":"Priority","required":false,"hasDefaultValue":true,"defaultValue":{"secret":"private default"},"schema":{"type":"array","items":"option"},"allowedValues":[{"name":"Private","value":"private-id"}],"autoCompleteUrl":"https://private.example.test/options"}]}`)
 	js.route(http.MethodGet, "/rest/api/2/issue/createmeta/OPS/issuetypes", http.StatusOK,
-		`{"isLast":true,"values":[{"id":"10","name":"Task","subtask":false}]}`)
+		`{"startAt":0,"total":1,"isLast":true,"values":[{"id":"10","name":"Task","subtask":false}]}`)
 
 	ids, code := runCLI(t, jiraEnv(js.srv), "jira", "issue", "types", "--project", "OPS", "-o", "id")
 	if code != exitOK || ids != "10\n" {
@@ -56,6 +56,25 @@ func TestJiraCreateMetadataCommandsAreContentFree(t *testing.T) {
 	out, code := runCLI(t, jiraEnv(js.srv), "jira", "issue", "create-check", "--project", "OPS", "--type", "Task")
 	if code != exitOK || strings.Contains(out, "Private") || strings.Contains(out, "private-id") || strings.Contains(out, `"on_screen"`) || !strings.Contains(out, `"has_allowed_values": true`) {
 		t.Fatalf("create-check exit=%d output=%q", code, out)
+	}
+	wantLegacy := "{\n  \"schema_version\": 1,\n  \"project\": \"OPS\",\n  \"issue_type\": {\n    \"id\": \"10\",\n    \"name\": \"Task\",\n    \"subtask\": false\n  },\n  \"count\": 2,\n  \"complete\": true,\n  \"fields\": [\n    {\n      \"field_id\": \"priority\",\n      \"name\": \"Priority\",\n      \"required\": false,\n      \"has_allowed_values\": true\n    },\n    {\n      \"field_id\": \"summary\",\n      \"name\": \"Summary\",\n      \"required\": true,\n      \"has_allowed_values\": false\n    }\n  ]\n}\n"
+	if out != wantLegacy {
+		t.Fatalf("legacy create-check bytes changed\n got: %s\nwant: %s", out, wantLegacy)
+	}
+
+	qualified, code := runCLI(t, jiraEnv(js.srv), "jira", "issue", "create-metadata", "--project", "OPS", "--type", "Task")
+	if code != exitOK || !strings.Contains(qualified, `"omittability": "must_supply"`) ||
+		!strings.Contains(qualified, `"mode": "inline_and_autocomplete"`) || !strings.Contains(qualified, `"requests_used": 2`) {
+		t.Fatalf("create-metadata exit=%d output=%q", code, qualified)
+	}
+	for _, private := range []string{"private default", "Private", "private-id", "private.example.test"} {
+		if strings.Contains(qualified, private) {
+			t.Fatalf("create-metadata leaked %q: %s", private, qualified)
+		}
+	}
+	text, code := runCLI(t, jiraEnv(js.srv), "jira", "issue", "create-metadata", "--project", "OPS", "--type", "Task", "-o", "text")
+	if code != exitOK || !strings.Contains(text, "| Field ID | Name | Required | Schema | Default | Allowed values | Omittability |") || strings.Contains(text, "Private") {
+		t.Fatalf("create-metadata text exit=%d output=%q", code, text)
 	}
 }
 
@@ -68,5 +87,8 @@ func TestJiraDiscoveryValidatesArgumentsBeforeBackendSetup(t *testing.T) {
 	}
 	if _, code := runCLI(t, nil, "jira", "issue", "create-check", "--project", "OPS"); code != exitUsage {
 		t.Fatalf("create-check missing type exit=%d", code)
+	}
+	if _, code := runCLI(t, nil, "jira", "issue", "create-metadata", "--project", "OPS"); code != exitUsage {
+		t.Fatalf("create-metadata missing type exit=%d", code)
 	}
 }
