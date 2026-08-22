@@ -20,7 +20,7 @@ The released foundation and current `main` provide:
   experimental Development identities, and Confluence sections, tables,
   attachments, and comment threads;
 - an offline capability catalog and a typed read-only MCP stdio server with
-  twenty-three bounded evidence tools, two content-free mirror snapshots, and
+  twenty-four bounded evidence tools, two content-free mirror snapshots, and
   closed Jira/Confluence/offline profiles;
 - signed self-update and release provenance, contained filesystem writes,
   cross-platform Linux/macOS evidence, and a required Windows source-compile
@@ -34,19 +34,23 @@ The released foundation and current `main` provide:
 
 ## Now
 
-The current release line is v0.7.1; published artifacts are identified by the
-exact signed release tag. New surface remains evidence- or concrete-workflow-
-gated; current owner and colleague use is valid product evidence and does not
-impose a user-count freeze.
+The current release line is v0.8.0; published artifacts are identified by the
+exact release tag and signed release manifest. New surface remains evidence- or
+concrete-workflow-gated; current owner and colleague use is valid product
+evidence and does not impose a user-count freeze.
 
-- Define and implement the local-first standalone agent evaluator through the
-  tracked [product program](https://github.com/isukharev/atl/issues/1311),
-  beginning with its
-  [pre-release compatibility contract](docs/reference/agent-eval/README.md).
-  The current nested maintainer evaluator and ATL-profile artifacts remain the
-  implementation baseline; a production CLI, generic core, adapters, benchmark,
-  extraction, distribution, and support become shipped only through their own
-  evidence gates.
+- Harden reliable Jira research and guarded write workflows through the tracked
+  follow-ons for proposal/apply, qualified field discovery, selectable graph
+  evidence, resumable pull inspection, and client integration health. Each
+  capability remains gated by its own evidence and write-safety contract.
+
+The repository-maintained standalone evaluator has completed its planned
+pre-release program: the nested module now provides a generic core, production
+CLI, agent and execution adapters, durable attempts, causal experiments,
+deterministic and model-assisted grading, CI/report projections, lifecycle
+safety checks, and a synthetic conformance benchmark. It remains an unsigned
+pre-release subset. A signed standalone distribution and stable external
+support contract require separate evidence and release gates.
 
 ## Next
 
