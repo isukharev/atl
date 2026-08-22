@@ -237,10 +237,10 @@ func (s *JiraService) CreateAndRegister(ctx context.Context, project, issueType,
 }
 
 func (s *JiraService) createAndRegister(ctx context.Context, project, issueType, summary string, body []byte, fields map[string]domain.JiraFieldInput, root, goos string) (*domain.Issue, *CreatedMirrorRegistration, error) {
-	if err := validateCreatedRegistrationPlatform(goos); err != nil {
+	if err := rejectReservedCreateFields(fields); err != nil {
 		return nil, nil, err
 	}
-	if err := rejectCreateIssueTypeOverride(fields); err != nil {
+	if err := validateCreatedRegistrationPlatform(goos); err != nil {
 		return nil, nil, err
 	}
 	root, err := createdRegistrationRoot(root)

@@ -93,7 +93,8 @@ not display/short URLs, and no page body or backlink query is made.
 | `jira issue create` | Create an issue; optionally register one authoritative readback in a mirror | `--project`, `--type`, `--summary`, `--from-md`, `--from-file`, `--field k=v`, `--field-json k=JSON`; `--register --into <ROOT>` |
 | `jira issue update <KEY>` | Update summary/description/fields (whole body) | `--summary`, `--from-md`, `--from-file`, `--field k=v`, `--field-json k=JSON` |
 | `jira issue field set <KEY>` | Apply a reviewed file-backed custom-field proposal | `--from-file FIELD=PATH`, `--from-md FIELD=PATH`, `--allow-fields`, `--expected-updated`, `--expected-proposal-hash`, `--apply` |
-| `jira issue edit <KEY>` | Targeted description replace in one command | `--old`, `--new`, `--old-file`, `--new-file`, `--all`, `--dry-run` |
+| `jira issue edit preview <KEY>` | GET-only content-free targeted-description proposal | `--old`, `--new`, `--old-file`, `--new-file`, `--all`; safe under `ATL_READ_ONLY=1` |
+| `jira issue edit <KEY>` | Preview or apply one hash-bound targeted description edit | same matcher inputs; apply with `--apply --expected-proposal-hash`; `--dry-run` is a preview alias |
 | `jira issue assign <KEY>` | Set or clear the assignee | exactly one of `--to USER`, `--me`, `--none` |
 | `jira issue transition preview <KEY>` | GET-only state-bound transition proposal | `--to`, optional `--comment`, `--field k=v`, `--field-json k=JSON`; inspect selected transition/current state/hash |
 | `jira issue transition <KEY>` | Preview or apply one reviewed transition | `--to`, optional `--comment`, `--field k=v`, `--field-json k=JSON`, `--apply`, `--expected-proposal-hash` |

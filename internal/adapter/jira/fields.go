@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"unicode"
 
 	"github.com/isukharev/atl/internal/domain"
 )
@@ -23,6 +24,41 @@ func coerceFields(fields map[string]domain.JiraFieldInput) (map[string]any, erro
 		typed[key] = value
 	}
 	return typed, nil
+}
+
+// coerceCreateFields rejects collisions with the dedicated create inputs
+// before coercion, authorization, or serialization. Non-reserved keys are
+// passed to coerceFields byte-for-byte unchanged.
+func coerceCreateFields(fields map[string]domain.JiraFieldInput) (map[string]any, error) {
+	for key := range fields {
+		if reservedCreateField(key) {
+			return nil, fmt.Errorf("%w: create fields must not override project, issuetype, summary, or description", domain.ErrUsage)
+		}
+	}
+	return coerceFields(fields)
+}
+
+func reservedCreateField(key string) bool {
+	var normalized strings.Builder
+	normalized.Grow(len(key))
+	for _, r := range key {
+		if unicode.IsSpace(r) {
+			continue
+		}
+		if r >= 'A' && r <= 'Z' {
+			r += 'a' - 'A'
+		}
+		if r > unicode.MaxASCII {
+			return false
+		}
+		normalized.WriteRune(r)
+	}
+	switch normalized.String() {
+	case "project", "issuetype", "summary", "description":
+		return true
+	default:
+		return false
+	}
 }
 
 func coerceField(input domain.JiraFieldInput) (any, error) {

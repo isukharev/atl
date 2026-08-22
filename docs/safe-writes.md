@@ -220,6 +220,30 @@ evidence, then repeat the same target with `--apply`. Jira does not provide the
 same server-side page version gate as Confluence, so `atl` revalidates its
 stored baseline before writing.
 
+## Jira: guarded targeted description edits
+
+Use the independently read-only leaf to propose a small native-wiki splice:
+
+```sh
+ATL_READ_ONLY=1 atl jira issue edit preview EXAMPLE-1 \
+  --old 'timeout = 300' --new 'timeout = 600'
+```
+
+Review the content-free identity, updated marker, matcher offsets, exact byte
+hashes and lengths, and proposal hash. After explicit approval, repeat the
+same inputs once on the mutation-classified parent:
+
+```sh
+env -u ATL_READ_ONLY atl jira issue edit EXAMPLE-1 \
+  --old 'timeout = 300' --new 'timeout = 600' \
+  --apply --expected-proposal-hash '<reviewed hash>'
+```
+
+Apply revalidates the proposal by immutable numeric issue id immediately before
+at most one description-only PUT and then requires exact advancing readback.
+`recovered` proves the intended bytes after an ambiguous response;
+`outcome_unknown` is terminal and must never be replayed automatically.
+
 ## Jira: reviewed comment
 
 Keep the comment body out of command-line arguments:

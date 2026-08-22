@@ -86,16 +86,3 @@ func textFromFlagPair(inline, file, name string) (string, error) {
 	}
 	return inline, nil
 }
-
-// quoteRegion renders text around [start,end) with hidden bytes visible
-// (%q-quoted), clamped to the file bounds.
-func quoteRegion(s string, start, end int) string {
-	lo, hi := start-40, end+40
-	if lo < 0 {
-		lo = 0
-	}
-	if hi > len(s) {
-		hi = len(s)
-	}
-	return fmt.Sprintf("%q", s[lo:hi])
-}

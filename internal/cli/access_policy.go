@@ -92,6 +92,7 @@ const (
 	mutationGuardConfluencePageCopy
 	mutationGuardConfluencePageDelete
 	mutationGuardJiraIssueDelete
+	mutationGuardJiraDescriptionEdit
 )
 
 type mutationGuardSpec struct {
@@ -282,7 +283,8 @@ M remote-write-local remote-direct create jira-project-flag - json,text,id jira 
 R remote-read json,text jira issue create-check
 R remote-read json,text jira issue create-metadata
 M remote-write preview-apply delete jira-issue-arg apply,confirm,expected-proposal-hash,expected-updated pre-config jira-issue-delete json jira issue delete
-M remote-write-with-local remote-direct update,move? jira-issue-arg - json,text jira issue edit
+M remote-write-with-local preview-apply update,move? jira-issue-arg apply,expected-proposal-hash pre-config jira-description-edit json,text jira issue edit
+R remote-read-with-local json,text jira issue edit preview
 R remote-read json,text jira issue field get
 R remote-read-with-local json,text jira issue field preview
 M remote-write-with-local preview-apply update,move? jira-issue-arg apply,expected-proposal-hash,expected-updated command generic json,text jira issue field set
@@ -682,9 +684,34 @@ func validateMutationGuardFamily(cmd *cobra.Command, family mutationGuardFamily,
 		return validateConfluencePageDeleteInvocation(cmd, applyRequested)
 	case mutationGuardJiraIssueDelete:
 		return validateJiraIssueDeleteInvocation(cmd, applyRequested)
+	case mutationGuardJiraDescriptionEdit:
+		return validateJiraDescriptionEditInvocation(cmd, applyRequested)
 	default:
 		return &accessPolicyInvariantError{Command: fmt.Sprintf("%s has invalid mutation guard family", cmd.CommandPath())}
 	}
+}
+
+func validateJiraDescriptionEditInvocation(cmd *cobra.Command, applyRequested bool) error {
+	if dryRun := cmd.Flags().Lookup("dry-run"); dryRun != nil && dryRun.Changed {
+		value, err := cmd.Flags().GetBool("dry-run")
+		if err != nil || !value {
+			return usageErr("--dry-run=false is not supported; omit --dry-run to preview")
+		}
+		if applyRequested {
+			return usageErr("--dry-run cannot be combined with --apply")
+		}
+	}
+	expected := cmd.Flags().Lookup("expected-proposal-hash")
+	if !applyRequested {
+		if expected != nil && expected.Changed {
+			return usageErr("--expected-proposal-hash requires --apply")
+		}
+		return nil
+	}
+	if expected == nil {
+		return &accessPolicyInvariantError{Command: fmt.Sprintf("%s missing --expected-proposal-hash", cmd.CommandPath())}
+	}
+	return app.ValidateJiraDescriptionEditReviewHash(expected.Value.String())
 }
 
 func validateJiraIssueDeleteInvocation(cmd *cobra.Command, applyRequested bool) error {

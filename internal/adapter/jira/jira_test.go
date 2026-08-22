@@ -48,15 +48,16 @@ func TestCreateCoercesExtraFieldValues(t *testing.T) {
 
 	j := newTestJira(srv)
 	_, err := j.Create(context.Background(), "ABC", "Task", "summary", nil, map[string]domain.JiraFieldInput{
-		"priority":    {Value: `{"name":"High"}`},
-		"labels":      {Value: `["a","b"]`},
-		"storypoints": {Value: `5`},
-		"flag":        {Value: `true`},
-		"empty":       {Value: `null`},
-		"plainword":   {Value: "bare"},
-		"number":      {Value: `5`, ExplicitJSON: true},
-		"boolean":     {Value: `true`, ExplicitJSON: true},
-		"nil":         {Value: `null`, ExplicitJSON: true},
+		"priority":       {Value: `{"name":"High"}`},
+		"labels":         {Value: `["a","b"]`},
+		"storypoints":    {Value: `5`},
+		"flag":           {Value: `true`},
+		"empty":          {Value: `null`},
+		"plainword":      {Value: "bare"},
+		"number":         {Value: `5`, ExplicitJSON: true},
+		"boolean":        {Value: `true`, ExplicitJSON: true},
+		"nil":            {Value: `null`, ExplicitJSON: true},
+		" custom Field ": {Value: "byte-preserved"},
 	})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
@@ -95,6 +96,25 @@ func TestCreateCoercesExtraFieldValues(t *testing.T) {
 	}
 	if value, ok := got["nil"]; !ok || value != nil {
 		t.Errorf("explicit null = %#v (present=%v), want null", value, ok)
+	}
+	if got[" custom Field "] != "byte-preserved" {
+		t.Fatalf("non-reserved field key was not preserved: %#v", got)
+	}
+}
+
+func TestCreateRejectsReservedFieldsBeforeCoercionOrRequest(t *testing.T) {
+	for _, key := range []string{"project", " ISSUE TYPE ", "sum\u2003mary", "DESCRIP\tTION"} {
+		t.Run(key, func(t *testing.T) {
+			requests := 0
+			srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { requests++ }))
+			defer srv.Close()
+			_, err := newTestJira(srv).Create(t.Context(), "ABC", "Task", "summary", nil, map[string]domain.JiraFieldInput{
+				key: {Value: "not-json", ExplicitJSON: true},
+			})
+			if !errors.Is(err, domain.ErrUsage) || requests != 0 {
+				t.Fatalf("err=%v requests=%d", err, requests)
+			}
+		})
 	}
 }
 

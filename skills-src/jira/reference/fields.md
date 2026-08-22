@@ -54,6 +54,11 @@ JSON object/array. Use `--field-json key=JSON` for an explicit typed JSON value,
 number, boolean, or `null`. The same key cannot appear through both flags. Jira DC is strict
 about shapes, so pick the right form per field type:
 
+On create, generic field keys must not normalize to `project`, `issuetype`,
+`summary`, or `description`; use their dedicated flags/body inputs. Comparison
+removes Unicode whitespace and folds ASCII case. Every non-reserved key keeps
+its exact bytes and existing coercion behavior.
+
 | Field type | Shape Jira expects | Example |
 |---|---|---|
 | Text / textarea custom field | plain string | `--field customfield_10050=Some text` |
@@ -124,8 +129,9 @@ does not write after both gates pass.
 ## Editing a large description / epic body as a file
 
 **Check first:** for a bounded change (fix a value, add/remove a section, reword a
-paragraph) skip the file round-trip entirely — one `atl jira issue edit <KEY> --old … --new …`
-does fetch→splice→write with the `--old` match as the drift guard. For a structural rewrite of a
+paragraph) skip the file round-trip: use `atl jira issue edit preview <KEY> --old … --new …`,
+then repeat unchanged with `--apply --expected-proposal-hash`. The guarded flow
+revalidates by immutable id and proves exact advancing readback. For a structural rewrite of a
 **pulled** issue, prefer the mirror md cycle — edit generated `# Description` or a configured
 editable rich-text field in `<KEY>.md`, run `jira apply`, then `jira push` (jira skill §4b).
 Editable fields require `section` + `jira_wiki` + `editable:true`; their proposed values are explicit

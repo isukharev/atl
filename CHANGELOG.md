@@ -11,6 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added guarded targeted Jira description edits: a GET-only
+  `jira issue edit preview` leaf and preview-by-default parent now bind native
+  wiki byte evidence to a reviewed proposal hash, revalidate by immutable id,
+  send at most one description-only PUT, and fail closed on ambiguous readback.
+- Jira issue create now rejects generic fields that normalize to dedicated
+  project, issue-type, summary, or description inputs before metadata or any
+  request, with the adapter enforcing the same boundary independently.
 - Added `atl jira issue create-metadata` for bounded, completeness-qualified
   create-field schema, default presence, allowed-value cardinality, and
   omittability without exposing defaults, option values, or autocomplete URLs;

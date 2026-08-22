@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"io/fs"
 	"net/http"
@@ -14,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/isukharev/atl/internal/domain"
+	"github.com/isukharev/atl/internal/version"
 )
 
 // TestMutationPreConfigRoutesPreserveLiteralContract deliberately does not
@@ -74,6 +76,11 @@ func TestMutationPreConfigRoutesPreserveLiteralContract(t *testing.T) {
 			want: "usage error: issue key must be canonical (for example PROJ-1)",
 		},
 		{
+			name: "jira issue edit",
+			args: []string{"jira", "issue", "edit", "PROJ-1", "--old", "x", "--new", "y", "--dry-run=false"},
+			want: "usage error: --dry-run=false is not supported; omit --dry-run to preview",
+		},
+		{
 			name: "mirror backend bind apply",
 			args: []string{"mirror", "backend", "bind", writeRoot, "--service", "jira", "--apply", "--confirm", "BIND"},
 			want: "usage error: --expected-backend-sha256 is required with --apply",
@@ -114,6 +121,74 @@ func TestMutationPreConfigRoutesPreserveLiteralContract(t *testing.T) {
 			}
 			if after := mutationGuardTreeSnapshot(t, writeRoot); !reflect.DeepEqual(after, beforeRoot) {
 				t.Fatalf("write target changed: before=%v after=%v", beforeRoot, after)
+			}
+		})
+	}
+}
+
+func TestJiraIssueEditPreConfigGuardPrecedesEnabledSelfUpdate(t *testing.T) {
+	var requests atomic.Int64
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		requests.Add(1)
+	}))
+	t.Cleanup(server.Close)
+
+	oldVersion := version.Version
+	version.Version = "1.0.0"
+	t.Cleanup(func() { version.Version = oldVersion })
+	for _, key := range []string{
+		"ATL_NO_UPDATE", "ATL_READ_ONLY", "ATL_UPDATE_DEBUG", "ATL_VERBOSE",
+		"ATL_JIRA_URL", "JIRA_URL", "ATL_JIRA_PAT", "JIRA_PAT",
+		"ATL_POLICY", "ATL_POLICY_FILE", "ATL_POLICY_SHA256", "ATL_POLICY_REQUIRED",
+	} {
+		t.Setenv(key, "")
+	}
+	t.Setenv("ATL_UPDATE_URL", server.URL)
+	eligibilityRoot := newRoot()
+	editCommand, _, findErr := eligibilityRoot.Find([]string{"jira", "issue", "edit"})
+	if findErr != nil || editCommand == nil || skipSelfUpdate(editCommand) {
+		t.Fatalf("jira issue edit self-update eligibility: command=%v err=%v skipped=%t", editCommand, findErr, editCommand != nil && skipSelfUpdate(editCommand))
+	}
+
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{
+			name: "explicit false dry-run",
+			args: []string{"jira", "issue", "edit", "PROJ-1", "--old", "x", "--new", "y", "--dry-run=false"},
+			want: "usage error: --dry-run=false is not supported; omit --dry-run to preview",
+		},
+		{
+			name: "malformed proposal hash",
+			args: []string{"jira", "issue", "edit", "PROJ-1", "--old", "x", "--new", "y", "--apply", "--expected-proposal-hash", strings.Repeat("A", 64)},
+			want: "usage error: --expected-proposal-hash must be a lowercase 64-character SHA-256",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			configDir := t.TempDir()
+			t.Setenv("ATL_CONFIG_DIR", configDir)
+			requests.Store(0)
+
+			var stdout, stderr bytes.Buffer
+			root := newRoot()
+			setRootExecutionArgs(root, test.args)
+			root.SetOut(&stdout)
+			root.SetErr(&stderr)
+			err := root.ExecuteContext(context.Background())
+			if err == nil || err.Error() != test.want || !errors.Is(err, domain.ErrUsage) || codeFor(err) != exitUsage {
+				t.Fatalf("err=%v code=%d, want exact usage %q", err, codeFor(err), test.want)
+			}
+			if stdout.Len() != 0 || stderr.Len() != 0 {
+				t.Fatalf("stdout=%q stderr=%q, want both empty", stdout.String(), stderr.String())
+			}
+			if got := requests.Load(); got != 0 {
+				t.Fatalf("self-update requests=%d, want zero", got)
+			}
+			if _, statErr := os.Stat(filepath.Join(configDir, ".update-check")); !errors.Is(statErr, fs.ErrNotExist) {
+				t.Fatalf("self-update stamp stat error=%v, want absent", statErr)
 			}
 		})
 	}
@@ -188,6 +263,7 @@ func TestMutationGuardSpecsPreserveReviewedPhasesAndFamilies(t *testing.T) {
 		"corpus cache retention apply": {mutationGuardPreConfig, mutationGuardGeneric},
 		"jira issue comment add":       {mutationGuardCommandOwned, mutationGuardGeneric},
 		"jira issue delete":            {mutationGuardPreConfig, mutationGuardJiraIssueDelete},
+		"jira issue edit":              {mutationGuardPreConfig, mutationGuardJiraDescriptionEdit},
 		"jira issue field set":         {mutationGuardCommandOwned, mutationGuardGeneric},
 		"jira issue plan apply":        {mutationGuardCommandOwned, mutationGuardGeneric},
 		"jira issue transition":        {mutationGuardCommandOwned, mutationGuardGeneric},
@@ -224,8 +300,8 @@ func TestMutationGuardSpecsPreserveReviewedPhasesAndFamilies(t *testing.T) {
 			}
 		}
 	}
-	if seen != 23 || len(want) != 23 {
-		t.Fatalf("typed guarded commands=%d reviewed=%d want=23", seen, len(want))
+	if seen != 24 || len(want) != 24 {
+		t.Fatalf("typed guarded commands=%d reviewed=%d want=24", seen, len(want))
 	}
 	for path := range want {
 		registration, ok := commandRegistry.nodes[path]

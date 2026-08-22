@@ -185,60 +185,7 @@ func jiraIssueCmd() *cobra.Command {
 	update.Flags().StringArrayVar(&upFieldKV, "field", nil, "field key=value (repeatable); JSON objects/arrays are sent as JSON")
 	update.Flags().StringArrayVar(&upFieldJSON, "field-json", nil, "field key=JSON (repeatable); sends an explicit JSON value including scalars")
 
-	var edOld, edNew, edOldFile, edNewFile string
-	var edAll, edDryRun bool
-	edit := &cobra.Command{
-		Use:   "edit <KEY>",
-		Short: "Replace text in the description in one command (fetch, splice, write back)",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			old, err := textFromFlagPair(edOld, edOldFile, "--old")
-			if err != nil {
-				return err
-			}
-			repl, err := textFromFlagPair(edNew, edNewFile, "--new")
-			if err != nil {
-				return err
-			}
-			if old == "" {
-				return usageErr("--old (or --old-file) is required and must be non-empty")
-			}
-			if !cmd.Flags().Changed("new") && edNewFile == "" {
-				return usageErr("--new (or --new-file) is required (pass --new '' to delete the matched text)")
-			}
-			svc, err := jiraService(cmd)
-			if err != nil {
-				return err
-			}
-			before, res, err := svc.EditDescription(cmd.Context(), args[0], old, repl, edAll, edDryRun)
-			if err != nil {
-				return err
-			}
-			m := res.Matches[0]
-			out := map[string]any{
-				"key":           args[0],
-				"pass":          string(res.Pass),
-				"count":         len(res.Matches),
-				"offsets":       res.Matches,
-				"dry_run":       edDryRun,
-				"region_before": quoteRegion(before, m.Start, m.End),
-				"region_after":  quoteRegion(res.Text, m.Start, m.Start+len(repl)),
-			}
-			return emit(cmd, out, func() string {
-				verb := "replaced"
-				if edDryRun {
-					verb = "would replace"
-				}
-				return fmt.Sprintf("%s\t%s %d occurrence(s) via %s pass", args[0], verb, len(res.Matches), res.Pass)
-			})
-		},
-	}
-	edit.Flags().StringVar(&edOld, "old", "", "text to find in the description (tolerant of NBSP/zero-width/entity differences)")
-	edit.Flags().StringVar(&edNew, "new", "", "replacement text (native wiki, inserted verbatim)")
-	edit.Flags().StringVar(&edOldFile, "old-file", "", "read the text to find from a file (- for stdin; one trailing newline is stripped)")
-	edit.Flags().StringVar(&edNewFile, "new-file", "", "read the replacement from a file (one trailing newline is stripped)")
-	edit.Flags().BoolVar(&edAll, "all", false, "replace every match instead of requiring a unique one")
-	edit.Flags().BoolVar(&edDryRun, "dry-run", false, "report the match without updating the issue")
+	edit := jiraDescriptionEditCmd()
 
 	var checkRequire, checkWarn string
 	check := &cobra.Command{

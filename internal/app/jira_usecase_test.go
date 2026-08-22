@@ -428,13 +428,13 @@ func TestJiraCreateResolvesTypeAndClassifiesOutcome(t *testing.T) {
 		}
 	})
 
-	t.Run("type override is rejected before metadata or create", func(t *testing.T) {
-		svc, tracker := newService()
-		_, err := svc.Create(context.Background(), "PROJ", "Task", "Summary", nil, map[string]domain.JiraFieldInput{
-			"issuetype": {Value: `{"id":"10"}`},
-		})
-		if !errors.Is(err, domain.ErrUsage) || tracker.metadataCalls != 0 || tracker.createType != "" {
-			t.Fatalf("create error/metadata/create = %v/%d/%q, want usage error and no request", err, tracker.metadataCalls, tracker.createType)
+	t.Run("reserved overrides are rejected before metadata or create", func(t *testing.T) {
+		for _, key := range []string{" Pro Ject ", "ISSUE\u2003TYPE", "sum\tMARY", "descrip\ntion"} {
+			svc, tracker := newService()
+			_, err := svc.Create(context.Background(), "PROJ", "Task", "Summary", nil, map[string]domain.JiraFieldInput{key: {Value: "override"}})
+			if !errors.Is(err, domain.ErrUsage) || tracker.metadataCalls != 0 || tracker.createType != "" {
+				t.Fatalf("key=%q create error/metadata/create = %v/%d/%q, want usage error and no request", key, err, tracker.metadataCalls, tracker.createType)
+			}
 		}
 	})
 }
