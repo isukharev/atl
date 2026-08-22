@@ -99,7 +99,8 @@ not display/short URLs, and no page body or backlink query is made.
 | `jira issue transition <KEY>` | Preview or apply one reviewed transition | `--to`, optional `--comment`, `--field k=v`, `--field-json k=JSON`, `--apply`, `--expected-proposal-hash` |
 | `jira issue check <KEY>` | Audit required/important fields; non-zero exit if required field empty | `--require fields`, `--warn fields` |
 | `jira issue delete <KEY>` | Preview/apply one immutable-id-bound permanent deletion; the whole leaf is mutation-classified | after explicit approval remove inherited read-only policy for preview; apply: `--apply --confirm DELETE --expected-updated --expected-proposal-hash`; optional reviewed `--delete-subtasks`; restore policy afterward |
-| `jira issue labels <KEY>` | Add/remove labels | `--add labels`, `--remove labels` |
+| `jira issue labels preview <KEY>` | GET-only reviewed label-delta proposal | combined `--add labels`, `--remove labels`; safe under `ATL_READ_ONLY=1` |
+| `jira issue labels <KEY>` | Preview/apply one guarded add/remove delta | combined `--add labels`, `--remove labels`; apply with `--apply --expected-proposal-hash` |
 | `jira issue watchers list <KEY>` | Read watcher membership | inspect `complete` |
 | `jira issue watchers add\|remove <KEY>` | Guarded watcher preview/apply | exactly one of `--username`, `--me`; `--apply`, `--expected-proposal-hash` |
 | `jira issue worklog list <KEY>` | Read complete time entries | `-o text/id`; inspect `complete` |

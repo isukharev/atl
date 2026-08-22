@@ -181,6 +181,8 @@ func parseMutationGuardFamily(value string) (mutationGuardFamily, bool) {
 		return mutationGuardJiraGuardedLink, true
 	case "jira-guarded-create":
 		return mutationGuardJiraGuardedCreate, true
+	case "jira-guarded-labels":
+		return mutationGuardJiraGuardedLabels, true
 	default:
 		return 0, false
 	}

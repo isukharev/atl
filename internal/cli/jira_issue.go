@@ -210,30 +210,6 @@ func jiraIssueCmd() *cobra.Command {
 	del.Flags().StringVar(&delExpectedUpdated, "expected-updated", "", "reviewed Jira updated marker (required with --apply)")
 	del.Flags().StringVar(&delExpectedProposalHash, "expected-proposal-hash", "", "reviewed proposal hash (required with --apply)")
 
-	var labelsAdd, labelsRemove string
-	labels := &cobra.Command{
-		Use:   "labels <KEY>",
-		Short: "Add/remove labels on an issue",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			add := splitFields(labelsAdd)
-			remove := splitFields(labelsRemove)
-			if len(add) == 0 && len(remove) == 0 {
-				return usageErr("pass --add and/or --remove")
-			}
-			svc, err := jiraService(cmd)
-			if err != nil {
-				return err
-			}
-			if err := svc.UpdateLabels(cmd.Context(), args[0], add, remove); err != nil {
-				return err
-			}
-			return emit(cmd, map[string]any{"key": args[0], "added": add, "removed": remove, "status": "updated"}, nil)
-		},
-	}
-	labels.Flags().StringVar(&labelsAdd, "add", "", "comma-separated labels to add")
-	labels.Flags().StringVar(&labelsRemove, "remove", "", "comma-separated labels to remove")
-
 	var assignTo string
 	var assignMe, assignNone bool
 	assign := &cobra.Command{
@@ -416,7 +392,7 @@ func jiraIssueCmd() *cobra.Command {
 	tree.Flags().StringVar(&treeFields, "fields", "", "extra comma-separated fields to fetch")
 	tree.Flags().IntVar(&treeLimit, "limit", 100, "max issues (0 = all; must be non-negative)")
 
-	c.AddCommand(get, jiraIssueViewCmd(), jiraIssueFieldsCmd(), jiraIssueGraphCmd(), search, children, create, update, edit, jiraTransitionCmd(), check, del, assign, labels, jiraIssueWatchersCmd(), jiraIssueWorklogCmd(), history, refs, tree, comment, link, plan, jiraIssueFieldCmd(), linkEpic, attachment, images)
+	c.AddCommand(get, jiraIssueViewCmd(), jiraIssueFieldsCmd(), jiraIssueGraphCmd(), search, children, create, update, edit, jiraTransitionCmd(), check, del, assign, jiraIssueLabelsCmd(), jiraIssueWatchersCmd(), jiraIssueWorklogCmd(), history, refs, tree, comment, link, plan, jiraIssueFieldCmd(), linkEpic, attachment, images)
 	return c
 }
 

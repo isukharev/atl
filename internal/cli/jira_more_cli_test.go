@@ -14,7 +14,7 @@ import (
 // These exercise the jira commands that previously had only adapter/app-level
 // coverage, pinning the CLI wiring: flags → endpoint → JSON shape / exit code.
 
-func TestJiraIssueLabels_WiresUpdateAndGuards(t *testing.T) {
+func TestJiraIssueLabels_PreviewsByDefaultAndGuards(t *testing.T) {
 	js := newJiraServer(t)
 
 	// No --add/--remove is a usage error before any request.
@@ -26,26 +26,19 @@ func TestJiraIssueLabels_WiresUpdateAndGuards(t *testing.T) {
 		t.Fatalf("labels guard must not contact the server, got %d requests", n)
 	}
 
-	js.route(http.MethodPut, "/rest/api/2/issue/", http.StatusNoContent, ``)
+	js.route(http.MethodGet, "/rest/api/2/issue/ENG-1", http.StatusOK,
+		`{"id":"10","key":"ENG-1","fields":{"project":{"key":"ENG"},"labels":["wontfix"],"updated":"2026-08-22T10:00:00Z"}}`)
 	out, code := runCLI(t, jiraEnv(js.srv), "jira", "issue", "labels", "ENG-1", "--add", "bug,backend", "--remove", "wontfix")
 	if code != exitOK {
 		t.Fatalf("labels: exit %d, want 0 (stdout=%q)", code, out)
 	}
-	writes := js.writeReqsTo("/rest/api/2/issue/ENG-1")
-	if len(writes) != 1 || writes[0].method != http.MethodPut {
-		t.Fatalf("expected 1 PUT, got %+v", writes)
+	writes := js.writeReqsTo("/rest/api/2/issue/")
+	if len(writes) != 0 {
+		t.Fatalf("preview unexpectedly wrote: %+v", writes)
 	}
-	// The labels go out via the field-update verb (add/remove ops), not a full PUT.
-	var p struct {
-		Update struct {
-			Labels []map[string]string `json:"labels"`
-		} `json:"update"`
-	}
-	if err := json.Unmarshal([]byte(writes[0].body), &p); err != nil {
-		t.Fatalf("decode labels body %q: %v", writes[0].body, err)
-	}
-	if len(p.Update.Labels) != 3 || p.Update.Labels[0]["add"] != "bug" || p.Update.Labels[2]["remove"] != "wontfix" {
-		t.Errorf("label ops = %v, want add bug/backend, remove wontfix", p.Update.Labels)
+	var result map[string]any
+	if err := json.Unmarshal([]byte(out), &result); err != nil || result["status"] != "would_apply" || result["mode"] != "preview" {
+		t.Fatalf("result=%v err=%v", result, err)
 	}
 }
 

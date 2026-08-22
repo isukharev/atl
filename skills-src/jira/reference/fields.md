@@ -84,7 +84,9 @@ rejects a value, re-check the shape here and the allowed values via
 Special cases with dedicated commands — prefer them over `--field`:
 - **Assignee** → `atl jira issue assign <KEY> --to <username> | --me | --none` (the generic field
   path needs `--field 'assignee={"name":"jdoe"}'`; a bare username fails).
-- **Labels** (add/remove without clobbering) → `atl jira issue labels <KEY> --add a,b --remove c`.
+- **Labels** (add/remove without clobbering) → preview with
+  `ATL_READ_ONLY=1 atl jira issue labels preview <KEY> --add a,b --remove c`,
+  then repeat the parent once with `--apply --expected-proposal-hash`.
 - **Epic Link** → `atl jira issue link-epic <KEY> --epic EPIC-1`.
 
 Use the field `id` from `atl jira fields` (custom fields look like `customfield_10001`), and

@@ -46,6 +46,13 @@ For a small targeted description change, use the independently read-only
 then repeat unchanged on the parent with `--apply
 --expected-proposal-hash`; `outcome_unknown` is terminal and never replay-safe.
 
+For labels, use the independently read-only `jira issue labels preview` child
+with the final combined `--add`/`--remove` values. Review its content-minimized
+schema-v1 identity, set digests, fixed bounds, and proposal hash; then repeat
+unchanged on the parent with `--apply --expected-proposal-hash`. Never use a
+whole-array replacement, replay `write_attempted:true`, or retry terminal
+`outcome_unknown`.
+
 Permanent issue deletion has no trash and is preview-first. Review the exact
 `updated`, proposal hash, subtask count/hash, and cascade intent, then use the
 returned apply flags once. `write_attempted:true` or `outcome_unknown` always
@@ -355,6 +362,11 @@ shell/workspace configuration implicitly.
 - Prefer dedicated one-shot commands for summary, labels, links, comments,
   transitions, watchers, worklogs, and individual custom fields. Resolve valid
   transitions/options/link types/users before writing.
+- For labels, use the separately read-only `jira issue labels preview` with the
+  exact combined add/remove values, then apply the unchanged parent once with
+  `--apply --expected-proposal-hash`. Review current/desired/effective counts and
+  digests; `recovered` proves only the bounded end state, and
+  `outcome_unknown` is never replay-safe.
 - For a comment, use the separately read-only `jira issue comment preview` on
   the final file, review its body/baseline/proposal hashes, then apply that exact
   file once with `comment add --apply --expected-proposal-hash`. Identical text

@@ -93,6 +93,7 @@ atl jira issue search --jql 'order by updated DESC' --limit 5
 версии без body страниц или задач. Результат `safety` показывает read-only
 состояние и источник `flag|environment|configuration|none`. По умолчанию вывод
 JSON, а логи и ошибки остаются в stderr.
+`labels preview`: read-only; apply требует hash.
 
 Для Confluence:
 

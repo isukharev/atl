@@ -9,6 +9,9 @@ reviewed command after approval.
 
 - Small unique description replacement: GET-only `jira issue edit preview`,
   then the unchanged parent command with `--apply --expected-proposal-hash`.
+- Labels: GET-only `jira issue labels preview` with final combined
+  `--add`/`--remove`, then the unchanged parent with
+  `--apply --expected-proposal-hash`.
 - Summary or whole body: fresh narrow get, then `jira issue update` using
   `--from-md` or native `--from-file`.
 - One large custom field: GET-only `jira issue field preview` with files and an
@@ -90,6 +93,11 @@ push.
 
 ## Other guarded writes
 
+- Labels: preview through the independent read-only child, review exact
+  issue/project identity, updated marker, requested values, set/delta digests,
+  bounds, and proposal hash, then apply the same add/remove inputs once. The
+  writer uses one numeric-id PUT and exact advancing readback; never replay
+  `outcome_unknown` or replace the whole label array.
 - Comments: use GET-only `jira issue comment preview` with the final file,
   review body/baseline/proposal hashes, then pass the exact proposal hash to one
   `comment add --apply` using unchanged bytes. The command revalidates the

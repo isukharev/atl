@@ -95,6 +95,7 @@ const (
 	mutationGuardJiraDescriptionEdit
 	mutationGuardJiraGuardedLink
 	mutationGuardJiraGuardedCreate
+	mutationGuardJiraGuardedLabels
 )
 
 type mutationGuardSpec struct {
@@ -297,7 +298,8 @@ R remote-read json,text jira issue get
 R remote-read-caller-bounded json,text jira issue graph
 R remote-read json,text jira issue history
 R remote-download json jira issue images
-M remote-write remote-direct update jira-issue-arg - json jira issue labels
+M remote-write preview-apply update jira-issue-arg apply,expected-proposal-hash pre-config jira-guarded-labels json jira issue labels
+R remote-read-fixed json jira issue labels preview
 M remote-write preview-apply update jira-link-endpoints apply,expected-proposal-hash pre-config jira-guarded-link json jira issue link add
 R remote-read json jira issue link add preview
 M remote-write preview-apply delete jira-link-endpoints apply,expected-proposal-hash pre-config jira-guarded-link json jira issue link delete
@@ -598,7 +600,6 @@ func finalizeCommandTree(root *cobra.Command) error {
 	installPureGroupFallbacks(root)
 	return nil
 }
-
 func installPureGroupFallbacks(cmd *cobra.Command) {
 	if cmd.Annotations[commandRoleAnnotation] == commandRoleGroup {
 		cmd.Args = func(cmd *cobra.Command, args []string) error {
@@ -613,15 +614,15 @@ func installPureGroupFallbacks(cmd *cobra.Command) {
 		installPureGroupFallbacks(child)
 	}
 }
-
 func validateMutationInvocation(cmd *cobra.Command) error {
 	path := commandRegistryPath(cmd.Root(), cmd)
-	// The dedicated create preview is independently read-only, but it retains
-	// the exact same pure candidate validation boundary as its mutation-classed
-	// parent. Run that validation here so malformed inputs fail before config,
-	// credentials, stdin, self-update, or network access.
+	// Dedicated previews retain their parents' pure pre-config validation so
+	// malformed inputs cannot reach credentials, stdin, self-update, or network.
 	if path == "jira issue create preview" {
 		return validateJiraGuardedCreateInvocation(cmd, false)
+	}
+	if path == "jira issue labels preview" {
+		return validateJiraGuardedLabelInvocation(cmd, false)
 	}
 	registration, ok := commandRegistry.nodes[path]
 	if !ok || registration.traits&commandMutating == 0 {
@@ -684,7 +685,6 @@ func validateMutationInvocation(cmd *cobra.Command) error {
 	}
 	return validateMutationGuardFamily(cmd, guard.family, applyRequested)
 }
-
 func validateMutationGuardFamily(cmd *cobra.Command, family mutationGuardFamily, applyRequested bool) error {
 	switch family {
 	case mutationGuardGeneric:
@@ -703,11 +703,12 @@ func validateMutationGuardFamily(cmd *cobra.Command, family mutationGuardFamily,
 		return validateJiraGuardedLinkInvocation(cmd, applyRequested)
 	case mutationGuardJiraGuardedCreate:
 		return validateJiraGuardedCreateInvocation(cmd, applyRequested)
+	case mutationGuardJiraGuardedLabels:
+		return validateJiraGuardedLabelInvocation(cmd, applyRequested)
 	default:
 		return &accessPolicyInvariantError{Command: fmt.Sprintf("%s has invalid mutation guard family", cmd.CommandPath())}
 	}
 }
-
 func validateJiraDescriptionEditInvocation(cmd *cobra.Command, applyRequested bool) error {
 	if dryRun := cmd.Flags().Lookup("dry-run"); dryRun != nil && dryRun.Changed {
 		value, err := cmd.Flags().GetBool("dry-run")
@@ -730,7 +731,6 @@ func validateJiraDescriptionEditInvocation(cmd *cobra.Command, applyRequested bo
 	}
 	return app.ValidateJiraDescriptionEditReviewHash(expected.Value.String())
 }
-
 func validateJiraIssueDeleteInvocation(cmd *cobra.Command, applyRequested bool) error {
 	key := cmd.Flags().Arg(0)
 	if !domain.ValidJiraIssueKey(key) {

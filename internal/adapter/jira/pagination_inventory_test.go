@@ -154,6 +154,13 @@ guarded_create.go:PrepareGuardedCreate:range:1
 guarded_create.go:PrepareGuardedCreate:range:2
 guarded_create.go:ReadGuardedCreate:range:1
 guarded_create.go:guardedCreateReadFields:range:1
+guarded_labels.go:WriteGuardedLabelDelta:range:1
+guarded_labels.go:WriteGuardedLabelDelta:range:2
+guarded_labels.go:guardedLabelOverlap:range:1
+guarded_labels.go:guardedLabelOverlap:range:2
+guarded_labels.go:guardedLabelSet:range:1
+guarded_labels.go:guardedLabelUnicodeEscapesValid:for:1
+guarded_labels.go:guardedLabelUpdated:range:1
 inverse_reference.go:ReadInverseReferenceSnapshot:range:1
 inverse_reference.go:ReadInverseReferenceSnapshot:range:2
 inverse_reference.go:ReadInverseReferenceSnapshot:range:3
