@@ -3,6 +3,7 @@ package jira
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -158,5 +159,80 @@ func TestGuardedCreateWriteIsSingleAttemptNoRedirectAndChargesErrorBody(t *testi
 	}
 	if errors.Is(err, domain.ErrReadAttemptBudgetExhausted) {
 		t.Fatalf("write retried: %v", err)
+	}
+}
+
+func TestGuardedCreateRejectsUnqualifiedEvidenceBeforeDispatch(t *testing.T) {
+	t.Run("write preflight", func(t *testing.T) {
+		var requests atomic.Int32
+		server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { requests.Add(1) }))
+		defer server.Close()
+
+		adapter := New(server.URL, "token", "test")
+		_, err := adapter.WriteGuardedCreate(t.Context(), domain.JiraGuardedCreateWrite{
+			Payload: []byte(`{"fields":{"summary":"S"}}`), ProjectID: "7", ProjectKey: "OPS",
+		})
+		var diagnostic interface{ DiagnosticWriteAttempted() bool }
+		if !errors.Is(err, domain.ErrCheckFailed) || !errors.As(err, &diagnostic) || diagnostic.DiagnosticWriteAttempted() || err.Error() != "guarded Jira create was denied before dispatch" || requests.Load() != 0 {
+			t.Fatalf("err=%v diagnostic=%T requests=%d", err, diagnostic, requests.Load())
+		}
+
+		authorizer := &recordingWriteAuthorizer{err: domain.ErrForbidden}
+		adapter = New(server.URL, "token", "test", WithWriteAuthorizer(authorizer))
+		prepared, prepareErr := adapter.PrepareGuardedCreate(domain.JiraGuardedCreatePreparationRequest{ProjectKey: "OPS", IssueTypeID: "10", Summary: "S"})
+		if prepareErr != nil {
+			t.Fatal(prepareErr)
+		}
+		_, err = adapter.WriteGuardedCreate(t.Context(), domain.JiraGuardedCreateWrite{Payload: prepared.Payload, ProjectID: "7", ProjectKey: "OPS"})
+		if !errors.Is(err, domain.ErrForbidden) || !errors.As(err, &diagnostic) || diagnostic.DiagnosticWriteAttempted() || requests.Load() != 0 || len(authorizer.requests) != 1 {
+			t.Fatalf("err=%v diagnostic=%T requests=%d authorization=%d", err, diagnostic, requests.Load(), len(authorizer.requests))
+		}
+	})
+
+	tooManyFields := make([]string, jiraGuardedCreateMaxFields)
+	for index := range tooManyFields {
+		tooManyFields[index] = fmt.Sprintf("customfield_%d", index)
+	}
+	oversizedQuery := make([]string, 65)
+	for index := range oversizedQuery {
+		oversizedQuery[index] = strings.Repeat("x", 1020) + fmt.Sprintf("%04d", index)
+	}
+	readCases := []struct {
+		name     string
+		request  domain.JiraGuardedCreateReadRequest
+		status   int
+		response string
+		contact  bool
+	}{
+		{name: "invalid id", request: domain.JiraGuardedCreateReadRequest{ID: "01"}},
+		{name: "invalid field", request: domain.JiraGuardedCreateReadRequest{ID: "10", Fields: []string{"bad\nfield"}}},
+		{name: "too many fields", request: domain.JiraGuardedCreateReadRequest{ID: "10", Fields: tooManyFields}},
+		{name: "oversized query", request: domain.JiraGuardedCreateReadRequest{ID: "10", Fields: oversizedQuery}},
+		{name: "http failure", request: domain.JiraGuardedCreateReadRequest{ID: "10"}, status: http.StatusInternalServerError, response: `{}`, contact: true},
+		{name: "missing envelope", request: domain.JiraGuardedCreateReadRequest{ID: "10"}, response: `{}`, contact: true},
+		{name: "malformed project", request: domain.JiraGuardedCreateReadRequest{ID: "10"}, response: `{"id":"10","key":"OPS-1","fields":{"project":{"id":"01","key":"OPS"},"issuetype":{"id":"3"},"summary":"S"}}`, contact: true},
+		{name: "malformed summary", request: domain.JiraGuardedCreateReadRequest{ID: "10"}, response: `{"id":"10","key":"OPS-1","fields":{"project":{"id":"7","key":"OPS"},"issuetype":{"id":"3"},"summary":{}}}`, contact: true},
+	}
+	for _, test := range readCases {
+		t.Run(test.name, func(t *testing.T) {
+			var requests atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				requests.Add(1)
+				if test.status != 0 {
+					w.WriteHeader(test.status)
+				}
+				_, _ = io.WriteString(w, test.response)
+			}))
+			defer server.Close()
+			ctx := domain.WithSingleAttempt(t.Context())
+			_, err := New(server.URL, "token", "test").ReadGuardedCreate(ctx, test.request)
+			wantRequests := int32(0)
+			if test.contact {
+				wantRequests = 1
+			}
+			if err == nil || requests.Load() != wantRequests || test.name != "http failure" && !errors.Is(err, domain.ErrCheckFailed) {
+				t.Fatalf("err=%v requests=%d contact=%v", err, requests.Load(), test.contact)
+			}
+		})
 	}
 }
