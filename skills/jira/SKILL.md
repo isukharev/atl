@@ -221,10 +221,17 @@ For an unfamiliar goal that is not already governed by a reviewed exact-command
 workflow, run `atl capabilities --task <exact-class> -o text` with
 `jira/setup`, `jira/evidence`, `jira/graph-evidence`,
 `jira/inverse-reference`, `jira/portfolio`, `jira/board-portfolio`,
-`jira/batch-analysis`, `jira/structure-planning`, `jira/mirror`, `jira/edit`,
+`jira/batch-analysis`, `jira/batch-edit`, `jira/create`, `jira/link`,
+`jira/structure-planning`, `jira/mirror`, `jira/edit`,
 or the cross-service `knowledge/search` class, then load
 exactly the returned reference. A
 capability route does not grant write authority.
+
+Use `jira/batch-analysis` for a small qualified field matrix before expanding
+to export, `jira/create` and `jira/link` for their read-only discovery/preview
+steps before an authorized hash-bound write, and `jira/batch-edit` for guarded
+multi-issue plan preview/apply. Exact `jira/edit` now covers only field and
+worklog workflows.
 
 - Custom-field discovery, one issue/epic analysis, status reports, history,
   refs, and bounded linked-page evidence: read
@@ -242,11 +249,13 @@ capability route does not grant write authority.
 - Transient view versus pull, mirror layout, render profiles, time display,
   assets, and custom rendered fields: [mirror.md](reference/mirror.md).
 - One-shot updates, Markdown apply/push, direct wiki fallback, comments,
-  watchers, worklogs, and write recovery: [editing.md](reference/editing.md).
+  watchers, worklogs, guarded links, and write recovery:
+  [editing.md](reference/editing.md).
 - Field discovery, value shapes, large custom fields, and file-bound guarded
   updates: [fields.md](reference/fields.md).
-- Exports, plans/links, attachments, quality reports, boards/sprints, and
-  read-only Structure: [extended-capabilities.md](reference/extended-capabilities.md).
+- Exports, guarded batch plans and link suggestions, attachments, quality
+  reports, boards/sprints, and read-only Structure:
+  [extended-capabilities.md](reference/extended-capabilities.md).
 - Complete command/flag inventory: [commands.md](reference/commands.md).
 - Raw Jira wiki authoring: [wiki-markup.md](reference/wiki-markup.md).
 - Exit codes and recovery: [errors.md](reference/errors.md).

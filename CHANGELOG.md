@@ -50,6 +50,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   omittability without exposing defaults, option values, or autocomplete URLs;
   the existing `create-check` output remains unchanged.
 
+### Changed
+
+- Expanded the offline Jira capability catalog with qualified field-batch,
+  create, link, and batch-plan routes. Field batch is now the primary
+  `jira/batch-analysis` route and export is its expansion. The stable plan
+  capability ids moved from `jira/edit` to `jira/batch-edit`; exact task-filter
+  output and the schema-v1 full-catalog digest therefore change intentionally.
+
 ## [0.8.0] - 2026-08-20
 
 ### Changed

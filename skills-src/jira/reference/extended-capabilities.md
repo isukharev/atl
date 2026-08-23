@@ -69,6 +69,10 @@ JQL to imitate this high-level local filtering.
 
 ## Guarded bulk links and plans
 
+Use `atl capabilities --task jira/batch-edit -o text` for the closed guarded
+plan preview/apply route. These stable plan capability ids are intentionally
+separate from the field/worklog-only `jira/edit` task class.
+
 Use `jira issue link suggest --csv ...` before bulk link work. Plan CSV requires
 schema v2 and narrow operation/field/link allowlists. First run the dedicated
 read-only `jira issue plan preview`, then repeat the exact file and allowlists

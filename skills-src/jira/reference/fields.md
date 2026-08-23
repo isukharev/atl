@@ -4,6 +4,11 @@
 
 Jira rejects unknown field ids, status names, and link types — discover the valid values first:
 
+For an unfamiliar create workflow, start with
+`atl capabilities --task jira/create -o text`. It orders qualified metadata,
+read-only proposal preview, and the authorized hash-bound apply route; catalog
+membership itself never grants write authority.
+
 - `atl jira issue create-metadata --project PROJ --type Task` → a complete,
   bounded create-screen inventory with presence-aware required/default facts,
   allowlisted schema, allowed-value count/mode, and `omittability`. Use it before

@@ -219,6 +219,8 @@ atl capabilities --effects --command "jira issue search"
 
 Этот каталог работает offline и не читает credentials. Профили задают только
 информационные верхние границы, а не разрешение или enforcement выполнения.
+Классы `jira/batch-analysis`, `jira/create`, `jira/link` и
+`jira/batch-edit` ведут к read/preview перед export/write.
 
 Claude Code:
 

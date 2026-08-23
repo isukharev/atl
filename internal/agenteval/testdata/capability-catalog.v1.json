@@ -6,7 +6,7 @@
     "stop": "stop expanding the route when sufficient complete evidence is available"
   },
   "selection": {
-    "count": 61
+    "count": 69
   },
   "capabilities": [
     {
@@ -518,11 +518,31 @@
       "reference": "reference/tables-attachments.md"
     },
     {
-      "id": "jira.batch.issue.export",
+      "id": "jira.batch.issue.fields",
       "task_class": "jira/batch-analysis",
       "service": "jira",
       "role": "primary",
       "priority": 10,
+      "summary": "Read a qualified ordered compact field matrix for known issue keys",
+      "command": "jira issue field batch",
+      "cli_command": "jira issue field batch",
+      "cli_only": true,
+      "access": "read-only",
+      "effect_profile": "remote-read-capped",
+      "output_modes": [
+        "json"
+      ],
+      "evidence": "qualified",
+      "completeness": "reconciled",
+      "skill": "jira",
+      "reference": "reference/batch-read.md"
+    },
+    {
+      "id": "jira.batch.issue.export",
+      "task_class": "jira/batch-analysis",
+      "service": "jira",
+      "role": "expand",
+      "priority": 20,
       "summary": "Read an ordered explicit issue selector set without durable artifacts",
       "command": "jira export",
       "cli_command": "jira export",
@@ -537,6 +557,48 @@
       "completeness": "explicit",
       "skill": "jira",
       "reference": "reference/batch-read.md"
+    },
+    {
+      "id": "jira.issue.plan.preview",
+      "task_class": "jira/batch-edit",
+      "service": "jira",
+      "role": "review",
+      "priority": 10,
+      "summary": "Qualify a bounded guarded multi-issue plan",
+      "command": "jira issue plan preview",
+      "cli_command": "jira issue plan preview",
+      "cli_only": true,
+      "access": "read-only",
+      "effect_profile": "guarded-plan-preview",
+      "output_modes": [
+        "json",
+        "text"
+      ],
+      "evidence": "hash-bound",
+      "completeness": "per-row",
+      "skill": "jira",
+      "reference": "reference/extended-capabilities.md"
+    },
+    {
+      "id": "jira.issue.plan.apply",
+      "task_class": "jira/batch-edit",
+      "service": "jira",
+      "role": "write",
+      "priority": 20,
+      "summary": "Apply a reviewed guarded multi-issue plan",
+      "command": "jira issue plan apply",
+      "cli_command": "jira issue plan apply",
+      "cli_only": true,
+      "access": "mutating",
+      "effect_profile": "guarded-plan-apply",
+      "output_modes": [
+        "json",
+        "text"
+      ],
+      "evidence": "hash-bound",
+      "completeness": "per-row",
+      "skill": "jira",
+      "reference": "reference/extended-capabilities.md"
     },
     {
       "id": "jira.board-portfolio.fields",
@@ -607,6 +669,68 @@
       "completeness": "per-source",
       "skill": "jira",
       "reference": "reference/portfolio-evidence.md"
+    },
+    {
+      "id": "jira.issue.create-metadata",
+      "task_class": "jira/create",
+      "service": "jira",
+      "role": "discover",
+      "priority": 10,
+      "summary": "Inspect bounded qualified create-field metadata without values",
+      "command": "jira issue create-metadata",
+      "cli_command": "jira issue create-metadata",
+      "cli_only": true,
+      "access": "read-only",
+      "effect_profile": "remote-read",
+      "output_modes": [
+        "json",
+        "text"
+      ],
+      "evidence": "qualified",
+      "completeness": "explicit",
+      "skill": "jira",
+      "reference": "reference/fields.md"
+    },
+    {
+      "id": "jira.issue.create.preview",
+      "task_class": "jira/create",
+      "service": "jira",
+      "role": "preview",
+      "priority": 20,
+      "summary": "Build a read-only hash-bound issue-create proposal",
+      "command": "jira issue create preview",
+      "cli_command": "jira issue create preview",
+      "cli_only": true,
+      "access": "read-only",
+      "effect_profile": "guarded-create-preview",
+      "output_modes": [
+        "json"
+      ],
+      "evidence": "hash-bound",
+      "completeness": "explicit",
+      "skill": "jira",
+      "reference": "reference/fields.md"
+    },
+    {
+      "id": "jira.issue.create",
+      "task_class": "jira/create",
+      "service": "jira",
+      "role": "write",
+      "priority": 30,
+      "summary": "Apply one reviewed issue-create proposal and reconcile its outcome",
+      "command": "jira issue create",
+      "cli_command": "jira issue create",
+      "cli_only": true,
+      "access": "mutating",
+      "effect_profile": "guarded-create-apply",
+      "output_modes": [
+        "json",
+        "id"
+      ],
+      "evidence": "hash-bound",
+      "completeness": "reconciled",
+      "skill": "jira",
+      "reference": "reference/fields.md"
     },
     {
       "id": "jira.issue.fields.edit",
@@ -713,48 +837,6 @@
       "completeness": "reconciled",
       "skill": "jira",
       "reference": "reference/editing.md"
-    },
-    {
-      "id": "jira.issue.plan.preview",
-      "task_class": "jira/edit",
-      "service": "jira",
-      "role": "review",
-      "priority": 55,
-      "summary": "Qualify a bounded guarded multi-issue plan",
-      "command": "jira issue plan preview",
-      "cli_command": "jira issue plan preview",
-      "cli_only": true,
-      "access": "read-only",
-      "effect_profile": "guarded-plan-preview",
-      "output_modes": [
-        "json",
-        "text"
-      ],
-      "evidence": "hash-bound",
-      "completeness": "per-row",
-      "skill": "jira",
-      "reference": "reference/commands.md"
-    },
-    {
-      "id": "jira.issue.plan.apply",
-      "task_class": "jira/edit",
-      "service": "jira",
-      "role": "write",
-      "priority": 60,
-      "summary": "Apply a reviewed guarded multi-issue plan",
-      "command": "jira issue plan apply",
-      "cli_command": "jira issue plan apply",
-      "cli_only": true,
-      "access": "mutating",
-      "effect_profile": "guarded-plan-apply",
-      "output_modes": [
-        "json",
-        "text"
-      ],
-      "evidence": "hash-bound",
-      "completeness": "per-row",
-      "skill": "jira",
-      "reference": "reference/commands.md"
     },
     {
       "id": "jira.issue.search",
@@ -936,6 +1018,86 @@
       "completeness": "per-source-and-selection",
       "skill": "jira",
       "reference": "reference/commands.md"
+    },
+    {
+      "id": "jira.issue.link.add.preview",
+      "task_class": "jira/link",
+      "service": "jira",
+      "role": "preview",
+      "priority": 10,
+      "summary": "Build a read-only hash-bound issue-link proposal",
+      "command": "jira issue link add preview",
+      "cli_command": "jira issue link add preview",
+      "cli_only": true,
+      "access": "read-only",
+      "effect_profile": "remote-read",
+      "output_modes": [
+        "json"
+      ],
+      "evidence": "hash-bound",
+      "completeness": "explicit",
+      "skill": "jira",
+      "reference": "reference/editing.md"
+    },
+    {
+      "id": "jira.issue.link.add",
+      "task_class": "jira/link",
+      "service": "jira",
+      "role": "write",
+      "priority": 20,
+      "summary": "Apply one reviewed issue-link proposal and reconcile its outcome",
+      "command": "jira issue link add",
+      "cli_command": "jira issue link add",
+      "cli_only": true,
+      "access": "mutating",
+      "effect_profile": "remote-write",
+      "output_modes": [
+        "json"
+      ],
+      "evidence": "hash-bound",
+      "completeness": "reconciled",
+      "skill": "jira",
+      "reference": "reference/editing.md"
+    },
+    {
+      "id": "jira.issue.link.delete.preview",
+      "task_class": "jira/link",
+      "service": "jira",
+      "role": "preview",
+      "priority": 30,
+      "summary": "Build a read-only hash-bound issue-link deletion proposal",
+      "command": "jira issue link delete preview",
+      "cli_command": "jira issue link delete preview",
+      "cli_only": true,
+      "access": "read-only",
+      "effect_profile": "remote-read",
+      "output_modes": [
+        "json"
+      ],
+      "evidence": "hash-bound",
+      "completeness": "explicit",
+      "skill": "jira",
+      "reference": "reference/editing.md"
+    },
+    {
+      "id": "jira.issue.link.delete",
+      "task_class": "jira/link",
+      "service": "jira",
+      "role": "write",
+      "priority": 40,
+      "summary": "Apply one reviewed issue-link deletion proposal and reconcile its outcome",
+      "command": "jira issue link delete",
+      "cli_command": "jira issue link delete",
+      "cli_only": true,
+      "access": "mutating",
+      "effect_profile": "remote-write",
+      "output_modes": [
+        "json"
+      ],
+      "evidence": "hash-bound",
+      "completeness": "reconciled",
+      "skill": "jira",
+      "reference": "reference/editing.md"
     },
     {
       "id": "jira.mirror.snapshot",

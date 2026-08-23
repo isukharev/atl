@@ -14,7 +14,7 @@ import (
 
 const (
 	CapabilityCatalogSchemaVersion = 1
-	CapabilityCatalogItemCount     = 61
+	CapabilityCatalogItemCount     = 69
 	maxCapabilityCatalogBytes      = 1 << 20
 )
 
@@ -337,7 +337,7 @@ func capabilityCatalogItemLess(left, right CapabilityCatalogItem) bool {
 }
 
 func validCapabilityOutputModes(modes []string) bool {
-	for _, allowed := range [][]string{{"json"}, {"json", "text"}, {"json", "text", "id"}} {
+	for _, allowed := range [][]string{{"json"}, {"json", "text"}, {"json", "id"}, {"json", "text", "id"}} {
 		if slices.Equal(modes, allowed) {
 			return true
 		}

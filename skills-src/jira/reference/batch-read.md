@@ -1,8 +1,19 @@
 # Ordered Jira batch read
 
-Use this route when the task already supplies several issue keys or ids and one
-compact transient read is sufficient. Keep the selected fields narrow and do
-not turn the batch into a shell loop.
+Use `atl capabilities --task jira/batch-analysis -o text` when the task already
+supplies several issue keys or ids. Its primary route is the qualified compact
+field matrix; transient export is the broader expansion. Keep selected fields
+narrow and do not turn either batch into a shell loop.
+
+```sh
+export ATL_READ_ONLY=1
+atl jira issue field batch --key PROJ-1 --key PROJ-2 --field summary --field status
+```
+
+Require top-level `complete:true` and `reconciled:true`. Preserve key and field
+order; `missing_or_inaccessible` does not prove absence. Expand a clipped cell
+only when it is needed. Use export only when the task requires broader issue
+bodies:
 
 ```sh
 export ATL_READ_ONLY=1

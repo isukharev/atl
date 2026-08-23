@@ -165,6 +165,19 @@ func TestCapabilityCatalogMinimalProjectionPreservesProfiles(t *testing.T) {
 	}
 }
 
+func TestCapabilityCatalogAcceptsEveryDerivedCLIOutputModeSet(t *testing.T) {
+	for _, modes := range [][]string{{"json"}, {"json", "text"}, {"json", "id"}, {"json", "text", "id"}} {
+		if !validCapabilityOutputModes(modes) {
+			t.Errorf("valid modes rejected: %v", modes)
+		}
+	}
+	for _, modes := range [][]string{nil, {"text"}, {"json", "id", "text"}} {
+		if validCapabilityOutputModes(modes) {
+			t.Errorf("invalid modes accepted: %v", modes)
+		}
+	}
+}
+
 func marshalCapabilityCatalog(t *testing.T, catalog CapabilityCatalog) []byte {
 	t.Helper()
 	data, err := json.Marshal(catalog)
