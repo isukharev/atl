@@ -646,10 +646,11 @@ func TestRunJiraPlanExecutionFailureControlIsClosed(t *testing.T) {
 		wantStatus      string
 		wantSecond      string
 		wantComplete    bool
+		wantAmbiguous   bool
 	}{
 		{name: "fail fast", writeErr: &guardedLabelStatusError{status: 403}, wantWrites: 1, wantStatus: "not_applied", wantSecond: "skipped"},
 		{name: "continue", continueOnError: true, writeErr: &guardedLabelStatusError{status: 403}, wantWrites: 2, wantStatus: "not_applied", wantSecond: "not_applied", wantComplete: true},
-		{name: "ambiguity always stops", continueOnError: true, writeErr: errors.New("ambiguous transport"), wantWrites: 1, wantStatus: "outcome_unknown", wantSecond: "skipped"},
+		{name: "ambiguity always stops", continueOnError: true, writeErr: errors.New("backend detail canary"), wantWrites: 1, wantStatus: "outcome_unknown", wantSecond: "skipped", wantAmbiguous: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			snapshots := []domain.JiraGuardedLabelSnapshot{guardedLabelSnapshot(before, "old"), guardedLabelSnapshot(before, "old"), guardedLabelSnapshot(before, "old"), guardedLabelSnapshot(before, "old"), guardedLabelSnapshot(before, "old")}
@@ -658,7 +659,26 @@ func TestRunJiraPlanExecutionFailureControlIsClosed(t *testing.T) {
 			if !errors.Is(err, domain.ErrCheckFailed) || result.Status != test.wantStatus || result.Complete != test.wantComplete || len(store.writes) != test.wantWrites || result.Rows[1].Status != test.wantSecond {
 				t.Fatalf("result=%+v err=%v writes=%d", result, err, len(store.writes))
 			}
+			var diagnostic interface{ DiagnosticAmbiguousWrite() bool }
+			if !errors.As(err, &diagnostic) || diagnostic.DiagnosticAmbiguousWrite() != test.wantAmbiguous {
+				t.Fatalf("error ambiguity=%v, want %t", diagnostic != nil && diagnostic.DiagnosticAmbiguousWrite(), test.wantAmbiguous)
+			}
+			if errors.Unwrap(err) != nil || strings.Contains(err.Error(), "backend detail canary") || errors.Is(err, test.writeErr) {
+				t.Fatalf("aggregate error exposed a row cause: %#v", err)
+			}
 		})
+	}
+}
+
+func TestJiraPlanAggregateFailureBindsOnlyFinalOutcomeUnknown(t *testing.T) {
+	for _, status := range []string{"blocked", "not_applied", "partially_applied", "outcome_unknown"} {
+		err := jiraPlanAggregateFailure(&JiraPlanResult{Status: status})
+		var diagnostic interface{ DiagnosticAmbiguousWrite() bool }
+		if !errors.Is(err, domain.ErrCheckFailed) || !errors.As(err, &diagnostic) ||
+			diagnostic.DiagnosticAmbiguousWrite() != (status == "outcome_unknown") ||
+			err.Error() != "check failed: guarded Jira plan did not complete successfully" || errors.Unwrap(err) != nil {
+			t.Fatalf("status=%q error=%#v ambiguity=%v", status, err, diagnostic != nil && diagnostic.DiagnosticAmbiguousWrite())
+		}
 	}
 }
 

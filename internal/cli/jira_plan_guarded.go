@@ -56,10 +56,12 @@ func jiraPlanLeaf(mode string, flags *jiraPlanFlags) *cobra.Command {
 			if result == nil {
 				return runErr
 			}
-			if emitErr := emit(cmd, result, func() string { return app.JiraPlanResultText(result) }); emitErr != nil {
-				return emitErr
+			attempted := false
+			for _, row := range result.Rows {
+				attempted = attempted || row.WriteAttempted
 			}
-			return runErr
+			emitErr := emit(cmd, result, func() string { return app.JiraPlanResultText(result) })
+			return guardedMutationResultErr(runErr, emitErr, attempted, "Jira guarded plan")
 		},
 	}
 	cmd.Flags().StringVar(&flags.csvPath, "csv", "", "schema-v2 CSV plan")
