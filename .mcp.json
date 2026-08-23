@@ -6,7 +6,7 @@
         "mcp",
         "serve",
         "--plugin-interface-contract=1",
-        "--plugin-product-version=0.8.0"
+        "--plugin-product-version=0.9.0"
       ],
       "env": {
         "CODEX_MCP_PROTOCOL_VERSION": "2026-07-28"
