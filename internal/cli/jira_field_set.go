@@ -17,7 +17,7 @@ import (
 
 func jiraIssueFieldCmd() *cobra.Command {
 	group := &cobra.Command{Use: "field", Short: "Exact field evidence and guarded custom-field operations"}
-	group.AddCommand(jiraIssueFieldGetCmd(), jiraIssueFieldMutationCmd(false), jiraIssueFieldMutationCmd(true))
+	group.AddCommand(jiraIssueFieldGetCmd(), jiraIssueFieldBatchCmd(), jiraIssueFieldMutationCmd(false), jiraIssueFieldMutationCmd(true))
 	return group
 }
 

@@ -13,10 +13,11 @@ step mechanically.
 | One exact issue and the task asks what work, dependencies, code, or documentation is connected | typed `jira_issue_graph`, or `jira issue graph <KEY>` when MCP is unavailable | keep full for topology; select compact `urls` or Development-backed `scm` when only those qualified facts are needed; opt into the smallest sufficient depth only for exact structured Jira relations; CLI `--resolve confluence` may read discovered page id/title metadata |
 | One exact GitLab project or Confluence page and the task asks which Jira issues refer to it | `atl capabilities --task jira/inverse-reference -o text`, then the returned CLI-only `jira issue reference search` route | choose the exact scope, sources, and bounds once; use exhaustive for absence or fast only for explicitly incomplete discovery |
 | One exact standard field named by the task | `jira issue field get <KEY> --field <NAME>` | nothing when the bounded result is complete |
+| Several known keys and one to eight exact fields | `jira issue field batch` with repeated `--key` and `--field` | expand only a clipped cell; missing-or-inaccessible is not absence |
 | One unfamiliar issue | `jira issue fields <KEY> --metadata-only` | exact bounded field get, selected history/refs, then a linked page section |
 | One epic and known evidence-field names | `jira epic digest <KEY>` plus only a task-supplied period | bounded Confluence section expansion |
 | One epic but unknown custom fields | `jira issue fields <KEY> --metadata-only` | exact compact fields, then one digest after choosing names/ids |
-| Several known keys | `jira export --keys ... --out -` | per-key history/digest only for exceptions |
+| Several known keys requiring broad native issue bodies | `jira export --keys ... --out -` | per-key history/digest only for exceptions |
 | Broad discovery | `jira issue search --columns ...` | batch export for selected keys |
 
 The offline `jira/evidence` capability route exposes broad search as its first

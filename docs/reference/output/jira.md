@@ -1735,6 +1735,68 @@ transport noise) are outside the contract. The encoded compact `value` is at
 most `max_value_bytes` (default 16 KiB, hard range 256 bytes..128 KiB).
 `-o text` emits a one-row escaped Markdown table with issue/update/field/value.
 
+`atl jira issue field batch --key <KEY> --field <ID-or-name>` emits a
+qualified ordered schema-v1 matrix and supports JSON only:
+
+```json
+{
+  "schema_version": 1,
+  "operation": "jira_issue_field_batch",
+  "projection": "compact",
+  "complete": true,
+  "reconciled": true,
+  "selection": {"key_count": 2, "field_count": 1},
+  "bounds": {
+    "max_keys": 25,
+    "max_key_bytes": 64,
+    "max_fields": 8,
+    "max_field_selector_bytes": 1024,
+    "max_catalog_fields": 4096,
+    "max_catalog_member_bytes": 1024,
+    "max_cell_bytes": 16384,
+    "max_search_pages": 25,
+    "max_requests": 64,
+    "max_response_bytes": 16777216,
+    "max_output_bytes": 16777216,
+    "deadline_millis": 60000
+  },
+  "usage": {"requests": 2, "response_bytes": 2048, "search_pages": 1, "found_count": 1, "missing_count": 1},
+  "fields": [{"id": "customfield_10002", "name": "Delivery Notes", "custom": true, "schema": "string"}],
+  "issues": [
+    {"requested_key": "PROJ-2", "found": false, "reason": "missing_or_inaccessible"},
+    {
+      "requested_key": "PROJ-1",
+      "found": true,
+      "id": "10001",
+      "key": "PROJ-1",
+      "updated": "2026-07-01T10:00:00.000+0000",
+      "cells": [{
+        "field_id": "customfield_10002",
+        "state": "value",
+        "complete": true,
+        "truncated": false,
+        "original_value_bytes": 24,
+        "emitted_value_bytes": 24,
+        "value": "Current delivery status"
+      }]
+    }
+  ]
+}
+```
+
+Top-level `reconciled:true` proves the qualified catalog, stable search
+exhaustion, identity checks, and requested-key reconciliation. Top-level
+`complete` is true only when every emitted cell is also complete; any clipped
+cell makes it false while reconciliation remains true. Neither signal turns
+`missing_or_inaccessible` into an existence claim. Arrays are
+always non-null. Found rows contain all selected cells in field order; missing
+rows omit `id`, `key`, `updated`, and `cells`. Cell state is closed to
+`absent|null|empty|value`; only `absent` omits `value`, while explicit null
+encodes as `"value":null`. Clipping is orthogonal to state and is qualified by
+the per-cell completeness and byte members plus top-level `complete:false`. The complete indented document,
+including its trailing newline, must fit `bounds.max_output_bytes` before any
+stdout byte is written.
+
 Online Jira get/pull/view field selectors resolve exact names through the same
 catalog. Render selectors are stored as resolved ids in view state, so offline
 render/apply does not depend on a later metadata lookup. Existing technical ids

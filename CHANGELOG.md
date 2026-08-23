@@ -11,6 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added JSON-only `jira issue field batch` for a qualified ordered matrix of up
+  to 25 canonical issue keys and eight exact fields. It distinguishes absent,
+  null, empty, and populated cells, preserves per-cell clipping evidence,
+  reconciles missing or inaccessible keys without an existence claim, composes
+  fixed request/response/deadline bounds, and buffers the bounded result before
+  stdout.
+
 - Replaced legacy Jira CSV plan execution with schema-v2 read-only
   `jira issue plan preview` and hash-confirmed execution-only `plan apply`.
   Plans are opened once, globally qualified and policy-checked before any

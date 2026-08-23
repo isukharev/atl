@@ -26,6 +26,13 @@ Jira rejects unknown field ids, status names, and link types — discover the va
   then repeat `--field "Exact Name"` without metadata-only for only the selected
   compact values. Use `--raw` only when compact projection is insufficient and
   private transport/user data is acceptable. Metadata-only conflicts with raw.
+- `atl jira issue field batch --key PROJ-1 --key PROJ-2 --field "Exact Name"`
+  → JSON-only qualified ordered matrix for 1–25 known canonical keys and 1–8
+  exact fields. Require `complete:true` and `reconciled:true`; interpret
+  `missing_or_inaccessible` only as a closed access/search outcome. Cell state
+  distinguishes absent, explicit null, empty, and value, while per-cell
+  `complete`/`truncated` reports compact clipping independently. Any clipped
+  cell makes top-level `complete:false` while reconciliation may stay true.
 - `atl jira issue history <KEY> --field "Exact Name" --summary-only` → complete/partial
   provenance plus deterministic `summary` counts and the selected field's
   `last_changes`. Read summary cardinalities and consistency fields instead of

@@ -10,6 +10,7 @@ Issue reads, fields, creation, guarded edits, transitions, relationships, attach
 - [`atl jira issue get`](#atl-jira-issue-get)
 - [`atl jira issue fields`](#atl-jira-issue-fields)
 - [`atl jira issue field get`](#atl-jira-issue-field-get)
+- [`atl jira issue field batch`](#atl-jira-issue-field-batch)
 - [`atl jira issue view`](#atl-jira-issue-view)
 - [`atl jira issue search`](#atl-jira-issue-search)
 - [`atl jira issue types` / `create-check` / `create-metadata`](#atl-jira-issue-types--create-check--create-metadata)
@@ -129,6 +130,44 @@ The cap applies to the JSON-encoded compact value, so `emitted_value_bytes`
 never exceeds `max_value_bytes`. Use this command when a compact digest names a
 required field in `projection.clipped`; do not rerun the whole digest with the
 full projection.
+
+## `atl jira issue field batch`
+
+Read a small ordered matrix of exact fields across known issue keys without a
+broad export:
+
+```bash
+atl jira issue field batch \
+  --key PROJ-3 --key PROJ-1 \
+  --field "Delivery Notes" --field Impact
+```
+
+The command is JSON-only. It accepts 1–25 unique canonical keys (at most 64
+bytes each) and 1–8 exact field ids or unambiguous case-insensitive display
+names (at most 1,024 bytes each). Input key and field order is preserved.
+Selectors are resolved only through a complete qualified field catalog;
+duplicate ids, malformed or oversized catalog members, ambiguity, and two
+selectors resolving to the same technical field fail closed.
+
+Atl requests only the selected technical ids plus `updated`, qualifies no more
+than 25 stable-total search pages, and reconciles every requested key. A row
+not returned by Jira is `found:false` with
+`reason:"missing_or_inaccessible"`; this does not claim that the issue does not
+exist. A found row carries immutable numeric id, exact key, update provenance,
+and one ordered cell per selected field. Cell `state` is exactly `absent`,
+`null`, `empty`, or `value`. `value` is omitted only for `absent`; explicit
+null remains JSON null.
+
+Each cell uses the same privacy-minimized compact projector as `field get` and
+reports `complete`, `truncated`, `original_value_bytes`, and
+`emitted_value_bytes` independently. Any clipped cell makes top-level
+`complete:false`; requested-key reconciliation remains independently true.
+The fixed bounds are 4,096 catalog
+entries, 1,024 bytes per catalog member, 16 KiB per compact cell, 64 physical
+attempts, 16 MiB aggregate backend responses, 16 MiB final encoded JSON, and a
+60-second deadline. An incoming parent read budget is also charged. Atl builds
+the complete bounded JSON document before writing stdout, so an output-limit
+failure emits no partial matrix.
 
 ## `atl jira issue view`
 

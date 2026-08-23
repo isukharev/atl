@@ -81,6 +81,7 @@ not display/short URLs, and no page body or backlink query is made.
 | `jira issue get <KEY>` | Get an issue | `--fields` |
 | `jira issue fields <KEY>` | Compact non-empty named field inspection | repeat `--field`; opt in with `--include-empty` or private `--raw` |
 | `jira issue field get <KEY>` | Qualified bounded expansion of one exact compact value | `--field` required; `--max-bytes` 256..131072, default 16384 |
+| `jira issue field batch` | JSON-only qualified ordered compact matrix for known keys | repeat `--key` 1..25 and `--field` 1..8; no text/id mode |
 | `jira issue field preview <KEY>` | Two-GET, schema-v3 file-backed custom-field proposal, safe under `ATL_READ_ONLY=1` | `--from-file FIELD=PATH`, `--from-md FIELD=PATH`, `--allow-fields` |
 | `jira issue view <KEY>` | Render one configured Markdown view without writing files | `-o text`, `--render-root`, `--render-profile`, `--render-include`, `--render-exclude` |
 | `jira issue search` | Search as a paginated common IssueList / Markdown table | `--jql`, `--view`, `--columns`, `--limit` 1..1000, `--cursor` |
