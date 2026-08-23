@@ -77,6 +77,7 @@ type strictEndpointDTO struct {
 	Fields struct {
 		Project json.RawMessage `json:"project"`
 		Links   json.RawMessage `json:"issuelinks"`
+		Updated json.RawMessage `json:"updated"`
 	} `json:"fields"`
 }
 
@@ -119,7 +120,7 @@ func (j *Jira) ReadStrictLinkEndpoint(ctx context.Context, reference string) (do
 	if len(reference) == 0 || len(reference) > jiraGuardedLinkRefBytes || (!domain.ValidJiraIssueKey(reference) && !guardedLinkID(reference)) {
 		return domain.JiraStrictLinkEndpoint{}, guardedLinkDecodeError("endpoint reference")
 	}
-	data, err := j.c.Do(ctx, http.MethodGet, "/rest/api/2/issue/"+url.PathEscape(reference)+"?fields=project,issuelinks", nil, nil)
+	data, err := j.c.Do(ctx, http.MethodGet, "/rest/api/2/issue/"+url.PathEscape(reference)+"?fields=project,issuelinks,updated", nil, nil)
 	if err != nil {
 		return domain.JiraStrictLinkEndpoint{}, err
 	}
@@ -169,7 +170,12 @@ func (j *Jira) ReadStrictLinkEndpoint(ctx context.Context, reference string) (do
 		}
 		return links[i].Role < links[k].Role
 	})
-	return domain.JiraStrictLinkEndpoint{ID: response.ID, Key: response.Key, Project: project.Key, Links: links, Complete: true}, nil
+	updatedPresent := len(response.Fields.Updated) != 0
+	updated := ""
+	if !updatedPresent || json.Unmarshal(response.Fields.Updated, &updated) != nil || !domain.ValidJiraGuardedCommentInstant(updated) {
+		return domain.JiraStrictLinkEndpoint{}, guardedLinkDecodeError("endpoint snapshot")
+	}
+	return domain.JiraStrictLinkEndpoint{ID: response.ID, Key: response.Key, Project: project.Key, Links: links, Complete: true, Updated: updated, UpdatedPresent: updatedPresent}, nil
 }
 
 func (j *Jira) AddGuardedLink(ctx context.Context, write domain.JiraGuardedLinkWrite) error {

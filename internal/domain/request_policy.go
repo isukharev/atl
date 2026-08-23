@@ -45,6 +45,12 @@ func (e *ReadBudgetExhaustedError) Error() string {
 	}
 }
 
+// DiagnosticWriteAttempted classifies attempt admission as definitively
+// pre-dispatch while preserving response exhaustion as an attempted outcome.
+func (e *ReadBudgetExhaustedError) DiagnosticWriteAttempted() bool {
+	return e == nil || e.dimension != readBudgetAttempts
+}
+
 var (
 	// ErrReadAttemptBudgetExhausted means another physical transport attempt
 	// was refused before it reached the backend.
@@ -61,21 +67,19 @@ type ReadBudgetUsage struct {
 	ResponseBytes int64
 }
 
-// ReadBudget is an opt-in command-scoped hard limit shared by every request
-// carrying it. Its counters and response reservations are safe for concurrent
-// clients and transports.
-type ReadBudget struct {
-	mu sync.Mutex
-
+type readBudgetScope struct {
+	mu               sync.Mutex
 	maxAttempts      int
 	attempts         int
 	maxResponseBytes int64
 	responseBytes    int64
+	responseGate     chan struct{}
+}
 
-	// Only one response is admitted against the remaining aggregate byte
-	// allowance at a time. This prevents concurrent readers from each
-	// buffering against the same remaining bytes.
-	responseGate chan struct{}
+// ReadBudget is a copy-safe handle over immutable canonical scope identities.
+// Copying the handle aliases its counters and gates; it never copies a mutex.
+type ReadBudget struct {
+	scopes []*readBudgetScope
 }
 
 // NewReadBudget constructs a finite physical-attempt and aggregate
@@ -88,6 +92,17 @@ func NewReadBudget(maxAttempts int, maxResponseBytes int64) (*ReadBudget, error)
 // physical usage. It is intentionally stricter than a fresh budget: initial
 // counters must already fit within the unchanged original maxima.
 func NewReadBudgetWithUsage(maxAttempts int, maxResponseBytes int64, usage ReadBudgetUsage) (*ReadBudget, error) {
+	return newReadBudget(nil, maxAttempts, maxResponseBytes, usage)
+}
+
+// NewChildReadBudget constructs a fresh row-local budget whose accepted
+// attempts and response bytes are also charged to parent and every ancestor.
+// A nil parent deliberately produces an ordinary standalone budget.
+func NewChildReadBudget(parent *ReadBudget, maxAttempts int, maxResponseBytes int64) (*ReadBudget, error) {
+	return newReadBudget(parent, maxAttempts, maxResponseBytes, ReadBudgetUsage{})
+}
+
+func newReadBudget(parent *ReadBudget, maxAttempts int, maxResponseBytes int64, usage ReadBudgetUsage) (*ReadBudget, error) {
 	if maxAttempts < 0 {
 		return nil, fmt.Errorf("read attempt budget must be non-negative")
 	}
@@ -100,15 +115,25 @@ func NewReadBudgetWithUsage(maxAttempts int, maxResponseBytes int64, usage ReadB
 	if usage.ResponseBytes < 0 || usage.ResponseBytes > maxResponseBytes {
 		return nil, fmt.Errorf("initial read response-byte usage is out of bounds")
 	}
-	b := &ReadBudget{
+	scope := &readBudgetScope{
 		maxAttempts:      maxAttempts,
 		attempts:         usage.Attempts,
 		maxResponseBytes: maxResponseBytes,
 		responseBytes:    usage.ResponseBytes,
 		responseGate:     make(chan struct{}, 1),
 	}
-	b.responseGate <- struct{}{}
-	return b, nil
+	scope.responseGate <- struct{}{}
+	scopes := make([]*readBudgetScope, 0, 1)
+	if parent != nil {
+		parentScopes, valid := parent.canonicalScopes()
+		if !valid {
+			return nil, fmt.Errorf("parent read budget is invalid")
+		}
+		scopes = make([]*readBudgetScope, len(parentScopes), len(parentScopes)+1)
+		copy(scopes, parentScopes)
+	}
+	scopes = append(scopes, scope)
+	return &ReadBudget{scopes: scopes}, nil
 }
 
 // WithReadBudget carries budget through every request derived from ctx. A nil
@@ -136,12 +161,26 @@ func (b *ReadBudget) TakeAttempt() error {
 	if b == nil {
 		return nil
 	}
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	if b.attempts >= b.maxAttempts {
+	scopes, valid := b.canonicalScopes()
+	if !valid {
 		return ErrReadAttemptBudgetExhausted
 	}
-	b.attempts++
+	for _, scope := range scopes {
+		scope.mu.Lock()
+	}
+	defer func() {
+		for index := len(scopes) - 1; index >= 0; index-- {
+			scopes[index].mu.Unlock()
+		}
+	}()
+	for _, scope := range scopes {
+		if scope.attempts >= scope.maxAttempts {
+			return ErrReadAttemptBudgetExhausted
+		}
+	}
+	for _, scope := range scopes {
+		scope.attempts++
+	}
 	return nil
 }
 
@@ -153,15 +192,38 @@ func (b *ReadBudget) BeginResponse(ctx context.Context) (remaining int64, finish
 	if b == nil {
 		return 0, func(int64) {}, nil
 	}
-	select {
-	case <-ctx.Done():
-		return 0, nil, ctx.Err()
-	case <-b.responseGate:
+	scopes, valid := b.canonicalScopes()
+	if !valid {
+		return 0, nil, ErrReadResponseBudgetExhausted
+	}
+	acquired := 0
+	for _, scope := range scopes {
+		select {
+		case <-ctx.Done():
+			for index := acquired - 1; index >= 0; index-- {
+				scopes[index].responseGate <- struct{}{}
+			}
+			return 0, nil, ctx.Err()
+		case <-scope.responseGate:
+			acquired++
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		for index := acquired - 1; index >= 0; index-- {
+			scopes[index].responseGate <- struct{}{}
+		}
+		return 0, nil, err
 	}
 
-	b.mu.Lock()
-	remaining = b.maxResponseBytes - b.responseBytes
-	b.mu.Unlock()
+	remaining = int64(^uint64(0) >> 1)
+	for _, scope := range scopes {
+		scope.mu.Lock()
+		available := scope.maxResponseBytes - scope.responseBytes
+		scope.mu.Unlock()
+		if available < remaining {
+			remaining = available
+		}
+	}
 
 	var once sync.Once
 	finish = func(consumed int64) {
@@ -172,13 +234,40 @@ func (b *ReadBudget) BeginResponse(ctx context.Context) (remaining int64, finish
 			if consumed > remaining {
 				consumed = remaining
 			}
-			b.mu.Lock()
-			b.responseBytes += consumed
-			b.mu.Unlock()
-			b.responseGate <- struct{}{}
+			for _, scope := range scopes {
+				scope.mu.Lock()
+				scope.responseBytes += consumed
+				scope.mu.Unlock()
+			}
+			for index := len(scopes) - 1; index >= 0; index-- {
+				scopes[index].responseGate <- struct{}{}
+			}
 		})
 	}
 	return remaining, finish, nil
+}
+
+// canonicalScopes preserves canonical root-to-leaf order while failing closed
+// for an empty or in-package forged handle. Public constructors cannot create
+// nil or duplicate identities.
+func (b *ReadBudget) canonicalScopes() ([]*readBudgetScope, bool) {
+	if b == nil {
+		return nil, false
+	}
+	if len(b.scopes) == 0 {
+		return nil, false
+	}
+	seen := make(map[*readBudgetScope]struct{}, len(b.scopes))
+	for _, scope := range b.scopes {
+		if scope == nil {
+			return nil, false
+		}
+		if _, duplicate := seen[scope]; duplicate {
+			return nil, false
+		}
+		seen[scope] = struct{}{}
+	}
+	return b.scopes, true
 }
 
 // Usage returns a consistent snapshot of the accepted budget consumption.
@@ -186,9 +275,14 @@ func (b *ReadBudget) Usage() ReadBudgetUsage {
 	if b == nil {
 		return ReadBudgetUsage{}
 	}
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return ReadBudgetUsage{Attempts: b.attempts, ResponseBytes: b.responseBytes}
+	scopes, valid := b.canonicalScopes()
+	if !valid {
+		return ReadBudgetUsage{}
+	}
+	leaf := scopes[len(scopes)-1]
+	leaf.mu.Lock()
+	defer leaf.mu.Unlock()
+	return ReadBudgetUsage{Attempts: leaf.attempts, ResponseBytes: leaf.responseBytes}
 }
 
 // WithSingleAttempt limits a request to one transport hop: the generic

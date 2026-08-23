@@ -425,6 +425,37 @@ func TestJiraGuardedCommentClosedOutcomesAndNoReplay(t *testing.T) {
 	}
 }
 
+func TestJiraGuardedCommentShortenedCompleteReadbackIsOutcomeUnknown(t *testing.T) {
+	preview := previewGuardedComment(t, guardedCommentFixture(), "body", jiraCommentSatisfactionAppendAlways)
+	stub := guardedCommentFixture()
+	issue, _ := stub.issueFn(1)
+	stub.issueFn = func(call int) (domain.JiraGuardedCommentIssue, error) {
+		value := issue
+		if call == 3 {
+			value.Updated = "2026-08-22T10:00:01Z"
+		}
+		return value, nil
+	}
+	baseline, _ := stub.inventoryFn(1)
+	stub.inventoryFn = func(call int) (domain.JiraCommentInventory, error) {
+		if call != 3 {
+			return baseline, nil
+		}
+		return domain.JiraCommentInventory{
+			Comments: []domain.Comment{}, Complete: true, TotalKnown: true, Total: 0, PageCount: 1,
+		}, nil
+	}
+	result, err := (&JiraService{tr: stub, baseURL: "https://jira.example.test"}).AddCommentGuarded(t.Context(), "PROJ-1", JiraCommentAddOpts{
+		Body: []byte("body"), Apply: true, ExpectedProposalHash: preview.ProposalHash, SatisfactionPolicy: jiraCommentSatisfactionAppendAlways,
+	})
+	var ambiguous interface{ DiagnosticAmbiguousWrite() bool }
+	if !errors.Is(err, domain.ErrCheckFailed) || !errors.As(err, &ambiguous) || !ambiguous.DiagnosticAmbiguousWrite() ||
+		result == nil || result.Status != "outcome_unknown" || !result.WriteAttempted || !result.Reconciled || !result.Complete ||
+		stub.writeCalls != 1 || !strings.Contains(err.Error(), "do not replay automatically") {
+		t.Fatalf("result=%+v err=%v writes=%d", result, err, stub.writeCalls)
+	}
+}
+
 func TestJiraGuardedCommentHashBeforeExactBodyNoopAndDrift(t *testing.T) {
 	stub := guardedCommentFixture()
 	base, _ := stub.inventoryFn(1)

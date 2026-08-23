@@ -307,6 +307,55 @@ func TestReadBudgetRefusesAttemptBeforeTransport(t *testing.T) {
 	}
 }
 
+func TestComposedReadBudgetChargesSuccessAndErrorBodies(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/error" {
+			writer.WriteHeader(http.StatusNotFound)
+		}
+		_, _ = io.WriteString(writer, "body")
+	}))
+	t.Cleanup(server.Close)
+	parent := mustReadBudget(t, 2, 8)
+	child, err := domain.NewChildReadBudget(parent, 2, 8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := New(server.URL, "token", "test")
+	ctx := domain.WithSingleAttempt(domain.WithReadBudget(t.Context(), child))
+	if body, err := client.Do(ctx, http.MethodGet, "/success", nil, nil); err != nil || string(body) != "body" {
+		t.Fatalf("success body=%q err=%v", body, err)
+	}
+	if _, err := client.Do(ctx, http.MethodGet, "/error", nil, nil); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("error response = %v", err)
+	}
+	want := domain.ReadBudgetUsage{Attempts: 2, ResponseBytes: 8}
+	if got := child.Usage(); got != want {
+		t.Fatalf("child usage=%+v want=%+v", got, want)
+	}
+	if got := parent.Usage(); got != want {
+		t.Fatalf("parent usage=%+v want=%+v", got, want)
+	}
+}
+
+func TestComposedReadBudgetParentRefusesBeforeTransportWithoutPartialCharge(t *testing.T) {
+	var hits atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { hits.Add(1) }))
+	t.Cleanup(server.Close)
+	parent := mustReadBudget(t, 0, 8)
+	child, err := domain.NewChildReadBudget(parent, 1, 8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := domain.WithSingleAttempt(domain.WithReadBudget(t.Context(), child))
+	_, err = New(server.URL, "token", "test").Do(ctx, http.MethodGet, "/", nil, nil)
+	if !errors.Is(err, domain.ErrReadAttemptBudgetExhausted) {
+		t.Fatalf("error=%v", err)
+	}
+	if hits.Load() != 0 || child.Usage().Attempts != 0 || parent.Usage().Attempts != 0 {
+		t.Fatalf("hits=%d child=%+v parent=%+v", hits.Load(), child.Usage(), parent.Usage())
+	}
+}
+
 func TestReadBudgetChargesRetryAttempt(t *testing.T) {
 	var hits atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -542,6 +591,14 @@ func TestNoReplayRetriesRequiresBudgetBeforeBufferedOrStreamRequest(t *testing.T
 	}
 	if _, err := c.GetStream(ctx, "/stream"); !errors.Is(err, domain.ErrCheckFailed) {
 		t.Fatalf("stream error = %v, want ErrCheckFailed", err)
+	}
+	zeroValueBudget := new(domain.ReadBudget)
+	zeroValueContext := domain.WithNoReplayRetries(domain.WithReadBudget(context.Background(), zeroValueBudget))
+	if _, err := c.Do(zeroValueContext, http.MethodGet, "/zero-buffered", nil, nil); !errors.Is(err, domain.ErrReadAttemptBudgetExhausted) {
+		t.Fatalf("zero-value buffered error = %v, want attempt exhaustion", err)
+	}
+	if _, err := c.GetStream(zeroValueContext, "/zero-stream"); !errors.Is(err, domain.ErrReadAttemptBudgetExhausted) {
+		t.Fatalf("zero-value stream error = %v, want attempt exhaustion", err)
 	}
 	if got := hits.Load(); got != 0 {
 		t.Fatalf("unbudgeted no-replay policy made %d requests, want 0", got)

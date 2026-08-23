@@ -19,6 +19,8 @@ type guardedLinkTracker struct {
 	replacementAfterDelete        bool
 	oneSidedAfterWrite            bool
 	moveAfterWrite                bool
+	sourceUpdatedAt               int
+	targetUpdatedAt               int
 	readErrAt, driftAt            int
 	writeErr                      error
 	reads, writes                 int
@@ -67,6 +69,12 @@ func (t *guardedLinkTracker) ReadStrictLinkEndpoint(ctx context.Context, ref str
 		return domain.JiraStrictLinkEndpoint{}, err
 	}
 	left, right := t.left, t.right
+	if t.reads == t.sourceUpdatedAt {
+		left.Updated = "2026-08-23T10:00:01Z"
+	}
+	if t.reads == t.targetUpdatedAt {
+		right.Updated = "2026-08-23T10:00:01Z"
+	}
 	if t.added && (!t.deleted || t.replacementAfterDelete) {
 		ids := t.candidateIDs
 		if len(ids) == 0 {
@@ -99,6 +107,37 @@ func (t *guardedLinkTracker) ReadStrictLinkEndpoint(ctx context.Context, ref str
 	return domain.JiraStrictLinkEndpoint{}, domain.ErrNotFound
 }
 
+func TestGuardedLinkPreparedEffectBindsOnlyRequestedSourceUpdated(t *testing.T) {
+	preview := guardedLinkFixture(false)
+	reviewed, err := NewJiraService(JiraDependencies{Tracker: preview, BaseURL: "https://jira.example.test"}).GuardedLink(t.Context(), JiraGuardedLinkOpts{Operation: "add", From: "APP-1", To: "OPS-2", Type: "blocks"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name       string
+		configure  func(*guardedLinkTracker)
+		wantStatus string
+		wantWrites int
+	}{
+		{name: "source drift", configure: func(port *guardedLinkTracker) { port.sourceUpdatedAt = 5 }, wantStatus: "blocked", wantWrites: 0},
+		{name: "target drift is unrelated", configure: func(port *guardedLinkTracker) { port.targetUpdatedAt = 6 }, wantStatus: "applied", wantWrites: 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			port := guardedLinkFixture(false)
+			test.configure(port)
+			result, err := NewJiraService(JiraDependencies{Tracker: port, BaseURL: "https://jira.example.test"}).GuardedLink(t.Context(), JiraGuardedLinkOpts{
+				Operation: "add", From: "APP-1", To: "OPS-2", Type: "blocks", Apply: true, ExpectedProposalHash: reviewed.ProposalHash,
+			})
+			if result == nil || result.Status != test.wantStatus || port.writes != test.wantWrites || (err != nil) != (test.wantStatus == "blocked") {
+				t.Fatalf("result=%+v err=%v writes=%d", result, err, port.writes)
+			}
+			if result.ProposalHash != reviewed.ProposalHash {
+				t.Fatalf("updated marker changed standalone proposal hash: %s != %s", result.ProposalHash, reviewed.ProposalHash)
+			}
+		})
+	}
+}
+
 func (t *guardedLinkTracker) AddGuardedLink(ctx context.Context, write domain.JiraGuardedLinkWrite) error {
 	t.writes++
 	t.write = write
@@ -129,8 +168,8 @@ func guardedLinkFixture(neutral bool) *guardedLinkTracker {
 		typ = domain.JiraLinkTypeMetadata{ID: "8", Name: "Relates", Inward: "relates to", Outward: "relates to"}
 	}
 	return &guardedLinkTracker{types: []domain.JiraLinkTypeMetadata{typ},
-		left:  domain.JiraStrictLinkEndpoint{ID: "10", Key: "APP-1", Project: "APP", Complete: true},
-		right: domain.JiraStrictLinkEndpoint{ID: "20", Key: "OPS-2", Project: "OPS", Complete: true}, applyMutation: true}
+		left:  domain.JiraStrictLinkEndpoint{ID: "10", Key: "APP-1", Project: "APP", Updated: "2026-08-23T10:00:00Z", UpdatedPresent: true, Complete: true},
+		right: domain.JiraStrictLinkEndpoint{ID: "20", Key: "OPS-2", Project: "OPS", Updated: "2026-08-23T10:00:00Z", UpdatedPresent: true, Complete: true}, applyMutation: true}
 }
 
 func guardedReciprocalRows(typ domain.JiraLinkTypeMetadata, id string, outward, inward domain.JiraStrictLinkEndpoint) ([]domain.JiraStrictIssueLink, []domain.JiraStrictIssueLink) {

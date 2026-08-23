@@ -25,11 +25,13 @@ type JiraStrictIssueLink struct {
 // JiraStrictLinkEndpoint is one complete, non-paginated issuelinks snapshot.
 // Complete qualifies only the documented direct issue response.
 type JiraStrictLinkEndpoint struct {
-	ID       string                `json:"id"`
-	Key      string                `json:"key"`
-	Project  string                `json:"project"`
-	Links    []JiraStrictIssueLink `json:"links"`
-	Complete bool                  `json:"complete"`
+	ID             string                `json:"id"`
+	Key            string                `json:"key"`
+	Project        string                `json:"project"`
+	Links          []JiraStrictIssueLink `json:"links"`
+	Complete       bool                  `json:"complete"`
+	Updated        string                `json:"-"`
+	UpdatedPresent bool                  `json:"-"`
 }
 
 // JiraStrictLinkCatalog is the complete non-paginated type catalog.

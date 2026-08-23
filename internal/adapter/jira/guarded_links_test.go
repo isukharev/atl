@@ -22,7 +22,10 @@ func TestStrictGuardedLinkReadsAndImmutableWriteWire(t *testing.T) {
 		case "/rest/api/2/issueLinkType":
 			_, _ = io.WriteString(w, `{"issueLinkTypes":[{"id":"7","name":"Blocks","inward":"is blocked by","outward":"blocks"}]}`)
 		case "/rest/api/2/issue/APP-1":
-			_, _ = io.WriteString(w, `{"id":"10","key":"APP-1","fields":{"project":{"key":"APP"},"issuelinks":[]}}`)
+			if r.URL.RawQuery != "fields=project,issuelinks,updated" {
+				t.Errorf("endpoint query=%q", r.URL.RawQuery)
+			}
+			_, _ = io.WriteString(w, `{"id":"10","key":"APP-1","fields":{"project":{"key":"APP"},"issuelinks":[],"updated":"2026-08-23T10:00:00Z"}}`)
 		default:
 			method, path = r.Method, r.URL.Path
 			data, _ := io.ReadAll(r.Body)
@@ -82,6 +85,21 @@ func TestStrictGuardedLinkDecoderRejectsIncompleteAndDuplicateEvidence(t *testin
 			_, err := New(server.URL, "token", "test").ReadStrictLinkEndpoint(domain.WithSingleAttempt(context.Background()), "APP-1")
 			if err == nil {
 				t.Fatalf("response unexpectedly qualified: %s", response)
+			}
+		})
+	}
+}
+
+func TestStrictGuardedLinkEndpointRequiresQualifiedUpdated(t *testing.T) {
+	for name, updated := range map[string]string{
+		"missing": "", "null": `,"updated":null`, "structured": `,"updated":{}`, "malformed": `,"updated":"yesterday"`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			body := `{"id":"10","key":"APP-1","fields":{"project":{"key":"APP"},"issuelinks":[]` + updated + `}}`
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, body) }))
+			t.Cleanup(server.Close)
+			if _, err := New(server.URL, "token", "test").ReadStrictLinkEndpoint(domain.WithSingleAttempt(t.Context()), "APP-1"); err == nil {
+				t.Fatal("endpoint without qualified updated unexpectedly accepted")
 			}
 		})
 	}

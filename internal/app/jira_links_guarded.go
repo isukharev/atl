@@ -80,6 +80,16 @@ type jiraGuardedLinkSnapshot struct {
 	inward  domain.JiraStrictLinkEndpoint
 }
 
+// jiraGuardedLinkPrepared is the content-minimized boundary between initial
+// qualification and execution. It retains no endpoint link inventory.
+type jiraGuardedLinkPrepared struct {
+	result               *JiraGuardedLinkResult
+	firstID              string
+	secondID             string
+	sourceUpdated        string
+	sourceUpdatedPresent bool
+}
+
 type jiraGuardedLinkError struct {
 	message   string
 	cause     error
@@ -114,16 +124,13 @@ func (s *JiraService) GuardedLink(ctx context.Context, opts JiraGuardedLinkOpts)
 	if opts.Apply {
 		maxRequests = jiraGuardedLinkMaxRequestsApply
 	}
-	budget, err := domain.NewReadBudget(maxRequests, jiraGuardedLinkMaxResponseBytes)
+	execution, err := newJiraGuardedExecution(ctx, domain.ReadBudgetFromContext(ctx), maxRequests, jiraGuardedLinkMaxResponseBytes, jiraGuardedLinkDeadline)
 	if err != nil {
 		return nil, fmt.Errorf("%w: guarded link request budget is invalid", domain.ErrCheckFailed)
 	}
-	workflowCtx, cancel := context.WithTimeout(ctx, jiraGuardedLinkDeadline)
-	defer cancel()
-	workflowCtx = domain.WithRedactedHTTPTrace(domain.WithSingleAttempt(domain.WithReadBudget(workflowCtx, budget)))
-	deadline, _ := workflowCtx.Deadline()
+	defer execution.Close()
 
-	initial, err := s.buildGuardedLinkSnapshot(workflowCtx, port, opts, opts.From, opts.To, "", "")
+	initial, err := s.buildGuardedLinkSnapshot(execution.ctx, port, opts, opts.From, opts.To, "", "")
 	if err != nil {
 		return nil, guardedLinkSafeFailure("guarded Jira link snapshot failed", err, false)
 	}
@@ -131,84 +138,94 @@ func (s *JiraService) GuardedLink(ctx context.Context, opts JiraGuardedLinkOpts)
 	if opts.Apply {
 		initial.result.Mode = "apply"
 	}
-	if opts.Apply && opts.ExpectedProposalHash != initial.result.ProposalHash {
-		initial.result.Status = "blocked"
-		return initial.result, guardedLinkSafeFailure("guarded Jira link proposal changed since review", domain.ErrCheckFailed, false)
+	prepared := &jiraGuardedLinkPrepared{
+		result: initial.result, firstID: initial.first.ID, secondID: initial.second.ID,
+		sourceUpdated: initial.first.Updated, sourceUpdatedPresent: initial.first.UpdatedPresent,
 	}
-	if initial.result.Operation == "add" {
-		switch len(initial.result.Candidates) {
+	return s.guardedLinkPreparedCore(execution, port, opts, prepared)
+}
+
+func (s *JiraService) guardedLinkPreparedCore(execution *jiraGuardedExecution, port domain.JiraGuardedLinkPort, opts JiraGuardedLinkOpts, prepared *jiraGuardedLinkPrepared) (*JiraGuardedLinkResult, error) {
+	result := prepared.result
+	if opts.Apply && opts.ExpectedProposalHash != result.ProposalHash {
+		result.Status = "blocked"
+		return result, guardedLinkSafeFailure("guarded Jira link proposal changed since review", domain.ErrCheckFailed, false)
+	}
+	if result.Operation == "add" {
+		switch len(result.Candidates) {
 		case 0:
-			initial.result.Status = "would_apply"
+			result.Status = "would_apply"
 		case 1:
-			initial.result.Status = "already_satisfied"
-			return initial.result, nil
+			result.Status = "already_satisfied"
+			return result, nil
 		default:
-			initial.result.Status = "blocked"
-			return initial.result, guardedLinkSafeFailure("guarded Jira link candidates are ambiguous", domain.ErrCheckFailed, false)
+			result.Status = "blocked"
+			return result, guardedLinkSafeFailure("guarded Jira link candidates are ambiguous", domain.ErrCheckFailed, false)
 		}
 	} else {
-		if len(initial.result.Candidates) != 1 || initial.result.Candidates[0].ID != opts.LinkID {
-			initial.result.Status = "blocked"
-			return initial.result, guardedLinkSafeFailure("guarded Jira link deletion candidate is absent or ambiguous", domain.ErrCheckFailed, false)
+		if len(result.Candidates) != 1 || result.Candidates[0].ID != opts.LinkID {
+			result.Status = "blocked"
+			return result, guardedLinkSafeFailure("guarded Jira link deletion candidate is absent or ambiguous", domain.ErrCheckFailed, false)
 		}
-		initial.result.Status = "would_apply"
+		result.Status = "would_apply"
 	}
 	if !opts.Apply {
-		return initial.result, nil
+		return result, nil
 	}
 
-	prewrite, err := s.buildGuardedLinkSnapshot(workflowCtx, port, opts, initial.first.ID, initial.second.ID, initial.first.ID, initial.second.ID)
-	if err != nil || prewrite.result.ProposalHash != initial.result.ProposalHash {
-		initial.result.Status = "blocked"
-		return initial.result, guardedLinkSafeFailure("guarded Jira link proposal changed immediately before dispatch", errors.Join(err, domain.ErrCheckFailed), false)
+	prewrite, err := s.buildGuardedLinkSnapshot(execution.ctx, port, opts, prepared.firstID, prepared.secondID, prepared.firstID, prepared.secondID)
+	if err != nil || prewrite.result.ProposalHash != result.ProposalHash ||
+		prewrite.first.UpdatedPresent != prepared.sourceUpdatedPresent || prewrite.first.Updated != prepared.sourceUpdated {
+		result.Status = "blocked"
+		return result, guardedLinkSafeFailure("guarded Jira link proposal changed immediately before dispatch", errors.Join(err, domain.ErrCheckFailed), false)
 	}
-	if err := workflowCtx.Err(); err != nil {
-		initial.result.Status = "blocked"
-		return initial.result, guardedLinkSafeFailure("guarded Jira link deadline expired before dispatch", err, false)
+	if err := execution.ctx.Err(); err != nil {
+		result.Status = "blocked"
+		return result, guardedLinkSafeFailure("guarded Jira link deadline expired before dispatch", err, false)
 	}
 	write := domain.JiraGuardedLinkWrite{TypeID: prewrite.result.Type.ID, Outward: prewrite.outward, Inward: prewrite.inward, LinkID: opts.LinkID}
-	initial.result.WriteAttempted = true
+	result.WriteAttempted = true
 	var writeErr error
 	if opts.Operation == "add" {
-		writeErr = port.AddGuardedLink(workflowCtx, write)
+		writeErr = port.AddGuardedLink(execution.ctx, write)
 	} else {
-		writeErr = port.DeleteGuardedLink(workflowCtx, write)
+		writeErr = port.DeleteGuardedLink(execution.ctx, write)
 	}
 	if writeDefinitelyNotAttempted(writeErr) {
-		initial.result.WriteAttempted = false
+		result.WriteAttempted = false
 	}
 	if writeErr != nil && definitiveWriteRejection(writeErr) {
-		initial.result.Status = "not_applied"
-		return initial.result, guardedLinkSafeFailure("Jira rejected the reviewed guarded link mutation", sanitizeRemoteWriteCause(writeErr), false)
+		result.Status = "not_applied"
+		return result, guardedLinkSafeFailure("Jira rejected the reviewed guarded link mutation", sanitizeRemoteWriteCause(writeErr), false)
 	}
 
-	closeout, closeCancel := context.WithDeadline(context.WithoutCancel(workflowCtx), deadline)
+	closeout, closeCancel := execution.Closeout()
 	defer closeCancel()
 	readback, readbackErr := s.readGuardedLinkEndpoints(closeout, port, prewrite)
 	if readbackErr != nil {
-		initial.result.Status, initial.result.Complete = "outcome_unknown", false
-		return initial.result, guardedLinkSafeFailure("guarded Jira link outcome is unknown; do not replay automatically", errors.Join(sanitizeRemoteWriteCause(writeErr), readbackErr), true)
+		result.Status, result.Complete = "outcome_unknown", false
+		return result, guardedLinkSafeFailure("guarded Jira link outcome is unknown; do not replay automatically", errors.Join(sanitizeRemoteWriteCause(writeErr), readbackErr), true)
 	}
-	initial.result.Reconciled = true
-	candidates, candidateErr := guardedLinkCandidates(readback.outward, readback.inward, initial.result.Type)
+	result.Reconciled = true
+	candidates, candidateErr := guardedLinkCandidates(readback.outward, readback.inward, result.Type)
 	if candidateErr == nil {
 		if opts.Operation == "add" && len(candidates) == 1 {
-			initial.result.Status = "applied"
+			result.Status = "applied"
 			if writeErr != nil {
-				initial.result.Status = "recovered"
+				result.Status = "recovered"
 			}
-			return initial.result, nil
+			return result, nil
 		}
 		if opts.Operation == "delete" && len(candidates) == 0 && !guardedLinkIDPresent(readback.outward, opts.LinkID) && !guardedLinkIDPresent(readback.inward, opts.LinkID) {
-			initial.result.Status = "applied"
+			result.Status = "applied"
 			if writeErr != nil {
-				initial.result.Status = "recovered"
+				result.Status = "recovered"
 			}
-			return initial.result, nil
+			return result, nil
 		}
 	}
-	initial.result.Status = "outcome_unknown"
-	return initial.result, guardedLinkSafeFailure("guarded Jira link readback did not prove the exact end state; do not replay automatically", errors.Join(sanitizeRemoteWriteCause(writeErr), candidateErr), true)
+	result.Status = "outcome_unknown"
+	return result, guardedLinkSafeFailure("guarded Jira link readback did not prove the exact end state; do not replay automatically", errors.Join(sanitizeRemoteWriteCause(writeErr), candidateErr), true)
 }
 
 // ValidateJiraGuardedLinkOpts is the shared pure CLI/app semantic preflight.
@@ -311,7 +328,7 @@ func (s *JiraService) readGuardedLinkEndpoints(ctx context.Context, port domain.
 	if err != nil {
 		return nil, err
 	}
-	if !outward.Complete || !inward.Complete || outward.ID != expected.outward.ID || outward.Key != expected.outward.Key || outward.Project != expected.outward.Project || inward.ID != expected.inward.ID || inward.Key != expected.inward.Key || inward.Project != expected.inward.Project {
+	if !outward.Complete || !inward.Complete || !validGuardedLinkUpdated(outward) || !validGuardedLinkUpdated(inward) || outward.ID != expected.outward.ID || outward.Key != expected.outward.Key || outward.Project != expected.outward.Project || inward.ID != expected.inward.ID || inward.Key != expected.inward.Key || inward.Project != expected.inward.Project {
 		return nil, domain.ErrCheckFailed
 	}
 	return &jiraGuardedLinkSnapshot{outward: outward, inward: inward}, nil
@@ -354,10 +371,21 @@ func validateGuardedEndpointPair(first, second domain.JiraStrictLinkEndpoint, ex
 	if !first.Complete || !second.Complete || first.ID == second.ID || first.Key == second.Key || first.Key != expectedFirstKey || second.Key != expectedSecondKey || !domain.ValidConfluenceContentID(first.ID) || !domain.ValidConfluenceContentID(second.ID) || !domain.ValidJiraIssueKey(first.Key) || !domain.ValidJiraIssueKey(second.Key) || !domain.ValidJiraIssueKey(first.Project+"-1") || !domain.ValidJiraIssueKey(second.Project+"-1") || !strings.HasPrefix(first.Key, first.Project+"-") || !strings.HasPrefix(second.Key, second.Project+"-") || len(first.Links) > 4096 || len(second.Links) > 4096 {
 		return domain.ErrCheckFailed
 	}
+	if !validGuardedLinkUpdated(first) || !validGuardedLinkUpdated(second) {
+		return domain.ErrCheckFailed
+	}
 	if expectedFirstID != "" && (first.ID != expectedFirstID || second.ID != expectedSecondID) {
 		return domain.ErrCheckFailed
 	}
 	return nil
+}
+
+func validGuardedLinkUpdated(endpoint domain.JiraStrictLinkEndpoint) bool {
+	if !endpoint.UpdatedPresent || strings.TrimSpace(endpoint.Updated) != endpoint.Updated {
+		return false
+	}
+	_, err := parseJiraStrictInstant(endpoint.Updated)
+	return err == nil
 }
 
 func canonicalGuardedLinkCatalog(types []domain.JiraLinkTypeMetadata) ([]domain.JiraLinkTypeMetadata, error) {
@@ -488,5 +516,5 @@ func guardedLinkProposalHash(result *JiraGuardedLinkResult) string {
 }
 
 func guardedLinkSafeFailure(message string, cause error, ambiguous bool) error {
-	return &jiraGuardedLinkError{message: message, cause: sanitizeRemoteWriteCause(cause), ambiguous: ambiguous}
+	return &jiraGuardedLinkError{message: message, cause: preserveGuardedBudgetCause(cause, sanitizeRemoteWriteCause(cause)), ambiguous: ambiguous}
 }

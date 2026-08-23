@@ -223,6 +223,90 @@ func TestGetStreamChargesSuccessfulBodyToSharedReadBudget(t *testing.T) {
 	}
 }
 
+func TestGetStreamChargesComposedReadBudgets(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(writer, "abc")
+	}))
+	t.Cleanup(server.Close)
+	parent, _ := domain.NewReadBudget(1, 3)
+	child, _ := domain.NewChildReadBudget(parent, 1, 3)
+	stream, err := New(server.URL, "token", "test").GetStream(domain.WithReadBudget(t.Context(), child), "/body")
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, readErr := io.ReadAll(stream)
+	closeErr := stream.Close()
+	if readErr != nil || closeErr != nil || string(data) != "abc" {
+		t.Fatalf("data=%q read=%v close=%v", data, readErr, closeErr)
+	}
+	want := domain.ReadBudgetUsage{Attempts: 1, ResponseBytes: 3}
+	if child.Usage() != want || parent.Usage() != want {
+		t.Fatalf("child=%+v parent=%+v want=%+v", child.Usage(), parent.Usage(), want)
+	}
+}
+
+func TestComposedStreamsEarlyCloseAndCanceledWaiterReleaseEveryGate(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(writer, "body")
+	}))
+	t.Cleanup(server.Close)
+	parent, _ := domain.NewReadBudget(3, 10)
+	firstBudget, _ := domain.NewChildReadBudget(parent, 1, 10)
+	waiterBudget, _ := domain.NewChildReadBudget(parent, 1, 10)
+	finalBudget, _ := domain.NewChildReadBudget(parent, 1, 10)
+	client := New(server.URL, "token", "test")
+
+	first, err := client.GetStream(domain.WithReadBudget(t.Context(), firstBudget), "/first")
+	if err != nil {
+		t.Fatal(err)
+	}
+	one := make([]byte, 1)
+	if n, err := first.Read(one); n != 1 || err != nil {
+		t.Fatalf("first read=%d err=%v", n, err)
+	}
+	waiterCtx, cancel := context.WithCancel(domain.WithReadBudget(t.Context(), waiterBudget))
+	waiter, err := client.GetStream(waiterCtx, "/waiter")
+	if err != nil {
+		t.Fatal(err)
+	}
+	type readResult struct {
+		n   int
+		err error
+	}
+	waiterDone := make(chan readResult, 1)
+	go func() {
+		n, readErr := waiter.Read(one)
+		waiterDone <- readResult{n: n, err: readErr}
+	}()
+	select {
+	case result := <-waiterDone:
+		t.Fatalf("waiter completed before cancellation: %+v", result)
+	case <-time.After(20 * time.Millisecond):
+	}
+	cancel()
+	result := <-waiterDone
+	if result.n != 0 || !errors.Is(result.err, context.Canceled) {
+		t.Fatalf("waiter read=%d err=%v", result.n, result.err)
+	}
+	_ = waiter.Close()
+	if err := first.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	final, err := client.GetStream(domain.WithReadBudget(t.Context(), finalBudget), "/final")
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, readErr := io.ReadAll(final)
+	closeErr := final.Close()
+	if readErr != nil || closeErr != nil || string(data) != "body" {
+		t.Fatalf("final data=%q read=%v close=%v", data, readErr, closeErr)
+	}
+	if got := parent.Usage(); got != (domain.ReadBudgetUsage{Attempts: 3, ResponseBytes: 5}) {
+		t.Fatalf("parent usage=%+v", got)
+	}
+}
+
 func TestGetStreamBudgetNeverReturnsOverflowByte(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
 		_, _ = io.WriteString(writer, "abcd")
