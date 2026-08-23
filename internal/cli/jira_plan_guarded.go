@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -61,7 +62,11 @@ func jiraPlanLeaf(mode string, flags *jiraPlanFlags) *cobra.Command {
 				attempted = attempted || row.WriteAttempted
 			}
 			emitErr := emit(cmd, result, func() string { return app.JiraPlanResultText(result) })
-			return guardedMutationResultErr(runErr, emitErr, attempted, "Jira guarded plan")
+			resultErr := guardedMutationResultErr(runErr, emitErr, attempted, "Jira guarded plan")
+			if emitErr != nil && attempted && result.Status == "outcome_unknown" {
+				return errors.Join(runErr, resultErr)
+			}
+			return resultErr
 		},
 	}
 	cmd.Flags().StringVar(&flags.csvPath, "csv", "", "schema-v2 CSV plan")
