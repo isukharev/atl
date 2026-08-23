@@ -88,11 +88,14 @@ type jiraGuardedLabelSnapshot struct {
 	result          *JiraGuardedLabelResult
 	evidence        domain.JiraGuardedLabelSnapshot
 	backendHash     string
-	current         []string
-	desired         []string
 	effectiveAdd    []string
 	effectiveRemove []string
 	updatedTime     time.Time
+}
+
+type jiraGuardedLabelPrepared struct {
+	result  *JiraGuardedLabelResult
+	issueID string
 }
 
 type jiraGuardedLabelError struct {
@@ -132,31 +135,33 @@ func (s *JiraService) GuardedLabels(ctx context.Context, requestedKey string, op
 	if opts.Apply {
 		maxRequests = jiraGuardedLabelMaxRequests
 	}
-	budget, err := domain.NewReadBudget(maxRequests, jiraGuardedLabelMaxResponseBytes)
+	execution, err := newJiraGuardedExecution(ctx, domain.ReadBudgetFromContext(ctx), maxRequests, jiraGuardedLabelMaxResponseBytes, jiraGuardedLabelDeadline)
 	if err != nil {
 		return base, guardedLabelFailure("guarded Jira label budget is invalid", err, true, false)
 	}
-	workflowCtx, cancel := context.WithTimeout(ctx, jiraGuardedLabelDeadline)
-	defer cancel()
-	deadline, _ := workflowCtx.Deadline()
-	workflowCtx = domain.WithRedactedHTTPTrace(domain.WithSingleAttempt(domain.WithReadBudget(workflowCtx, budget)))
+	defer execution.Close()
 	defer func() {
-		usage := budget.Usage()
+		usage := execution.Usage()
 		base.Usage = JiraGuardedLabelUsage{Requests: usage.Attempts, ResponseBytes: usage.ResponseBytes}
 	}()
-	if err := workflowCtx.Err(); err != nil {
+	if err := execution.ctx.Err(); err != nil {
 		return base, guardedLabelFailure("guarded Jira label workflow was canceled before qualification", err, true, false)
 	}
-	initial, err := s.buildGuardedLabelSnapshot(workflowCtx, port, requestedKey, requestedKey, "", opts)
+	initial, err := s.buildGuardedLabelSnapshot(execution.ctx, port, requestedKey, requestedKey, "", opts)
 	if err != nil {
 		return base, guardedLabelFailure("guarded Jira label proposal qualification failed", err, true, false)
 	}
 	base = initial.result
-	if err := workflowCtx.Err(); err != nil {
+	return s.guardedLabelsPreparedCore(execution, port, requestedKey, opts, &jiraGuardedLabelPrepared{result: base, issueID: initial.evidence.ID})
+}
+
+func (s *JiraService) guardedLabelsPreparedCore(execution *jiraGuardedExecution, port domain.JiraGuardedLabelPort, requestedKey string, opts JiraGuardedLabelOpts, prepared *jiraGuardedLabelPrepared) (*JiraGuardedLabelResult, error) {
+	base := prepared.result
+	if err := execution.ctx.Err(); err != nil {
 		base.Status = "blocked"
 		return base, guardedLabelFailure("guarded Jira label deadline expired during proposal qualification", err, true, false)
 	}
-	decision := guardedLabelDecision(opts, base.ProposalHash, len(initial.effectiveAdd)+len(initial.effectiveRemove) == 0)
+	decision := guardedLabelDecision(opts, base.ProposalHash, base.EffectiveAdd.Count+base.EffectiveRemove.Count == 0)
 	base.Mode, base.Status = decision.mode, decision.status
 	if decision.hashMismatch {
 		return base, guardedLabelFailure("guarded Jira label proposal changed since review", domain.ErrCheckFailed, true, false)
@@ -165,7 +170,7 @@ func (s *JiraService) GuardedLabels(ctx context.Context, requestedKey string, op
 		return base, nil
 	}
 
-	prewrite, err := s.buildGuardedLabelSnapshot(workflowCtx, port, initial.evidence.ID, requestedKey, initial.evidence.ID, opts)
+	prewrite, err := s.buildGuardedLabelSnapshot(execution.ctx, port, prepared.issueID, requestedKey, prepared.issueID, opts)
 	if err != nil {
 		base.Status, base.Complete = "blocked", false
 		return base, guardedLabelFailure("guarded Jira label proposal could not be qualified immediately before dispatch", errors.Join(err, domain.ErrCheckFailed), true, false)
@@ -174,13 +179,13 @@ func (s *JiraService) GuardedLabels(ctx context.Context, requestedKey string, op
 		base.Status = "blocked"
 		return base, guardedLabelFailure("guarded Jira label proposal changed immediately before dispatch", domain.ErrCheckFailed, true, false)
 	}
-	if err := workflowCtx.Err(); err != nil {
+	if err := execution.ctx.Err(); err != nil {
 		base.Status = "blocked"
 		return base, guardedLabelFailure("guarded Jira label deadline expired before dispatch", err, true, false)
 	}
 
 	base.WriteAttempted = true
-	writeErr := port.WriteGuardedLabelDelta(workflowCtx, domain.JiraGuardedLabelWrite{
+	writeErr := port.WriteGuardedLabelDelta(execution.ctx, domain.JiraGuardedLabelWrite{
 		ID: prewrite.evidence.ID, Key: prewrite.evidence.Key, Project: prewrite.evidence.Project,
 		Add: append([]string(nil), prewrite.effectiveAdd...), Remove: append([]string(nil), prewrite.effectiveRemove...),
 	})
@@ -194,7 +199,7 @@ func (s *JiraService) GuardedLabels(ctx context.Context, requestedKey string, op
 		return base, guardedLabelFailure("Jira definitively rejected the reviewed label change", writeErr, false, false)
 	}
 
-	closeout, closeCancel := context.WithDeadline(context.WithoutCancel(workflowCtx), deadline)
+	closeout, closeCancel := execution.Closeout()
 	defer closeCancel()
 	readback, readErr := s.readGuardedLabelEvidence(closeout, port, prewrite.evidence.ID, requestedKey, prewrite.evidence.ID)
 	if readErr != nil || closeout.Err() != nil {
@@ -202,7 +207,7 @@ func (s *JiraService) GuardedLabels(ctx context.Context, requestedKey string, op
 		return base, guardedLabelFailure("guarded Jira label outcome is unknown; do not replay automatically", errors.Join(writeErr, readErr, closeout.Err()), true, true)
 	}
 	base.Reconciled = true
-	exact := equalStringSlices(readback.evidence.Labels, prewrite.desired)
+	exact := guardedLabelDigest(readback.evidence.Labels) == prewrite.result.Desired
 	advanced := readback.updatedTime.After(prewrite.updatedTime)
 	if exact && advanced {
 		base.ReadbackUpdated = readback.evidence.Updated
@@ -357,7 +362,7 @@ func (s *JiraService) buildGuardedLabelSnapshot(ctx context.Context, port domain
 	result.EffectiveAdd, result.EffectiveRemove = guardedLabelDigest(effectiveAdd), guardedLabelDigest(effectiveRemove)
 	result.Status, result.Complete = "would_apply", true
 	result.ProposalHash = guardedLabelProposalHash(result, current, desired, effectiveAdd, effectiveRemove)
-	read.result, read.current, read.desired, read.effectiveAdd, read.effectiveRemove = result, current, desired, effectiveAdd, effectiveRemove
+	read.result, read.effectiveAdd, read.effectiveRemove = result, effectiveAdd, effectiveRemove
 	return read, nil
 }
 
@@ -453,18 +458,6 @@ func guardedLabelProposalHash(result *JiraGuardedLabelResult, current, desired, 
 	return guardedProposalDigest(encoded)
 }
 
-func equalStringSlices(left, right []string) bool {
-	if len(left) != len(right) {
-		return false
-	}
-	for index := range left {
-		if left[index] != right[index] {
-			return false
-		}
-	}
-	return true
-}
-
 func guardedLabelFailure(message string, cause error, closed, ambiguous bool) error {
-	return &jiraGuardedLabelError{message: message, cause: sanitizeJiraDescriptionEditCause(cause), closed: closed, ambiguous: ambiguous}
+	return &jiraGuardedLabelError{message: message, cause: preserveGuardedBudgetCause(cause, sanitizeJiraDescriptionEditCause(cause)), closed: closed, ambiguous: ambiguous}
 }

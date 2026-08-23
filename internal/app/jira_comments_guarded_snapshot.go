@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -15,7 +16,10 @@ import (
 
 func (s *JiraService) buildGuardedCommentSnapshot(ctx context.Context, port domain.JiraGuardedCommentPort, reference, requestedKey, expectedID string, opts JiraCommentAddOpts) (*jiraGuardedCommentSnapshot, error) {
 	actor, err := port.ReadGuardedCommentActor(ctx)
-	if err != nil || !validGuardedCommentActor(actor) {
+	if err != nil {
+		return nil, errors.Join(domain.ErrCheckFailed, err)
+	}
+	if !validGuardedCommentActor(actor) {
 		return nil, fmt.Errorf("%w: Jira returned malformed or incomplete authenticated actor evidence", domain.ErrCheckFailed)
 	}
 	issue, updatedTime, err := readGuardedCommentIssue(ctx, port, reference, requestedKey, expectedID)
@@ -49,12 +53,15 @@ func (s *JiraService) buildGuardedCommentSnapshot(ctx context.Context, port doma
 	}
 	result.Complete, result.Status = true, "would_apply"
 	result.ProposalHash = guardedCommentProposalHash(result, body, actor, records)
-	return &jiraGuardedCommentSnapshot{result: result, issue: issue, actor: actor, records: records, updatedTime: updatedTime, body: body}, nil
+	return &jiraGuardedCommentSnapshot{result: result, issue: issue, records: records, updatedTime: updatedTime}, nil
 }
 
-func (s *JiraService) readGuardedCommentReadback(ctx context.Context, port domain.JiraGuardedCommentPort, before *jiraGuardedCommentSnapshot, requestedKey string) (*jiraGuardedCommentSnapshot, error) {
+func (s *JiraService) readGuardedCommentReadback(ctx context.Context, port domain.JiraGuardedCommentPort, before *jiraGuardedCommentPrewrite, requestedKey string) (*jiraGuardedCommentSnapshot, error) {
 	issue, updatedTime, err := readGuardedCommentIssue(ctx, port, before.issue.ID, requestedKey, before.issue.ID)
-	if err != nil || issue.Project != before.issue.Project {
+	if err != nil {
+		return nil, errors.Join(domain.ErrCheckFailed, err)
+	}
+	if issue.Project != before.issue.Project {
 		return nil, fmt.Errorf("%w: guarded Jira comment readback issue identity moved", domain.ErrCheckFailed)
 	}
 	inventory, err := port.ListJiraCommentsQualified(ctx, issue.ID, domain.JiraCommentReadOptions{
@@ -67,7 +74,7 @@ func (s *JiraService) readGuardedCommentReadback(ctx context.Context, port domai
 	if err != nil {
 		return nil, err
 	}
-	return &jiraGuardedCommentSnapshot{issue: issue, actor: before.actor, records: records, updatedTime: updatedTime, body: append([]byte(nil), before.body...)}, nil
+	return &jiraGuardedCommentSnapshot{issue: issue, records: records, updatedTime: updatedTime}, nil
 }
 
 func readGuardedCommentIssue(ctx context.Context, port domain.JiraGuardedCommentPort, reference, requestedKey, expectedID string) (domain.JiraGuardedCommentIssue, time.Time, error) {
@@ -181,27 +188,36 @@ func guardedCommentProposalHash(result *JiraCommentAddResult, body []byte, actor
 	return guardedProposalDigest(data)
 }
 
-func guardedCommentNewRecords(before, after []jiraGuardedCommentRecord) ([]jiraGuardedCommentRecord, bool) {
-	afterByID := make(map[string]jiraGuardedCommentRecord, len(after))
-	for _, record := range after {
-		afterByID[record.ID] = record
+func guardedCommentRecordDigests(records []jiraGuardedCommentRecord) map[string]string {
+	baseline := make(map[string]string, len(records))
+	for _, record := range records {
+		data, _ := json.Marshal(record)
+		baseline[record.ID] = sha256Hex(data)
 	}
-	baseline := make(map[string]struct{}, len(before))
-	for _, record := range before {
-		baseline[record.ID] = struct{}{}
-		if current, present := afterByID[record.ID]; !present || current != record {
-			return nil, false
-		}
-	}
-	newRecords := make([]jiraGuardedCommentRecord, 0, len(after)-len(before))
-	for _, record := range after {
-		if _, present := baseline[record.ID]; !present {
-			newRecords = append(newRecords, record)
-		}
-	}
-	return newRecords, true
+	return baseline
 }
 
-func guardedCommentCandidate(record jiraGuardedCommentRecord, body []byte, actor domain.JiraGuardedCommentActor) bool {
-	return record.ParentID == "" && record.Body == string(body) && record.AuthorName == actor.Name && record.AuthorKey == actor.Key
+func guardedCommentNewRecordsPrepared(before map[string]string, after []jiraGuardedCommentRecord) ([]jiraGuardedCommentRecord, bool) {
+	if len(after) < len(before) {
+		return nil, false
+	}
+	newRecords := make([]jiraGuardedCommentRecord, 0, len(after)-len(before))
+	seen := make(map[string]bool, len(before))
+	for _, record := range after {
+		if digest, present := before[record.ID]; present {
+			data, _ := json.Marshal(record)
+			if sha256Hex(data) != digest {
+				return nil, false
+			}
+			seen[record.ID] = true
+			continue
+		}
+		newRecords = append(newRecords, record)
+	}
+	return newRecords, len(seen) == len(before)
+}
+
+func guardedCommentPreparedCandidate(record jiraGuardedCommentRecord, body []byte, actorSHA256 string) bool {
+	return record.ParentID == "" && record.Body == string(body) &&
+		guardedCommentActorHash(domain.JiraGuardedCommentActor{Name: record.AuthorName, Key: record.AuthorKey}) == actorSHA256
 }

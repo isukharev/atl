@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -149,7 +150,7 @@ func (e *jiraGuardedFieldError) DiagnosticTerminalCheckFailure() bool {
 }
 
 func guardedFieldFailure(message string, cause error, closed, ambiguous bool) error {
-	return &jiraGuardedFieldError{message: message, cause: sanitizeRemoteWriteCause(cause), closed: closed, ambiguous: ambiguous}
+	return &jiraGuardedFieldError{message: message, cause: preserveGuardedBudgetCause(cause, sanitizeRemoteWriteCause(cause)), closed: closed, ambiguous: ambiguous}
 }
 
 type jiraGuardedFieldSnapshot struct {
@@ -159,6 +160,20 @@ type jiraGuardedFieldSnapshot struct {
 	prepared    domain.JiraGuardedFieldPreparation
 	values      map[string]any
 	updatedTime time.Time
+}
+
+type jiraGuardedFieldPrepared struct {
+	result      *JiraFieldSetResult
+	issueID     string
+	backendHash string
+	inputBytes  int
+	satisfied   bool
+}
+
+type jiraGuardedFieldExecutionOpts struct {
+	apply                bool
+	expectedUpdated      string
+	expectedProposalHash string
 }
 
 // SetFieldsGuarded previews or applies one atomic, catalog-qualified custom-
@@ -202,51 +217,60 @@ func (s *JiraService) SetFieldsGuarded(ctx context.Context, requestedKey string,
 	if opts.Apply {
 		maxRequests, maxResponses = domain.JiraGuardedFieldApplyMaxRequests, domain.JiraGuardedFieldApplyMaxResponseBytes
 	}
-	budget, err := domain.NewReadBudget(maxRequests, maxResponses)
+	execution, err := newJiraGuardedExecution(ctx, domain.ReadBudgetFromContext(ctx), maxRequests, maxResponses, time.Duration(domain.JiraGuardedFieldDeadlineMillis)*time.Millisecond)
 	if err != nil {
 		return result, guardedFieldFailure("guarded Jira field budget is invalid", err, true, false)
 	}
-	workflowCtx, cancel := context.WithTimeout(ctx, time.Duration(domain.JiraGuardedFieldDeadlineMillis)*time.Millisecond)
-	defer cancel()
-	deadline, _ := workflowCtx.Deadline()
-	workflowCtx = domain.WithRedactedHTTPTrace(domain.WithSingleAttempt(domain.WithReadBudget(workflowCtx, budget)))
+	defer execution.Close()
 	defer func() {
-		usage := budget.Usage()
+		usage := execution.Usage()
 		result.Usage.Requests, result.Usage.ResponseBytes = usage.Attempts, usage.ResponseBytes
 	}()
 
-	initial, err := s.buildGuardedFieldSnapshot(workflowCtx, port, requestedKey, requestedKey, "", proposals, values, allowlist, backendHash, opts.Apply, inputBytes)
+	initial, err := s.buildGuardedFieldSnapshot(execution.ctx, port, requestedKey, requestedKey, "", proposals, values, allowlist, backendHash, opts.Apply, inputBytes)
 	if err != nil {
 		return result, guardedFieldFailure("guarded Jira field proposal qualification failed", err, true, false)
 	}
 	result = initial.result
-	if opts.Apply {
+	prepared := &jiraGuardedFieldPrepared{
+		result: result, issueID: initial.issue.ID, backendHash: backendHash, inputBytes: inputBytes,
+		satisfied: guardedFieldValuesSatisfied(initial.issue.Fields, initial.values),
+	}
+	executionOpts := jiraGuardedFieldExecutionOpts{apply: opts.Apply, expectedUpdated: opts.ExpectedUpdated, expectedProposalHash: opts.ExpectedProposalHash}
+	return s.setFieldsGuardedPreparedCore(execution, port, requestedKey, executionOpts, prepared)
+}
+
+func (s *JiraService) setFieldsGuardedPreparedCore(execution *jiraGuardedExecution, port domain.JiraGuardedFieldPort, requestedKey string, opts jiraGuardedFieldExecutionOpts, prepared *jiraGuardedFieldPrepared) (*JiraFieldSetResult, error) {
+	result := prepared.result
+	if opts.apply {
 		// Preserve the caller-reviewed marker for audit even when the current
 		// backend marker differs. The proposal hash continues to bind actual.
-		result.ExpectedUpdated = opts.ExpectedUpdated
+		result.ExpectedUpdated = opts.expectedUpdated
 	}
-	if err := workflowCtx.Err(); err != nil {
+	if err := execution.ctx.Err(); err != nil {
 		result.Status, result.Complete = "blocked", false
 		return result, guardedFieldFailure("guarded Jira field deadline expired during proposal qualification", err, true, false)
 	}
-	if opts.Apply && opts.ExpectedProposalHash != result.ProposalHash {
+	if opts.apply && opts.expectedProposalHash != result.ProposalHash {
 		result.Status = "blocked"
 		return result, guardedFieldFailure("guarded Jira field proposal changed since review", domain.ErrCheckFailed, true, false)
 	}
-	if opts.Apply && opts.ExpectedUpdated != result.ActualUpdated {
+	if opts.apply && opts.expectedUpdated != result.ActualUpdated {
 		result.Status = "blocked"
 		return result, guardedFieldFailure("guarded Jira field updated marker changed since review", domain.ErrCheckFailed, true, false)
 	}
-	if guardedFieldValuesSatisfied(initial.issue.Fields, initial.values) {
+	if prepared.satisfied {
 		result.Status = "already_satisfied"
 		return result, nil
 	}
 	result.Status = "would_apply"
-	if !opts.Apply {
+	if !opts.apply {
 		return result, nil
 	}
 
-	prewrite, err := s.buildGuardedFieldSnapshot(workflowCtx, port, initial.issue.ID, requestedKey, initial.issue.ID, proposals, values, allowlist, backendHash, true, inputBytes)
+	proposals := guardedFieldProposalsFromResult(result)
+	values := guardedFieldValuesFromProposals(proposals)
+	prewrite, err := s.buildGuardedFieldSnapshot(execution.ctx, port, prepared.issueID, requestedKey, prepared.issueID, proposals, values, nil, prepared.backendHash, true, prepared.inputBytes)
 	if err != nil {
 		result.Status, result.Complete = "blocked", false
 		return result, guardedFieldFailure("guarded Jira field proposal could not be qualified immediately before dispatch", err, true, false)
@@ -255,13 +279,13 @@ func (s *JiraService) SetFieldsGuarded(ctx context.Context, requestedKey string,
 		result.Status = "blocked"
 		return result, guardedFieldFailure("guarded Jira field proposal changed immediately before dispatch", domain.ErrCheckFailed, true, false)
 	}
-	if err := workflowCtx.Err(); err != nil {
+	if err := execution.ctx.Err(); err != nil {
 		result.Status = "blocked"
 		return result, guardedFieldFailure("guarded Jira field deadline expired before dispatch", err, true, false)
 	}
 
 	result.WriteAttempted = true
-	writeErr := port.WriteGuardedFields(workflowCtx, domain.JiraGuardedFieldWrite{
+	writeErr := port.WriteGuardedFields(execution.ctx, domain.JiraGuardedFieldWrite{
 		ID: prewrite.issue.ID, Key: prewrite.issue.Key, Project: prewrite.issue.Project,
 		Qualified: append([]domain.JiraGuardedFieldCatalogEntry(nil), prewrite.catalog.Fields...),
 		Prepared:  cloneGuardedFieldPreparation(prewrite.prepared),
@@ -272,7 +296,7 @@ func (s *JiraService) SetFieldsGuarded(ctx context.Context, requestedKey string,
 		return result, guardedFieldFailure("guarded Jira field write was refused before dispatch", writeErr, true, false)
 	}
 	definitive := writeErr != nil && definitiveWriteRejection(writeErr)
-	closeout, closeCancel := context.WithDeadline(context.WithoutCancel(workflowCtx), deadline)
+	closeout, closeCancel := execution.Closeout()
 	defer closeCancel()
 	remainingCurrent := domain.JiraGuardedFieldMaxCurrentBytes - int64(result.Usage.CurrentCanonicalBytes)
 	readback, readErr := s.readGuardedFieldIssue(closeout, port, prewrite.issue.ID, requestedKey, prewrite.issue.ID, selectedFieldIDs(proposals), remainingCurrent)
@@ -283,7 +307,7 @@ func (s *JiraService) SetFieldsGuarded(ctx context.Context, requestedKey string,
 			return result, guardedFieldFailure("Jira definitively rejected the guarded field update and readback was unavailable", writeErr, false, false)
 		}
 		result.Status = "unknown"
-		return result, guardedFieldFailure("guarded Jira field outcome is unknown; do not replay automatically", nil, false, true)
+		return result, guardedFieldFailure("guarded Jira field outcome is unknown; do not replay automatically", errors.Join(readErr, closeout.Err()), false, true)
 	}
 	result.Reconciled, result.Complete = true, true
 	result.ActualUpdated = readback.issue.Updated
@@ -527,7 +551,7 @@ func validateGuardedFieldPreparation(proposals []JiraFieldProposal, values map[s
 		if total > domain.JiraGuardedFieldMaxDesiredBytes {
 			return nil, 0, domain.ErrCheckFailed
 		}
-		out[index] = JiraFieldSetPreview{Field: projection.FieldID, Source: proposal.Source, Kind: projection.Kind, Bytes: projection.Bytes, SHA256: projection.SHA256, Value: proposal.Value}
+		out[index] = JiraFieldSetPreview{Field: projection.FieldID, Source: proposal.Source, Kind: projection.Kind, Bytes: projection.Bytes, SHA256: projection.SHA256, Value: cloneGuardedFieldValue(proposal.Value)}
 	}
 	return out, int(total), nil
 }
@@ -587,6 +611,22 @@ func cloneGuardedFieldValues(values map[string]any) map[string]any {
 		out[field] = cloneGuardedFieldValue(value)
 	}
 	return out
+}
+
+func guardedFieldValuesFromProposals(proposals []JiraFieldProposal) map[string]any {
+	values := make(map[string]any, len(proposals))
+	for _, proposal := range proposals {
+		values[proposal.Field] = cloneGuardedFieldValue(proposal.Value)
+	}
+	return values
+}
+
+func guardedFieldProposalsFromResult(result *JiraFieldSetResult) []JiraFieldProposal {
+	proposals := make([]JiraFieldProposal, len(result.Fields))
+	for index, field := range result.Fields {
+		proposals[index] = JiraFieldProposal{Field: field.Field, Source: field.Source, Value: cloneGuardedFieldValue(field.Value)}
+	}
+	return proposals
 }
 
 func cloneGuardedFieldValue(value any) any {

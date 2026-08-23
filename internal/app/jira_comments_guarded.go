@@ -103,10 +103,22 @@ type jiraGuardedCommentRecord struct {
 type jiraGuardedCommentSnapshot struct {
 	result      *JiraCommentAddResult
 	issue       domain.JiraGuardedCommentIssue
-	actor       domain.JiraGuardedCommentActor
 	records     []jiraGuardedCommentRecord
 	updatedTime time.Time
-	body        []byte
+}
+
+type jiraGuardedCommentPrepared struct {
+	result  *JiraCommentAddResult
+	issueID string
+	body    []byte
+}
+
+type jiraGuardedCommentPrewrite struct {
+	issue        domain.JiraGuardedCommentIssue
+	updatedTime  time.Time
+	body         []byte
+	actorSHA256  string
+	baselineByID map[string]string
 }
 
 type jiraCommentWriteError struct {
@@ -119,6 +131,9 @@ type jiraCommentWriteError struct {
 func (e *jiraCommentWriteError) Error() string {
 	if e == nil {
 		return "guarded Jira comment failed"
+	}
+	if e.ambiguous {
+		return e.message
 	}
 	return definitiveWriteMessage(e.message, e.cause)
 }
@@ -160,25 +175,28 @@ func (s *JiraService) AddCommentGuarded(ctx context.Context, requestedKey string
 	if opts.Apply {
 		maxRequests = jiraGuardedCommentApplyMaxRequests
 	}
-	budget, err := domain.NewReadBudget(maxRequests, jiraGuardedCommentMaxResponseBytes)
+	execution, err := newJiraGuardedExecution(ctx, domain.ReadBudgetFromContext(ctx), maxRequests, jiraGuardedCommentMaxResponseBytes, jiraGuardedCommentDeadline)
 	if err != nil {
 		return result, jiraCommentFailure("guarded Jira comment budget is invalid", err, true, false)
 	}
-	workflowCtx, cancel := context.WithTimeout(ctx, jiraGuardedCommentDeadline)
-	defer cancel()
-	deadline, _ := workflowCtx.Deadline()
-	workflowCtx = domain.WithRedactedHTTPTrace(domain.WithSingleAttempt(domain.WithReadBudget(workflowCtx, budget)))
+	defer execution.Close()
 	defer func() {
-		usage := budget.Usage()
+		usage := execution.Usage()
 		result.Usage = JiraCommentUsage{Requests: usage.Attempts, ResponseBytes: usage.ResponseBytes}
 	}()
 
-	initial, err := s.buildGuardedCommentSnapshot(workflowCtx, port, requestedKey, requestedKey, "", opts)
+	initial, err := s.buildGuardedCommentSnapshot(execution.ctx, port, requestedKey, requestedKey, "", opts)
 	if err != nil {
 		return result, jiraCommentFailure("guarded Jira comment proposal qualification failed", err, true, false)
 	}
 	result = initial.result
-	if err := workflowCtx.Err(); err != nil {
+	prepared := &jiraGuardedCommentPrepared{result: result, issueID: initial.issue.ID, body: append([]byte(nil), opts.Body...)}
+	return s.addCommentGuardedPreparedCore(execution, port, requestedKey, opts, prepared)
+}
+
+func (s *JiraService) addCommentGuardedPreparedCore(execution *jiraGuardedExecution, port domain.JiraGuardedCommentPort, requestedKey string, opts JiraCommentAddOpts, prepared *jiraGuardedCommentPrepared) (*JiraCommentAddResult, error) {
+	result := prepared.result
+	if err := execution.ctx.Err(); err != nil {
 		result.Status, result.Complete = "blocked", false
 		return result, jiraCommentFailure("guarded Jira comment deadline expired during proposal qualification", err, true, false)
 	}
@@ -196,7 +214,7 @@ func (s *JiraService) AddCommentGuarded(ctx context.Context, requestedKey string
 		return result, nil
 	}
 
-	prewrite, err := s.buildGuardedCommentSnapshot(workflowCtx, port, initial.issue.ID, requestedKey, initial.issue.ID, opts)
+	prewrite, err := s.buildGuardedCommentSnapshot(execution.ctx, port, prepared.issueID, requestedKey, prepared.issueID, opts)
 	if err != nil {
 		result.Status, result.Complete = "blocked", false
 		return result, jiraCommentFailure("guarded Jira comment proposal could not be qualified immediately before dispatch", err, true, false)
@@ -205,14 +223,18 @@ func (s *JiraService) AddCommentGuarded(ctx context.Context, requestedKey string
 		result.Status = "blocked"
 		return result, jiraCommentFailure("guarded Jira comment proposal changed immediately before dispatch", domain.ErrCheckFailed, true, false)
 	}
-	if err := workflowCtx.Err(); err != nil {
+	if err := execution.ctx.Err(); err != nil {
 		result.Status = "blocked"
 		return result, jiraCommentFailure("guarded Jira comment deadline expired before dispatch", err, true, false)
 	}
 
+	qualified := &jiraGuardedCommentPrewrite{
+		issue: prewrite.issue, updatedTime: prewrite.updatedTime, body: append([]byte(nil), prepared.body...),
+		actorSHA256: prewrite.result.ActorSHA256, baselineByID: guardedCommentRecordDigests(prewrite.records),
+	}
 	result.WriteAttempted = true
-	ack, writeErr := port.WriteGuardedComment(workflowCtx, domain.JiraGuardedCommentWrite{
-		ID: prewrite.issue.ID, Key: prewrite.issue.Key, Project: prewrite.issue.Project, Body: append([]byte(nil), prewrite.body...),
+	ack, writeErr := port.WriteGuardedComment(execution.ctx, domain.JiraGuardedCommentWrite{
+		ID: qualified.issue.ID, Key: qualified.issue.Key, Project: qualified.issue.Project, Body: append([]byte(nil), qualified.body...),
 	})
 	if writeDefinitelyNotAttempted(writeErr) {
 		result.WriteAttempted = false
@@ -224,24 +246,24 @@ func (s *JiraService) AddCommentGuarded(ctx context.Context, requestedKey string
 		return result, jiraCommentFailure("Jira definitively rejected the reviewed comment append", writeErr, false, false)
 	}
 
-	closeout, closeCancel := context.WithDeadline(context.WithoutCancel(workflowCtx), deadline)
+	closeout, closeCancel := execution.Closeout()
 	defer closeCancel()
-	readback, readErr := s.readGuardedCommentReadback(closeout, port, prewrite, requestedKey)
+	readback, readErr := s.readGuardedCommentReadback(closeout, port, qualified, requestedKey)
 	if readErr != nil || closeout.Err() != nil {
 		result.Status, result.Complete = "outcome_unknown", false
 		return result, jiraCommentFailure("guarded Jira comment outcome is unknown; do not replay automatically", errors.Join(writeErr, readErr, closeout.Err()), true, true)
 	}
 	result.Reconciled = true
 	result.ReadbackUpdated = readback.issue.Updated
-	newRecords, unchanged := guardedCommentNewRecords(prewrite.records, readback.records)
-	advanced := readback.updatedTime.After(prewrite.updatedTime)
+	newRecords, unchanged := guardedCommentNewRecordsPrepared(qualified.baselineByID, readback.records)
+	advanced := readback.updatedTime.After(qualified.updatedTime)
 	if !unchanged || !advanced {
 		result.Status = "outcome_unknown"
 		return result, jiraCommentFailure("guarded Jira comment readback did not preserve the baseline and advance the issue revision; do not replay automatically", writeErr, true, true)
 	}
 	if writeErr == nil && canonicalPositiveNumericString(ack.ID) {
 		for _, record := range newRecords {
-			if record.ID == ack.ID && guardedCommentCandidate(record, prewrite.body, prewrite.actor) {
+			if record.ID == ack.ID && guardedCommentPreparedCandidate(record, qualified.body, qualified.actorSHA256) {
 				result.Status, result.CommentID = "applied", record.ID
 				return result, nil
 			}
@@ -251,7 +273,7 @@ func (s *JiraService) AddCommentGuarded(ctx context.Context, requestedKey string
 	}
 	candidates := make([]jiraGuardedCommentRecord, 0, 1)
 	for _, record := range newRecords {
-		if guardedCommentCandidate(record, prewrite.body, prewrite.actor) {
+		if guardedCommentPreparedCandidate(record, qualified.body, qualified.actorSHA256) {
 			candidates = append(candidates, record)
 		}
 	}
@@ -345,5 +367,5 @@ func JiraCommentAddText(result *JiraCommentAddResult) string {
 }
 
 func jiraCommentFailure(message string, cause error, closed, ambiguous bool) error {
-	return &jiraCommentWriteError{message: message, cause: sanitizeJiraDescriptionEditCause(cause), closed: closed, ambiguous: ambiguous}
+	return &jiraCommentWriteError{message: message, cause: preserveGuardedBudgetCause(cause, sanitizeJiraDescriptionEditCause(cause)), closed: closed, ambiguous: ambiguous}
 }
