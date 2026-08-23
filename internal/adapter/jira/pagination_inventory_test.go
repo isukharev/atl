@@ -148,6 +148,8 @@ fields.go:coerceFields:range:1
 fields.go:reservedCreateField:range:1
 graph.go:ReadIssueRemoteLinks:range:1
 graph.go:validJiraRemoteLinkMetadata:range:1
+guarded_comments.go:guardedCommentUniqueJSONValue:for:1
+guarded_comments.go:guardedCommentUniqueJSONValue:for:2
 guarded_links.go:ReadStrictLinkEndpoint:range:1
 guarded_links.go:ReadStrictLinkTypes:range:1
 guarded_create.go:PrepareGuardedCreate:range:1

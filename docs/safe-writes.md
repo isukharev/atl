@@ -289,7 +289,9 @@ Keep the comment body out of command-line arguments:
 atl jira issue comment preview EXAMPLE-1 --from-md comment.md
 ```
 
-Review the normalized body and complete comment baseline. Apply the same body
+Review the content-minimized body/actor/baseline hashes, exact-body count,
+immutable issue/project identity, bounds, and request/byte usage. The native
+body and actor values are deliberately absent from stdout. Apply the same file
 once with the exact emitted hash:
 
 ```sh
@@ -299,9 +301,15 @@ env -u ATL_READ_ONLY atl jira issue comment add EXAMPLE-1 \
   --expected-proposal-hash <reviewed-hash>
 ```
 
-The command sends at most one POST and reconciles an ambiguous outcome without
-replaying it. The same principle applies to guarded field, transition, watcher,
-worklog, and multi-object plan commands.
+The direct CLI always uses `append_always`, so identical existing text is still
+a new append event. Apply strictly requalifies actor, issue revision, and every
+comment record before one numeric-id POST. It then performs exact advancing
+readback: `applied` proves the returned id, while `recovered` proves exactly one
+new matching body/actor record after an empty, malformed, or otherwise ambiguous
+acknowledgement. `blocked`, `not_applied`, and `outcome_unknown` never authorize
+automatic retry; `write_attempted:true` always forbids replay. The same
+principle applies to guarded field, transition, watcher, worklog, and
+multi-object plan commands.
 
 ## Jira: reviewed issue links
 

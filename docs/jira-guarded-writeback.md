@@ -2,8 +2,9 @@
 
 # Guarded Jira writeback
 
-Status: implemented for `atl jira issue plan apply` CSV schema version 1 and
-single-issue `atl jira issue field preview` / `field set` file-backed updates.
+Status: implemented for `atl jira issue plan apply` CSV schema version 1,
+single-issue `atl jira issue field preview` / `field set` file-backed updates,
+and direct guarded `jira issue comment preview` / `comment add`.
 
 This document defines the safety model shared by users who plan Jira
 automation and maintainers who implement it. The phases and failure behavior
@@ -129,7 +130,10 @@ Every operation needs an idempotency check:
   exist, mark `noop`.
 - `label_add`: only add labels not already present.
 - `label_remove`: only remove labels currently present.
-- `comment`: list the complete comment collection and skip an exact body match.
+- `comment`: CSV plan execution retains its legacy timestamp-guarded behavior.
+  The optional guarded-comment port reserves an app-only `exact_body_present`
+  policy for a future CSV integration, but CSV does not use that seam yet. The
+  direct comment CLI uses `append_always`, so identical text is a new event.
 - `field`: compare normalized current and desired values; skip unchanged
   fields.
 

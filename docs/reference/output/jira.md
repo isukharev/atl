@@ -1540,30 +1540,31 @@ always forbids automatic replay; stdout failure after that boundary is exit 8.
 
 `atl jira issue comment preview <KEY>` and the dry-run form of
 `atl jira issue comment add <KEY>` emit one baseline-bound append proposal:
-`{key,mode,status,body,body_bytes,body_sha256,actor,current_count,
-baseline_sha256,proposal_hash,created?,complete,reconciled?}`. Preview is a
-separately classified GET-only command available under the process-wide
-read-only policy; `add` remains classified as mutating even in dry-run mode.
-The reviewed native Jira-wiki body is present in JSON and may be private.
-`-o text` omits body and actor values and emits only status, key, byte count,
-and hashes.
+`{schema_version,operation,satisfaction_policy,backend_sha256,requested_key,
+issue_id,key,project,updated,readback_updated?,body_sha256,body_bytes,
+actor_sha256,current_count,baseline_sha256,exact_body_count,bounds,usage,mode,
+status,proposal_hash?,comment_id?,write_attempted,reconciled,complete}`. The
+reviewed native body, actor values, individual baseline ids/metadata, backend
+URL, and backend response detail are never emitted. `-o text` is the same
+content-minimized contract in human form.
 
-The versioned proposal hash binds the target issue, exact validated native
-body, stable authenticated Data Center identity, and the complete sorted set of
-unique non-empty comment ids. Identical comment text already present is not an
-idempotency condition: append remains a new event. Apply requires
-`--apply --expected-proposal-hash`, reconstructs the reviewed proposal, and
-re-reads the complete baseline immediately before at most one POST. Any local
-body or remote baseline drift blocks before POST. A successful or ambiguous
-POST gets one complete readback; no POST is automatically replayed.
+Preview is the independently GET-only command available under read-only policy;
+the parent remains mutation-classified even in dry-run mode. The versioned hash
+binds exact native body bytes and the full sorted qualified record baseline—not
+only comment ids—plus immutable issue/project/revision, actor, backend digest,
+exact-body predicate/count, and fixed bounds. Direct CLI satisfaction policy is
+always `append_always`.
 
-Status is closed to `would_apply`, `applied`, `not_applied`, `conflict`, and
-`unverifiable`. `not_applied` requires a definitive rejection. `applied`
-requires a stable newly observed comment identity matching the reviewed body
-and actor. Concurrent or duplicate-body evidence that prevents unique
-attribution is `conflict`; unavailable/incomplete readback is `unverifiable`.
-Unsafe outcomes return non-zero after emitting the result and carry structured
-`reconcile_write_outcome` recovery with `retry_safe:false`.
+Status is closed to `would_apply`, `blocked`, `not_applied`, `applied`,
+`recovered`, `already_satisfied`, and `outcome_unknown`. `already_satisfied` is
+reserved for the app-only `exact_body_present` seam and is not produced by the
+direct CLI. `applied` proves the acknowledged numeric id through exact advancing
+readback; `recovered` proves exactly one matching new record after an ambiguous
+or malformed acknowledgement. `outcome_unknown` is never replay-safe: complete
+conflicting readback reports `complete:true`, while unavailable or incomplete
+readback reports `complete:false`. An attempted POST is never replayed; a
+stdout failure after `write_attempted:true` also exits 8 with an explicit
+no-replay diagnostic.
 
 `atl jira issue watchers list <KEY>` emits
 `{key,watch_count,is_watching,watchers:[{name,key?,display_name?,active}],

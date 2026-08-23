@@ -83,11 +83,6 @@ func jiraCommentMutationCmd(applyCapable bool) *cobra.Command {
 			"sends at most one POST, and reconciles the outcome without replay.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if applyCapable {
-				if err := guardedWrite.validate(); err != nil {
-					return err
-				}
-			}
 			body, err := jiraCommentBody(cmd, orDash(fromFile), fromMD)
 			if err != nil {
 				return err
@@ -102,14 +97,13 @@ func jiraCommentMutationCmd(applyCapable bool) *cobra.Command {
 			}
 			result, mutationErr := svc.AddCommentGuarded(cmd.Context(), args[0], app.JiraCommentAddOpts{
 				Body: body, Apply: applyCapable && guardedWrite.apply,
-				ExpectedProposalHash: guardedWrite.expectedProposalHash,
+				ExpectedProposalHash: guardedWrite.expectedProposalHash, SatisfactionPolicy: "append_always",
 			})
-			if result != nil {
-				if emitErr := emit(cmd, result, func() string { return app.JiraCommentAddText(result) }); emitErr != nil {
-					return emitErr
-				}
+			if result == nil {
+				return mutationErr
 			}
-			return mutationErr
+			emitErr := emit(cmd, result, func() string { return app.JiraCommentAddText(result) })
+			return guardedMutationResultErr(mutationErr, emitErr, result.WriteAttempted, "Jira guarded comment append")
 		},
 	}
 	cmd.Flags().StringVar(&fromFile, "from-file", "-", "bounded Jira-wiki comment body file or - for stdin")
@@ -118,6 +112,41 @@ func jiraCommentMutationCmd(applyCapable bool) *cobra.Command {
 		guardedWrite.register(cmd)
 	}
 	return cmd
+}
+
+func validateJiraGuardedCommentInvocation(cmd *cobra.Command, applyRequested bool) error {
+	if _, err := app.ValidateJiraGuardedCommentKey(cmd.Flags().Arg(0)); err != nil {
+		return err
+	}
+	if cmd.Flags().Changed("from-file") && cmd.Flags().Changed("from-md") {
+		return usageErr("--from-file and --from-md are mutually exclusive")
+	}
+	if cmd.Flags().Changed("from-file") {
+		value, _ := cmd.Flags().GetString("from-file")
+		if strings.TrimSpace(value) == "" {
+			return usageErr("--from-file requires a file path or - for stdin")
+		}
+	}
+	if cmd.Flags().Changed("from-md") {
+		value, _ := cmd.Flags().GetString("from-md")
+		if strings.TrimSpace(value) == "" {
+			return usageErr("--from-md requires a file path or - for stdin")
+		}
+	}
+	expected := ""
+	if cmd.Flags().Lookup("expected-proposal-hash") != nil {
+		expected, _ = cmd.Flags().GetString("expected-proposal-hash")
+		if !applyRequested && cmd.Flags().Changed("expected-proposal-hash") {
+			return usageErr("--expected-proposal-hash requires --apply")
+		}
+	}
+	if !applyRequested {
+		return nil
+	}
+	if strings.TrimSpace(expected) == "" {
+		return usageErr("--expected-proposal-hash is required with --apply; run the dry-run first")
+	}
+	return app.ValidateJiraDescriptionEditReviewHash(strings.TrimSpace(expected))
 }
 
 func jiraCommentBody(cmd *cobra.Command, fromFile, fromMD string) ([]byte, error) {

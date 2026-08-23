@@ -110,8 +110,8 @@ not display/short URLs, and no page body or backlink query is made.
 | `jira issue reference search` | CLI-only content-free search from one exact GitLab project or Confluence page into a caller-qualified Jira scope; source-qualified fast discovery or exhaustive absence proof | required `--target`, `--target-kind`, `--scope-jql`, `--mode`, `--sources`, `--max-issues`, `--max-requests`, `--max-response-bytes`; exact `--fields` iff fields source; optional `--strict` |
 | `jira issue refs [KEY]` | Extract provenance-qualified artifact references with reconciled per-issue/top-level aggregates; field ids or exact names; JQL adds one complete comment listing per issue | `--jql`, `--fields`, aggregate `--limit` (0 all, negative invalid) |
 | `jira issue tree` | Build read-only epic-to-child grouping | `--jql`, `--epic-field`, `--fields`, aggregate `--limit` (0 all, negative invalid) |
-| `jira issue comment preview <KEY>` | GET-only baseline-bound append proposal | `--from-md`, `--from-file`; inspect body/baseline/proposal hashes |
-| `jira issue comment add <KEY>` | Preview or apply one reviewed comment append | `--from-md`, `--from-file`, `--apply`, `--expected-proposal-hash` |
+| `jira issue comment preview <KEY>` | GET-only full-record/body/actor/issue-bound append proposal with content-minimized output | `--from-md`, `--from-file`; inspect identity, hashes, counts, bounds, and usage |
+| `jira issue comment add <KEY>` | Preview or apply one reviewed append; one numeric-id POST and exact no-replay readback | `--from-md`, `--from-file`, `--apply`, `--expected-proposal-hash` |
 | `jira issue comment list <KEY>` | List comments | — |
 | `jira issue comment delete <KEY> <ID>` | Delete a comment | — |
 | `jira issue link add preview <KEY>` | GET-only guarded-link proposal | `--to KEY2`, `--type blocks`; safe under `ATL_READ_ONLY=1` |

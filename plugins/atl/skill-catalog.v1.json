@@ -49,7 +49,7 @@
   "files": [
     {
       "path": "atl/SKILL.md",
-      "sha256": "2b82fc973eeb4ea2e35f5bbf781c5a526b6d5c2876f741dcf77a42ca6d19419f"
+      "sha256": "851c7bf094eb6360aa81455e143159fb4cb2387d38629807ae5130f9167fbda5"
     },
     {
       "path": "atl/agents/openai.yaml",
@@ -133,7 +133,7 @@
     },
     {
       "path": "jira/SKILL.md",
-      "sha256": "f5d05e8b1097f602bf77c7432dcd6e5aaed19b49308c15fb7e0637f656fca550"
+      "sha256": "a55b83b117bbcd7dfa2be79db1207fafdce7c85e3389a6b03558e0eeed6c5882"
     },
     {
       "path": "jira/agents/openai.yaml",
@@ -145,11 +145,11 @@
     },
     {
       "path": "jira/reference/commands.md",
-      "sha256": "f4e2a6e39c2f1dfa55e58487c57d393249e8882d1b7287a2a60153c0a64eb11d"
+      "sha256": "8d6b6190ec3a76ac080144cbe91ef3d253575b53a0a11a9aa1c2e18a1c5e9554"
     },
     {
       "path": "jira/reference/editing.md",
-      "sha256": "473db756d4ecc4836e238a39ad57ed34b971e17d48561e21b7d5319d53876f67"
+      "sha256": "f2fbe4b3316d82866c58f54d50fd92720f6ac9cc30eb5f922a3ff9b8be909767"
     },
     {
       "path": "jira/reference/errors.md",

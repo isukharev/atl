@@ -420,8 +420,8 @@ func productFunctionSwitchReturns(t *testing.T, parsed *ast.File, function strin
 		}
 		statements := functionDeclaration.Body.List
 		if function == "codeFor" {
-			if len(statements) != 2 || !productTerminalAmbiguityPriority(statements[0]) {
-				t.Fatalf("%s must begin with the exact terminal-ambiguity check-failed priority before its sentinel switch", function)
+			if len(statements) != 2 || !productTerminalCheckFailurePriority(statements[0]) {
+				t.Fatalf("%s must begin with the exact terminal check-failed priority before its sentinel switch", function)
 			}
 			statements = statements[1:]
 		}
@@ -474,7 +474,7 @@ func productFunctionSwitchReturns(t *testing.T, parsed *ast.File, function strin
 	return nil
 }
 
-func productTerminalAmbiguityPriority(statement ast.Stmt) bool {
+func productTerminalCheckFailurePriority(statement ast.Stmt) bool {
 	priority, ok := statement.(*ast.IfStmt)
 	if !ok || priority.Else != nil || priority.Init != nil || len(priority.Body.List) != 1 {
 		return false
@@ -486,7 +486,7 @@ func productTerminalAmbiguityPriority(statement ast.Stmt) bool {
 	callee, calleeOK := call.Fun.(*ast.Ident)
 	argument, argumentOK := call.Args[0].(*ast.Ident)
 	returned, returnOK := priority.Body.List[0].(*ast.ReturnStmt)
-	if !calleeOK || !argumentOK || !returnOK || callee.Name != "terminalAmbiguousCheckFailure" || argument.Name != "err" || len(returned.Results) != 1 {
+	if !calleeOK || !argumentOK || !returnOK || callee.Name != "terminalCheckFailure" || argument.Name != "err" || len(returned.Results) != 1 {
 		return false
 	}
 	result, ok := returned.Results[0].(*ast.Ident)

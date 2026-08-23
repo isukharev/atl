@@ -45,31 +45,26 @@ func (j *Jira) ListJiraCommentsQualified(ctx context.Context, issueID string, op
 		if remaining < requested {
 			requested = remaining
 		}
-		var response struct {
-			StartAt  *int `json:"startAt"`
-			Total    *int `json:"total"`
-			Comments []struct {
-				ID       string          `json:"id"`
-				Author   map[string]any  `json:"author"`
-				Created  string          `json:"created"`
-				Updated  string          `json:"updated"`
-				ParentID string          `json:"parentId"`
-				Body     json.RawMessage `json:"body"`
-			} `json:"comments"`
-		}
 		query := url.Values{}
 		query.Set("startAt", strconv.Itoa(cursor.requested()))
 		query.Set("maxResults", strconv.Itoa(requested))
 		path := "/rest/api/2/issue/" + url.PathEscape(issueID) + "/comment?" + query.Encode()
-		if err := j.c.GetJSON(ctx, path, &response); err != nil {
+		data, err := j.c.Do(ctx, "GET", path, nil, nil)
+		if err != nil {
 			return domain.JiraCommentInventory{}, err
 		}
+		response, ok := guardedCommentObject(data)
+		if !ok {
+			return domain.JiraCommentInventory{}, fmt.Errorf("%w: Jira comment response is malformed", domain.ErrCheckFailed)
+		}
 		pageCount := page + 1
-		if response.Total == nil || response.StartAt == nil || response.Comments == nil {
+		startAt, startPresent := guardedCommentRequiredInt(response, "startAt")
+		total, totalPresent := guardedCommentRequiredInt(response, "total")
+		commentValues, commentsPresent := guardedCommentArray(response, "comments")
+		if !startPresent || !totalPresent || !commentsPresent {
 			return domain.JiraCommentInventory{}, fmt.Errorf("%w: Jira comment pagination metadata is unavailable", domain.ErrCheckFailed)
 		}
-		total := *response.Total
-		if total < 0 || !cursor.matches(*response.StartAt) || len(response.Comments) > requested {
+		if total < 0 || !cursor.matches(startAt) || len(commentValues) > requested {
 			return domain.JiraCommentInventory{}, fmt.Errorf("%w: Jira comment pagination metadata is inconsistent", domain.ErrCheckFailed)
 		}
 		if expectedTotal < 0 {
@@ -78,27 +73,45 @@ func (j *Jira) ListJiraCommentsQualified(ctx context.Context, issueID string, op
 			return domain.JiraCommentInventory{}, fmt.Errorf("%w: Jira comment total changed while paging", domain.ErrCheckFailed)
 		}
 
-		for _, value := range response.Comments {
-			if value.ID == "" {
+		for _, rawValue := range commentValues {
+			value, validObject := guardedCommentRawObject(rawValue, true)
+			if !validObject {
+				return domain.JiraCommentInventory{}, fmt.Errorf("%w: Jira comment row is malformed", domain.ErrCheckFailed)
+			}
+			id, validID := guardedCommentRequiredString(value, "id")
+			if !validID {
 				return domain.JiraCommentInventory{}, fmt.Errorf("%w: Jira comment identity is unavailable", domain.ErrCheckFailed)
 			}
-			if _, duplicate := seenIDs[value.ID]; duplicate {
+			if _, duplicate := seenIDs[id]; duplicate {
 				return domain.JiraCommentInventory{}, fmt.Errorf("%w: Jira comment identity is duplicated", domain.ErrCheckFailed)
 			}
-			if len(value.Body) == 0 || bytes.Equal(bytes.TrimSpace(value.Body), []byte("null")) {
+			body, validBody := guardedCommentPresentString(value, "body")
+			if !validBody {
 				return domain.JiraCommentInventory{}, fmt.Errorf("%w: Jira comment body is unavailable", domain.ErrCheckFailed)
 			}
-			body, valid := decodeJiraRemoteLinkMetadata(value.Body)
-			if !valid {
-				return domain.JiraCommentInventory{}, fmt.Errorf("%w: Jira comment body is malformed", domain.ErrCheckFailed)
+			author := map[string]json.RawMessage{}
+			if rawAuthor, present := value["author"]; present && !bytes.Equal(bytes.TrimSpace(rawAuthor), []byte("null")) {
+				var validAuthor bool
+				author, validAuthor = guardedCommentRawObject(rawAuthor, true)
+				if !validAuthor {
+					return domain.JiraCommentInventory{}, fmt.Errorf("%w: Jira comment author is malformed", domain.ErrCheckFailed)
+				}
 			}
-			parentID := value.ParentID
+			display, validDisplay := guardedCommentOptionalString(author, "displayName")
+			authorName, validName := guardedCommentOptionalString(author, "name")
+			authorKey, validKey := guardedCommentOptionalString(author, "key")
+			created, validCreated := guardedCommentOptionalString(value, "created")
+			updated, validUpdated := guardedCommentOptionalString(value, "updated")
+			parentID, validParent := guardedCommentOptionalString(value, "parentId")
+			if !validDisplay || !validName || !validKey || !validCreated || !validUpdated || !validParent {
+				return domain.JiraCommentInventory{}, fmt.Errorf("%w: Jira comment metadata is malformed", domain.ErrCheckFailed)
+			}
 			if parentID == "0" {
 				parentID = ""
 			}
 			comment := domain.Comment{
-				ID: value.ID, Author: nestedDisplay(value.Author), AuthorName: nestedName(value.Author),
-				AuthorKey: nestedKey(value.Author), Created: value.Created, Updated: value.Updated,
+				ID: id, Author: display, AuthorName: authorName,
+				AuthorKey: authorKey, Created: created, Updated: updated,
 				ParentID: parentID, Body: body,
 			}
 			if !domain.ValidJiraCommentEvidenceRecord(comment) {
@@ -111,12 +124,12 @@ func (j *Jira) ListJiraCommentsQualified(ctx context.Context, issueID string, op
 					Total: total, TotalKnown: true, PageCount: pageCount,
 				})
 			}
-			seenIDs[value.ID] = struct{}{}
+			seenIDs[id] = struct{}{}
 			out = append(out, comment)
 			encodedBytes += footprint
 		}
 
-		decision := cursor.advance(len(response.Comments), &total)
+		decision := cursor.advance(len(commentValues), &total)
 		switch decision.state {
 		case jiraOffsetBeyondTotal, jiraOffsetOverflow:
 			return domain.JiraCommentInventory{}, fmt.Errorf("%w: Jira comment pagination made invalid progress", domain.ErrCheckFailed)

@@ -567,22 +567,33 @@ atl jira issue comment list PROJ-1                 # {key, comments:[{id,author,
 atl jira issue comment delete PROJ-1 <COMMENT-ID>  # see the id from `comment list`
 ```
 
-Comment listing fails closed (exit 8) whenever a complete, stable listing
-cannot be proven: for example, after the defensive page guard, a changed total,
-an unexpected offset, inconsistent metadata, or a no-progress page. No partial
-list is emitted or used for a proposal baseline. Preview validates unique,
-non-empty comment ids and binds their sorted set, the exact normalized native
-body, target, and authenticated Data Center identity into the proposal hash.
-An existing identical body does not make append idempotent.
+The guarded path strictly qualifies the issue key, immutable numeric id,
+project, `updated`, authenticated Data Center `name`/`key`, and every comment
+record. Missing, null, mistyped, invalid UTF-8, or unpaired-surrogate wire
+members are refused without string coercion. Inventory is capped at 100 pages,
+10,000 comments, and 16 MiB, independently of the workflow's 16 MiB aggregate
+transport budget. Preview uses at most 102 requests; apply uses at most 306;
+both share one 60-second deadline and every request is single-attempt. With one
+comment page, preview makes 3 requests and apply makes 9.
 
-Apply reconstructs the proposal and re-reads the complete baseline immediately
-before one non-retried POST. A changed body, identity, or baseline blocks before
-the write. Successful or transport-ambiguous outcomes get one complete
-readback. The closed statuses are `would_apply`, `applied`, `not_applied`,
-`conflict`, and `unverifiable`; the latter two are non-zero where replay safety
-is not proven. Never automatically replay an ambiguous comment POST. Default
-JSON includes the reviewed body and may therefore be private; `-o text` emits
-only hashes and byte counts.
+The proposal hash binds the backend digest, requested and canonical
+issue/project identity, raw supported Jira timestamps, exact native Jira-wiki
+body bytes, stable actor, every fully qualified comment record, exact-body
+predicate/count, and all fixed bounds. The direct command uses
+`append_always`: an existing identical body is still a new event.
+
+Apply reconstructs that full proposal, then repeats actor/issue/inventory
+qualification immediately before one non-retried POST by immutable numeric id.
+Every successful or ambiguous dispatch, including an empty or malformed
+acknowledgement, gets exact numeric-id issue/comment readback. An acknowledged
+id proved as one new exact body/actor record is `applied`; an ambiguous
+acknowledgement with exactly one such record is `recovered`. A definitive
+rejection is `not_applied` without readback; pre-dispatch refusal is `blocked`;
+unresolved evidence is `outcome_unknown`. Never automatically replay an
+attempted comment POST.
+Successful JSON and text are content-minimized to identities, hashes, counts,
+bounds, usage, status, and closeout facts; neither contains body or actor values.
+Legacy `list` and `delete` retain their existing broad Tracker behavior.
 
 Flags (`preview` and `add`):
 

@@ -369,9 +369,12 @@ shell/workspace configuration implicitly.
   digests; `recovered` proves only the bounded end state, and
   `outcome_unknown` is never replay-safe.
 - For a comment, use the separately read-only `jira issue comment preview` on
-  the final file, review its body/baseline/proposal hashes, then apply that exact
-  file once with `comment add --apply --expected-proposal-hash`. Identical text
-  is still a new append event; conflict/unverifiable is never replay-safe.
+  the final file, review its content-minimized body/actor/baseline hashes,
+  immutable issue identity, exact-body count, bounds, and usage, then apply that
+  exact file once with `comment add --apply --expected-proposal-hash`. The
+  direct command is always `append_always`: identical text is still a new
+  event. Accept only `applied` or `recovered`; `outcome_unknown` and every
+  attempted write without trustworthy stdout are never replay-safe.
 - For a transition, use separately read-only `jira issue transition preview`
   with the exact target, fields, and optional native-wiki comment. Review the
   issue/status/update, selected transition, current/desired field evidence, and

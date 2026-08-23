@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"os"
@@ -76,7 +78,9 @@ func TestJiraCommentPreview_FromMD(t *testing.T) {
 	js := newJiraServer(t)
 	js.route(http.MethodGet, "/rest/api/2/myself", http.StatusOK,
 		`{"name":"alice","key":"user-1","displayName":"Alice"}`)
-	js.route(http.MethodGet, "/rest/api/2/issue/ENG-7/comment", http.StatusOK,
+	js.route(http.MethodGet, "/rest/api/2/issue/ENG-7", http.StatusOK,
+		`{"id":"107","key":"ENG-7","fields":{"project":{"key":"ENG"},"updated":"2026-08-22T10:00:00Z"}}`)
+	js.route(http.MethodGet, "/rest/api/2/issue/107/comment", http.StatusOK,
 		`{"startAt":0,"total":0,"comments":[]}`)
 
 	out, code := runCLI(t, jiraEnv(js.srv),
@@ -85,7 +89,8 @@ func TestJiraCommentPreview_FromMD(t *testing.T) {
 		t.Fatalf("jira comment preview --from-md: exit %d", code)
 	}
 	var result app.JiraCommentAddResult
-	if err := json.Unmarshal([]byte(out), &result); err != nil || result.Body != jiraWiki {
+	wikiSum := sha256.Sum256([]byte(jiraWiki))
+	if err := json.Unmarshal([]byte(out), &result); err != nil || result.BodyBytes != len(jiraWiki) || result.BodySHA256 != hex.EncodeToString(wikiSum[:]) {
 		t.Fatalf("result=%+v err=%v, want converted wiki %q", result, err, jiraWiki)
 	}
 	if writes := js.writeReqsTo("/rest/api/2/issue/ENG-7/comment"); len(writes) != 0 {

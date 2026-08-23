@@ -81,7 +81,12 @@ type CommandBroker struct {
 	closeOnce      sync.Once
 	closeErr       error
 	counts         map[string]int
-	proposalHashes map[string]string
+	proposalHashes map[string]commandBrokerProposalBinding
+}
+
+type commandBrokerProposalBinding struct {
+	hash     string
+	producer string
 }
 
 func StartCommandBroker(config CommandBrokerConfig) (*CommandBroker, error) {
@@ -120,7 +125,7 @@ func StartCommandBroker(config CommandBrokerConfig) (*CommandBroker, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	broker := &CommandBroker{
 		config: config, capability: capability, ctx: ctx, cancel: cancel,
-		done: make(chan struct{}), counts: map[string]int{}, proposalHashes: map[string]string{},
+		done: make(chan struct{}), counts: map[string]int{}, proposalHashes: map[string]commandBrokerProposalBinding{},
 	}
 	go broker.serve()
 	return broker, nil
@@ -241,7 +246,7 @@ func (b *CommandBroker) processOne(path, id string) CommandBrokerResponse {
 	if match.RequiresProposalHash != "" {
 		expected, ok := cliCommandFlagValue(request.Args, "--expected-proposal-hash")
 		bound, found := b.proposalHashes[match.RequiresProposalHash]
-		if !ok || !found || !subtleCLIStringEqual(bound, expected) {
+		if !ok || !found || !subtleCLIStringEqual(bound.hash, expected) || !commandBrokerProposalConsumer(bound.producer, match.Command) {
 			return response
 		}
 		// A write admission is single-use even when execution has an ambiguous
@@ -269,8 +274,8 @@ func (b *CommandBroker) processOne(path, id string) CommandBrokerResponse {
 		return response
 	}
 	if match.BindsProposalHash != "" {
-		preview, decodeErr := DecodeJiraGuardedCreateResult(bytes.NewReader(result.stdout))
-		if decodeErr != nil || result.exitCode != 0 || len(result.stderr) != 0 || preview.Mode != "preview" || preview.Status != "would_apply" {
+		proposalHash, producer, decodeErr := commandBrokerProposalProducer(match.Command, result.stdout)
+		if decodeErr != nil || result.exitCode != 0 || len(result.stderr) != 0 {
 			response.Status = "failed"
 			return response
 		}
@@ -278,13 +283,39 @@ func (b *CommandBroker) processOne(path, id string) CommandBrokerResponse {
 			response.Status = "failed"
 			return response
 		}
-		b.proposalHashes[match.BindsProposalHash] = preview.ProposalHash
+		b.proposalHashes[match.BindsProposalHash] = commandBrokerProposalBinding{hash: proposalHash, producer: producer}
 	}
 	response.Status = "executed"
 	response.Stdout = result.stdout
 	response.Stderr = result.stderr
 	response.ExitCode = result.exitCode
 	return response
+}
+
+func commandBrokerProposalProducer(command []string, stdout []byte) (string, string, error) {
+	producer := strings.Join(command, " ")
+	switch producer {
+	case "jira issue create preview":
+		preview, err := DecodeJiraGuardedCreateResult(bytes.NewReader(stdout))
+		if err != nil || preview.Mode != "preview" || preview.Status != "would_apply" {
+			return "", "", fmt.Errorf("invalid guarded create proposal")
+		}
+		return preview.ProposalHash, producer, nil
+	case "jira issue comment preview":
+		preview, err := DecodeJiraTriageCommentPreview(bytes.NewReader(stdout))
+		if err != nil || preview.Mode != "dry-run" || preview.Status != "would_apply" {
+			return "", "", fmt.Errorf("invalid guarded comment proposal")
+		}
+		return preview.ProposalHash, producer, nil
+	default:
+		return "", "", fmt.Errorf("unsupported proposal producer")
+	}
+}
+
+func commandBrokerProposalConsumer(producer string, command []string) bool {
+	consumer := strings.Join(command, " ")
+	return producer == "jira issue create preview" && consumer == "jira issue create" ||
+		producer == "jira issue comment preview" && consumer == "jira issue comment add"
 }
 
 func CallCommandBroker(manifestPath string, args []string, probe bool) (CommandBrokerResponse, error) {

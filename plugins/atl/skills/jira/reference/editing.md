@@ -99,11 +99,13 @@ push.
   writer uses one numeric-id PUT and exact advancing readback; never replay
   `outcome_unknown` or replace the whole label array.
 - Comments: use GET-only `jira issue comment preview` with the final file,
-  review body/baseline/proposal hashes, then pass the exact proposal hash to one
-  `comment add --apply` using unchanged bytes. The command revalidates the
-  complete unique-id baseline, sends at most one POST, and reconciles once.
-  Identical existing text is not idempotency; conflict/unverifiable is possibly
-  committed and must never be replayed automatically.
+  review content-minimized body/actor/full-baseline hashes, immutable issue
+  identity, exact-body count, bounds, and usage, then pass the exact proposal
+  hash to one `comment add --apply` using unchanged bytes. The command strictly
+  revalidates the full qualified records, sends at most one numeric-id POST, and
+  proves `applied` or `recovered` through exact advancing readback. Identical
+  existing text is still a new append; `outcome_unknown` or missing trustworthy
+  stdout after an attempted write must never be replayed automatically.
 - Transitions: use GET-only `jira issue transition preview` with the exact
   target, fields, and optional comment. Review its current state, uniquely
   selected transition, desired/current field evidence, optional comment

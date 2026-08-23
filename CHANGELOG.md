@@ -462,12 +462,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added reviewed Jira comment append. `jira issue comment preview` is a
   separately classified GET-only command, while `comment add` now previews by
   default and requires `--apply` plus the exact proposal hash to write. The
-  proposal binds the target, validated native wiki body, authenticated Data
-  Center identity, and a complete unique-id comment baseline. Apply revalidates
-  that baseline immediately before at most one POST and reconciles successful
-  or ambiguous outcomes through one complete readback without replay. Existing
-  duplicate text is not treated as idempotent. JSON can carry the reviewed body;
-  text output is value-free. List and delete behavior are unchanged.
+  proposal binds immutable issue/project identity and revision, the exact
+  validated native Jira-wiki bytes, stable authenticated actor identity, every
+  qualified comment record, and fixed request/byte/deadline bounds. Strict raw
+  decoding rejects missing, mistyped, invalid UTF-8, or unpaired-surrogate
+  evidence without string coercion. Apply reconstructs the proposal immediately
+  before one numeric-id POST, then proves `applied` or `recovered` through an
+  exact advancing readback without replay; all other outcomes are closed and
+  fail safe. JSON and text are content-minimized to hashes/counts. Existing
+  duplicate text remains a new append event. Legacy list/delete, transition
+  comments, CSV plans, and the broad Tracker surface are unchanged.
 
 - Added one schema-v1 structured recovery object to CLI JSON and MCP failures.
   It preserves all existing exit codes, kinds, remediations, messages, and text

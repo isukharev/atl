@@ -16,8 +16,18 @@ func TestDecodeJiraTriageWiresAcceptReleasedShapes(t *testing.T) {
 	}
 
 	preview, err := DecodeJiraTriageCommentPreview(bytes.NewReader(validJiraTriageCommentPreviewWire(t)))
-	if err != nil || preview.Mode != "dry-run" || preview.Status != "would_apply" || preview.Actor.Name != "synthetic-user" || !preview.Complete {
+	if err != nil || preview.Mode != "dry-run" || preview.Status != "would_apply" || preview.SatisfactionPolicy != "append_always" || !preview.Complete {
 		t.Fatalf("triage preview=%+v err=%v", preview, err)
+	}
+	apply, err := DecodeJiraTriageCommentApply(bytes.NewReader(validJiraTriageCommentApplyWire(t)))
+	if err != nil || apply.Mode != "apply" || apply.Status != "recovered" || apply.CommentID != "81" || !apply.WriteAttempted || !apply.Reconciled {
+		t.Fatalf("triage apply=%+v err=%v", apply, err)
+	}
+	if _, err := DecodeJiraTriageCommentPreview(bytes.NewReader(validJiraTriageCommentApplyWire(t))); err == nil {
+		t.Fatal("apply wire satisfied the preview producer decoder")
+	}
+	if _, err := DecodeJiraTriageCommentApply(bytes.NewReader(validJiraTriageCommentPreviewWire(t))); err == nil {
+		t.Fatal("preview wire satisfied the apply decoder")
 	}
 }
 
@@ -38,7 +48,7 @@ func TestDecodeJiraTriageWiresFailClosed(t *testing.T) {
 		{
 			name: "comment preview", valid: validJiraTriageCommentPreviewWire(t), rootMember: "key", maximum: jiraTriageCommentPreviewWireMaxBytes,
 			decode:   func(data []byte) error { _, err := DecodeJiraTriageCommentPreview(bytes.NewReader(data)); return err },
-			semantic: func(root map[string]any) { root["body_bytes"] = float64(1) },
+			semantic: func(root map[string]any) { root["body_bytes"] = float64((1 << 20) + 1) },
 		},
 	}
 	for _, test := range tests {
@@ -102,19 +112,87 @@ func TestDecodeJiraTriageWiresRejectNestedAndStateDrift(t *testing.T) {
 	}
 
 	previewCases := map[string]func(map[string]any){
-		"unknown actor":   func(root map[string]any) { root["actor"].(map[string]any)["backend"] = true },
-		"missing actor":   func(root map[string]any) { delete(root["actor"].(map[string]any), "name") },
-		"apply mode":      func(root map[string]any) { root["mode"] = "apply" },
-		"applied status":  func(root map[string]any) { root["status"] = "applied" },
-		"incomplete":      func(root map[string]any) { root["complete"] = false },
-		"proposal case":   func(root map[string]any) { root["proposal_hash"] = strings.Repeat("A", 64) },
-		"short baseline":  func(root map[string]any) { root["baseline_sha256"] = "abc" },
-		"wrong body hash": func(root map[string]any) { root["body_sha256"] = triageTriageHash("different") },
+		"unknown bounds": func(root map[string]any) { root["bounds"].(map[string]any)["backend"] = true },
+		"missing actor":  func(root map[string]any) { delete(root, "actor_sha256") },
+		"apply mode":     func(root map[string]any) { root["mode"] = "apply" },
+		"applied status": func(root map[string]any) { root["status"] = "applied" },
+		"incomplete":     func(root map[string]any) { root["complete"] = false },
+		"proposal case":  func(root map[string]any) { root["proposal_hash"] = strings.Repeat("A", 64) },
+		"short baseline": func(root map[string]any) { root["baseline_sha256"] = "abc" },
+		"wrong policy":   func(root map[string]any) { root["satisfaction_policy"] = "exact_body_present" },
+		"wrong requests": func(root map[string]any) { root["usage"].(map[string]any)["requests"] = 2 },
 	}
 	for name, mutate := range previewCases {
 		t.Run("preview "+name, func(t *testing.T) {
 			if _, err := DecodeJiraTriageCommentPreview(bytes.NewReader(mutateJiraTriageWire(t, validJiraTriageCommentPreviewWire(t), mutate))); err == nil {
 				t.Fatal("invalid preview wire was accepted")
+			}
+		})
+	}
+
+	applyCases := map[string]func(map[string]any){
+		"unknown root":   func(root map[string]any) { root["backend"] = true },
+		"missing id":     func(root map[string]any) { delete(root, "comment_id") },
+		"wrong status":   func(root map[string]any) { root["status"] = "applied" },
+		"not attempted":  func(root map[string]any) { root["write_attempted"] = false },
+		"not reconciled": func(root map[string]any) { root["reconciled"] = false },
+		"wrong requests": func(root map[string]any) { root["usage"].(map[string]any)["requests"] = 8 },
+	}
+	for name, mutate := range applyCases {
+		t.Run("apply "+name, func(t *testing.T) {
+			if _, err := DecodeJiraTriageCommentApply(bytes.NewReader(mutateJiraTriageWire(t, validJiraTriageCommentApplyWire(t), mutate))); err == nil {
+				t.Fatal("invalid apply wire was accepted")
+			}
+		})
+	}
+}
+
+func TestDecodeJiraTriageCommentWiresEnforceProductInvariants(t *testing.T) {
+	largeKeyWire := mutateJiraTriageWire(t, validJiraTriageCommentPreviewWire(t), func(root map[string]any) {
+		root["requested_key"], root["key"] = "AB-18446744073709551616", "AB-18446744073709551616"
+		root["project"] = "AB"
+	})
+	if _, err := DecodeJiraTriageCommentPreview(bytes.NewReader(largeKeyWire)); err != nil {
+		t.Fatalf("canonical key suffix is not a backend numeric id: %v", err)
+	}
+	tests := []struct {
+		name   string
+		apply  bool
+		mutate func(map[string]any)
+	}{
+		{name: "noncanonical key", mutate: func(root map[string]any) { root["requested_key"], root["key"] = "syn-41", "syn-41" }},
+		{name: "oversize key", mutate: func(root map[string]any) {
+			root["requested_key"], root["key"] = "AB-"+strings.Repeat("1", 62), "AB-"+strings.Repeat("1", 62)
+		}},
+		{name: "zero issue id", mutate: func(root map[string]any) { root["issue_id"] = "0" }},
+		{name: "overflow issue id", mutate: func(root map[string]any) { root["issue_id"] = "18446744073709551616" }},
+		{name: "oversize issue id", mutate: func(root map[string]any) { root["issue_id"] = strings.Repeat("1", 65) }},
+		{name: "untagged backend digest", mutate: func(root map[string]any) { root["backend_sha256"] = triageTriageHash("backend") }},
+		{name: "double tagged backend digest", mutate: func(root map[string]any) { root["backend_sha256"] = "sha256:sha256:" + triageTriageHash("backend") }},
+		{name: "unsupported timestamp", mutate: func(root map[string]any) { root["updated"] = "2026-08-22T10:00:00" }},
+		{name: "comma timestamp", mutate: func(root map[string]any) { root["updated"] = "2026-08-22T10:00:00,123Z" }},
+		{name: "count beyond inventory bound", mutate: func(root map[string]any) { root["current_count"] = json.Number("10001") }},
+		{name: "zero comment id", apply: true, mutate: func(root map[string]any) { root["comment_id"] = "0" }},
+		{name: "oversize comment id", apply: true, mutate: func(root map[string]any) { root["comment_id"] = strings.Repeat("1", 65) }},
+		{name: "nonadvancing readback", apply: true, mutate: func(root map[string]any) { root["readback_updated"] = root["updated"] }},
+		{name: "backward readback", apply: true, mutate: func(root map[string]any) { root["readback_updated"] = "2026-08-22T09:59:59Z" }},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			wire := validJiraTriageCommentPreviewWire(t)
+			decode := func(data []byte) error {
+				_, err := DecodeJiraTriageCommentPreview(bytes.NewReader(data))
+				return err
+			}
+			if test.apply {
+				wire = validJiraTriageCommentApplyWire(t)
+				decode = func(data []byte) error {
+					_, err := DecodeJiraTriageCommentApply(bytes.NewReader(data))
+					return err
+				}
+			}
+			if err := decode(mutateJiraTriageWire(t, wire, test.mutate)); err == nil {
+				t.Fatal("invalid guarded comment wire was accepted")
 			}
 		})
 	}
@@ -160,12 +238,34 @@ func validJiraTriageIssueGetWire(t *testing.T) []byte {
 
 func validJiraTriageCommentPreviewWire(t *testing.T) []byte {
 	t.Helper()
-	body := "h2. New occurrence\n\nSyntheticError after token rotation."
 	return mustJiraTriageJSON(t, map[string]any{
-		"key": "SYN-41", "mode": "dry-run", "status": "would_apply", "body": body,
-		"body_sha256": triageTriageHash(body), "body_bytes": len(body),
-		"actor": map[string]any{"name": "synthetic-user", "key": "user-1"}, "current_count": 1,
-		"baseline_sha256": triageTriageHash("baseline"), "proposal_hash": triageTriageHash("proposal"), "complete": true,
+		"schema_version": 1, "operation": "jira_issue_comment_append", "satisfaction_policy": "append_always",
+		"backend_sha256": "sha256:" + triageTriageHash("backend"), "requested_key": "SYN-41", "issue_id": "9041",
+		"key": "SYN-41", "project": "SYN", "updated": "2026-08-22T10:00:00Z",
+		"body_sha256": triageTriageHash("body"), "body_bytes": 57, "actor_sha256": triageTriageHash("actor"),
+		"current_count": 1, "baseline_sha256": triageTriageHash("baseline"), "exact_body_count": 0,
+		"bounds": map[string]any{
+			"max_key_bytes": 64, "max_body_bytes": 1 << 20, "max_evidence_id_bytes": 64,
+			"max_evidence_metadata_bytes": 64 << 10, "max_pages": 100, "max_items": 10_000,
+			"max_inventory_bytes": 16 << 20, "preview_max_requests": 102, "apply_max_requests": 306,
+			"max_aggregate_response_bytes": 16 << 20, "deadline_millis": 60_000,
+		},
+		"usage": map[string]any{"requests": 3, "response_bytes": 1024},
+		"mode":  "dry-run", "status": "would_apply", "proposal_hash": triageTriageHash("proposal"),
+		"write_attempted": false, "reconciled": false, "complete": true,
+	})
+}
+
+func validJiraTriageCommentApplyWire(t *testing.T) []byte {
+	t.Helper()
+	return mutateJiraTriageWire(t, validJiraTriageCommentPreviewWire(t), func(root map[string]any) {
+		root["mode"] = "apply"
+		root["status"] = "recovered"
+		root["readback_updated"] = "2026-08-22T10:00:01Z"
+		root["comment_id"] = "81"
+		root["write_attempted"] = true
+		root["reconciled"] = true
+		root["usage"].(map[string]any)["requests"] = json.Number("9")
 	})
 }
 

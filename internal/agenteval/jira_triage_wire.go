@@ -1,12 +1,12 @@
 package agenteval
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 )
 
@@ -58,29 +58,60 @@ type JiraTriageIssueComment struct {
 	BodyStorage string `json:"body_storage,omitempty"`
 }
 
-// JiraTriageCommentPreview is the evaluator-owned wire of the exact guarded
-// dry-run emitted by `atl jira issue comment add` without --apply. Proposal
-// hashes are opaque commitments: their shape is validated, not reproduced.
+// JiraTriageCommentPreview is the evaluator-owned content-minimized wire of
+// the exact guarded dry-run emitted by `atl jira issue comment preview`.
 type JiraTriageCommentPreview struct {
-	Key            string                 `json:"key"`
-	Mode           string                 `json:"mode"`
-	Status         string                 `json:"status"`
-	Body           string                 `json:"body"`
-	BodySHA256     string                 `json:"body_sha256"`
-	BodyBytes      int                    `json:"body_bytes"`
-	Actor          JiraTriageCommentActor `json:"actor"`
-	CurrentCount   int                    `json:"current_count"`
-	BaselineSHA256 string                 `json:"baseline_sha256"`
-	ProposalHash   string                 `json:"proposal_hash"`
-	Complete       bool                   `json:"complete"`
+	SchemaVersion      int                     `json:"schema_version"`
+	Operation          string                  `json:"operation"`
+	SatisfactionPolicy string                  `json:"satisfaction_policy"`
+	BackendSHA256      string                  `json:"backend_sha256"`
+	RequestedKey       string                  `json:"requested_key"`
+	IssueID            string                  `json:"issue_id"`
+	Key                string                  `json:"key"`
+	Project            string                  `json:"project"`
+	Updated            string                  `json:"updated"`
+	BodySHA256         string                  `json:"body_sha256"`
+	BodyBytes          int                     `json:"body_bytes"`
+	ActorSHA256        string                  `json:"actor_sha256"`
+	CurrentCount       int                     `json:"current_count"`
+	BaselineSHA256     string                  `json:"baseline_sha256"`
+	ExactBodyCount     int                     `json:"exact_body_count"`
+	Bounds             JiraTriageCommentBounds `json:"bounds"`
+	Usage              JiraTriageCommentUsage  `json:"usage"`
+	Mode               string                  `json:"mode"`
+	Status             string                  `json:"status"`
+	ProposalHash       string                  `json:"proposal_hash"`
+	WriteAttempted     bool                    `json:"write_attempted"`
+	Reconciled         bool                    `json:"reconciled"`
+	Complete           bool                    `json:"complete"`
 }
 
-// JiraTriageCommentActor carries only the stable identity facts returned by
-// the guarded preview. It intentionally does not model display or contact
-// data from the transport response.
-type JiraTriageCommentActor struct {
-	Name string `json:"name"`
-	Key  string `json:"key,omitempty"`
+// JiraTriageCommentApply is the evaluator-owned closed recovered-apply wire
+// used by the active triage holdout. It remains separate from the producer
+// decoder so an apply result can never satisfy a preview binding.
+type JiraTriageCommentApply struct {
+	JiraTriageCommentPreview
+	ReadbackUpdated string `json:"readback_updated"`
+	CommentID       string `json:"comment_id"`
+}
+
+type JiraTriageCommentBounds struct {
+	MaxKeyBytes               int   `json:"max_key_bytes"`
+	MaxBodyBytes              int   `json:"max_body_bytes"`
+	MaxEvidenceIDBytes        int   `json:"max_evidence_id_bytes"`
+	MaxEvidenceMetadataBytes  int   `json:"max_evidence_metadata_bytes"`
+	MaxPages                  int   `json:"max_pages"`
+	MaxItems                  int   `json:"max_items"`
+	MaxInventoryBytes         int64 `json:"max_inventory_bytes"`
+	PreviewMaxRequests        int   `json:"preview_max_requests"`
+	ApplyMaxRequests          int   `json:"apply_max_requests"`
+	MaxAggregateResponseBytes int64 `json:"max_aggregate_response_bytes"`
+	DeadlineMillis            int64 `json:"deadline_millis"`
+}
+
+type JiraTriageCommentUsage struct {
+	Requests      int   `json:"requests"`
+	ResponseBytes int64 `json:"response_bytes"`
 }
 
 // DecodeJiraTriageIssueGet strictly decodes the selected triage issue-read
@@ -107,6 +138,17 @@ func DecodeJiraTriageCommentPreview(r io.Reader) (JiraTriageCommentPreview, erro
 		return JiraTriageCommentPreview{}, fmt.Errorf("validate Jira triage comment preview: %w", err)
 	}
 	return preview, nil
+}
+
+func DecodeJiraTriageCommentApply(r io.Reader) (JiraTriageCommentApply, error) {
+	var result JiraTriageCommentApply
+	if err := decodeJiraWorkflowWire(r, jiraTriageCommentPreviewWireMaxBytes, "Jira triage comment apply", &result, validateJiraTriageCommentApplyMembers); err != nil {
+		return JiraTriageCommentApply{}, err
+	}
+	if err := result.validate(); err != nil {
+		return JiraTriageCommentApply{}, fmt.Errorf("validate Jira triage comment apply: %w", err)
+	}
+	return result, nil
 }
 
 func validateJiraTriageIssueGetMembers(data []byte) error {
@@ -145,16 +187,60 @@ func validateJiraTriageCommentPreviewMembers(data []byte) error {
 		return err
 	}
 	if err := jiraWorkflowMembers(root, "Jira triage comment preview", []string{
-		"key", "mode", "status", "body", "body_sha256", "body_bytes", "actor",
-		"current_count", "baseline_sha256", "proposal_hash", "complete",
+		"schema_version", "operation", "satisfaction_policy", "backend_sha256", "requested_key",
+		"issue_id", "key", "project", "updated", "body_sha256", "body_bytes", "actor_sha256",
+		"current_count", "baseline_sha256", "exact_body_count", "bounds", "usage", "mode", "status",
+		"proposal_hash", "write_attempted", "reconciled", "complete",
 	}, nil); err != nil {
 		return err
 	}
-	actor, err := jiraWorkflowNestedObject(root["actor"], "Jira triage comment preview.actor")
+	bounds, err := jiraWorkflowNestedObject(root["bounds"], "Jira triage comment preview.bounds")
 	if err != nil {
 		return err
 	}
-	return jiraWorkflowMembers(actor, "Jira triage comment preview.actor", []string{"name"}, []string{"key"})
+	if err := jiraWorkflowMembers(bounds, "Jira triage comment preview.bounds", []string{
+		"max_key_bytes", "max_body_bytes", "max_evidence_id_bytes", "max_evidence_metadata_bytes", "max_pages",
+		"max_items", "max_inventory_bytes", "preview_max_requests", "apply_max_requests",
+		"max_aggregate_response_bytes", "deadline_millis",
+	}, nil); err != nil {
+		return err
+	}
+	usage, err := jiraWorkflowNestedObject(root["usage"], "Jira triage comment preview.usage")
+	if err != nil {
+		return err
+	}
+	return jiraWorkflowMembers(usage, "Jira triage comment preview.usage", []string{"requests", "response_bytes"}, nil)
+}
+
+func validateJiraTriageCommentApplyMembers(data []byte) error {
+	root, err := jiraWorkflowObject(data, "Jira triage comment apply")
+	if err != nil {
+		return err
+	}
+	if err := jiraWorkflowMembers(root, "Jira triage comment apply", []string{
+		"schema_version", "operation", "satisfaction_policy", "backend_sha256", "requested_key",
+		"issue_id", "key", "project", "updated", "readback_updated", "body_sha256", "body_bytes", "actor_sha256",
+		"current_count", "baseline_sha256", "exact_body_count", "bounds", "usage", "mode", "status",
+		"proposal_hash", "comment_id", "write_attempted", "reconciled", "complete",
+	}, nil); err != nil {
+		return err
+	}
+	bounds, err := jiraWorkflowNestedObject(root["bounds"], "Jira triage comment apply.bounds")
+	if err != nil {
+		return err
+	}
+	if err := jiraWorkflowMembers(bounds, "Jira triage comment apply.bounds", []string{
+		"max_key_bytes", "max_body_bytes", "max_evidence_id_bytes", "max_evidence_metadata_bytes", "max_pages",
+		"max_items", "max_inventory_bytes", "preview_max_requests", "apply_max_requests",
+		"max_aggregate_response_bytes", "deadline_millis",
+	}, nil); err != nil {
+		return err
+	}
+	usage, err := jiraWorkflowNestedObject(root["usage"], "Jira triage comment apply.usage")
+	if err != nil {
+		return err
+	}
+	return jiraWorkflowMembers(usage, "Jira triage comment apply.usage", []string{"requests", "response_bytes"}, nil)
 }
 
 func (issue JiraTriageIssueGet) validate() error {
@@ -286,24 +372,140 @@ func jiraTriageWireOptionalObjectStringMember(fields map[string]json.RawMessage,
 }
 
 func (preview JiraTriageCommentPreview) validate() error {
-	if !jiraWorkflowNormalized(preview.Key) || preview.Mode != "dry-run" || preview.Status != "would_apply" || !preview.Complete {
+	if preview.SchemaVersion != 1 || preview.Operation != "jira_issue_comment_append" || preview.SatisfactionPolicy != "append_always" ||
+		!jiraTriageCanonicalIssueIdentity(preview.RequestedKey, preview.Key, preview.Project, preview.IssueID) ||
+		preview.Mode != "dry-run" || preview.Status != "would_apply" || preview.WriteAttempted || preview.Reconciled || !preview.Complete {
 		return fmt.Errorf("guarded preview state is invalid")
 	}
-	if strings.TrimSpace(preview.Body) == "" || len(preview.Body) > jiraTriageWireMaximumBodyBytes || !utf8.ValidString(preview.Body) || preview.BodyBytes != len(preview.Body) {
-		return fmt.Errorf("preview body is invalid")
+	if _, err := jiraTriageStrictInstant(preview.Updated); err != nil {
+		return fmt.Errorf("preview timestamp is invalid")
 	}
-	if !triageWireSHA256(preview.BodySHA256) || !triageWireSHA256(preview.BaselineSHA256) || !triageWireSHA256(preview.ProposalHash) {
+	if preview.BodyBytes <= 0 || preview.BodyBytes > jiraTriageWireMaximumBodyBytes || preview.CurrentCount < 0 ||
+		preview.ExactBodyCount < 0 || preview.ExactBodyCount > preview.CurrentCount {
+		return fmt.Errorf("preview counts are invalid")
+	}
+	if !jiraTriageTaggedSHA256(preview.BackendSHA256) || !triageWireSHA256(preview.BodySHA256) || !triageWireSHA256(preview.ActorSHA256) ||
+		!triageWireSHA256(preview.BaselineSHA256) || !triageWireSHA256(preview.ProposalHash) {
 		return fmt.Errorf("preview hash is invalid")
 	}
-	bodySum := sha256.Sum256([]byte(preview.Body))
-	if preview.BodySHA256 != hex.EncodeToString(bodySum[:]) {
-		return fmt.Errorf("preview body hash is not reconciled")
+	wantBounds := JiraTriageCommentBounds{
+		MaxKeyBytes: 64, MaxBodyBytes: 1 << 20, MaxEvidenceIDBytes: 64, MaxEvidenceMetadataBytes: 64 << 10,
+		MaxPages: 100, MaxItems: 10_000, MaxInventoryBytes: 16 << 20, PreviewMaxRequests: 102,
+		ApplyMaxRequests: 306, MaxAggregateResponseBytes: 16 << 20, DeadlineMillis: 60_000,
 	}
-	if !jiraWorkflowNormalized(preview.Actor.Name) || preview.Actor.Key != "" && !jiraWorkflowNormalized(preview.Actor.Key) ||
-		preview.CurrentCount < 0 || preview.CurrentCount > jiraTriageWireMaximumCollectionItems {
-		return fmt.Errorf("preview actor or baseline is invalid")
+	if preview.Bounds != wantBounds || preview.CurrentCount > preview.Bounds.MaxItems || preview.Usage.Requests < 3 || preview.Usage.Requests > preview.Bounds.PreviewMaxRequests ||
+		preview.Usage.ResponseBytes < 0 || preview.Usage.ResponseBytes > preview.Bounds.MaxAggregateResponseBytes {
+		return fmt.Errorf("preview bounds or usage are invalid")
 	}
 	return nil
+}
+
+func (result JiraTriageCommentApply) validate() error {
+	if result.SchemaVersion != 1 || result.Operation != "jira_issue_comment_append" || result.SatisfactionPolicy != "append_always" ||
+		!jiraTriageCanonicalIssueIdentity(result.RequestedKey, result.Key, result.Project, result.IssueID) ||
+		!jiraTriagePositiveDecimal(result.CommentID, result.Bounds.MaxEvidenceIDBytes) ||
+		result.Mode != "apply" || result.Status != "recovered" || !result.WriteAttempted || !result.Reconciled || !result.Complete {
+		return fmt.Errorf("guarded apply state is invalid")
+	}
+	updated, updatedErr := jiraTriageStrictInstant(result.Updated)
+	readbackUpdated, readbackErr := jiraTriageStrictInstant(result.ReadbackUpdated)
+	if updatedErr != nil || readbackErr != nil || !readbackUpdated.After(updated) {
+		return fmt.Errorf("apply timestamps are invalid")
+	}
+	if result.BodyBytes <= 0 || result.BodyBytes > jiraTriageWireMaximumBodyBytes || result.CurrentCount < 0 ||
+		result.ExactBodyCount < 0 || result.ExactBodyCount > result.CurrentCount {
+		return fmt.Errorf("apply counts are invalid")
+	}
+	if !jiraTriageTaggedSHA256(result.BackendSHA256) || !triageWireSHA256(result.BodySHA256) || !triageWireSHA256(result.ActorSHA256) ||
+		!triageWireSHA256(result.BaselineSHA256) || !triageWireSHA256(result.ProposalHash) {
+		return fmt.Errorf("apply hash is invalid")
+	}
+	wantBounds := JiraTriageCommentBounds{
+		MaxKeyBytes: 64, MaxBodyBytes: 1 << 20, MaxEvidenceIDBytes: 64, MaxEvidenceMetadataBytes: 64 << 10,
+		MaxPages: 100, MaxItems: 10_000, MaxInventoryBytes: 16 << 20, PreviewMaxRequests: 102,
+		ApplyMaxRequests: 306, MaxAggregateResponseBytes: 16 << 20, DeadlineMillis: 60_000,
+	}
+	if result.Bounds != wantBounds || result.CurrentCount > result.Bounds.MaxItems || result.Usage.Requests < 9 || result.Usage.Requests > result.Bounds.ApplyMaxRequests ||
+		result.Usage.ResponseBytes < 0 || result.Usage.ResponseBytes > result.Bounds.MaxAggregateResponseBytes {
+		return fmt.Errorf("apply bounds or usage are invalid")
+	}
+	return nil
+}
+
+func jiraTriageCanonicalIssueIdentity(requestedKey, key, project, issueID string) bool {
+	if requestedKey != key || len(key) > 64 || !jiraTriageCanonicalIssueKey(key) ||
+		len(project) > 64 || !jiraTriageCanonicalIssueKey(project+"-1") || !strings.HasPrefix(key, project+"-") {
+		return false
+	}
+	return jiraTriagePositiveDecimal(issueID, 64)
+}
+
+func jiraTriageCanonicalIssueKey(value string) bool {
+	dash := strings.LastIndexByte(value, '-')
+	if dash < 2 || dash > 32 || dash == len(value)-1 || value[0] < 'A' || value[0] > 'Z' || value[dash+1] == '0' {
+		return false
+	}
+	for index := 0; index < dash; index++ {
+		char := value[index]
+		if (char < 'A' || char > 'Z') && (char < '0' || char > '9') && char != '_' {
+			return false
+		}
+	}
+	return jiraTriageDigits(value[dash+1:])
+}
+
+func jiraTriagePositiveDecimal(value string, maximum int) bool {
+	if value == "" || maximum <= 0 || len(value) > maximum || value[0] == '0' {
+		return false
+	}
+	if !jiraTriageDigits(value) {
+		return false
+	}
+	number, err := strconv.ParseUint(value, 10, 64)
+	return err == nil && number > 0
+}
+
+func jiraTriageTaggedSHA256(value string) bool {
+	return strings.HasPrefix(value, "sha256:") && triageWireSHA256(value[len("sha256:"):])
+}
+
+func jiraTriageStrictInstant(value string) (time.Time, error) {
+	core := ""
+	switch {
+	case len(value) >= 20 && value[len(value)-1] == 'Z':
+		core = value[:len(value)-1]
+	case len(value) >= 25 && (value[len(value)-6] == '+' || value[len(value)-6] == '-') && value[len(value)-3] == ':' &&
+		jiraTriageDigits(value[len(value)-5:len(value)-3]) && jiraTriageDigits(value[len(value)-2:]):
+		core = value[:len(value)-6]
+	case len(value) >= 24 && (value[len(value)-5] == '+' || value[len(value)-5] == '-') && jiraTriageDigits(value[len(value)-4:]):
+		core = value[:len(value)-5]
+	default:
+		return time.Time{}, fmt.Errorf("unsupported Jira timestamp")
+	}
+	if len(core) < 19 || core[4] != '-' || core[7] != '-' || core[10] != 'T' || core[13] != ':' || core[16] != ':' ||
+		!jiraTriageDigits(core[0:4]) || !jiraTriageDigits(core[5:7]) || !jiraTriageDigits(core[8:10]) ||
+		!jiraTriageDigits(core[11:13]) || !jiraTriageDigits(core[14:16]) || !jiraTriageDigits(core[17:19]) ||
+		len(core) > 19 && (core[19] != '.' || len(core) > 29 || !jiraTriageDigits(core[20:])) {
+		return time.Time{}, fmt.Errorf("unsupported Jira timestamp")
+	}
+	for _, layout := range []string{time.RFC3339Nano, "2006-01-02T15:04:05.999999999-0700", "2006-01-02T15:04:05-0700"} {
+		if parsed, err := time.Parse(layout, value); err == nil {
+			return parsed, nil
+		}
+	}
+	return time.Time{}, fmt.Errorf("unsupported Jira timestamp")
+}
+
+func jiraTriageDigits(value string) bool {
+	if value == "" {
+		return false
+	}
+	for index := range value {
+		if value[index] < '0' || value[index] > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func triageWireSHA256(value string) bool {

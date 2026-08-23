@@ -57,7 +57,7 @@ func TestGuardedProposalHashDigestInventory(t *testing.T) {
 		"confluencePageTrashProposalHash":        {file: "confluence_page_trash.go", argument: "canonical"},
 		"confluencePlanHash":                     {file: "confluence_plan.go", argument: "canonical"},
 		"confluenceTitleProposalHash":            {file: "confluence_title.go", argument: "canonical"},
-		"jiraCommentProposalHash":                {file: "jira_comments_guarded.go", argument: "canonical"},
+		"guardedCommentProposalHash":             {file: "jira_comments_guarded_snapshot.go", argument: "data"},
 		"jiraDescriptionEditProposalHash":        {file: "jira_description_edit.go", argument: "canonical"},
 		"guardedLinkProposalHash":                {file: "jira_links_guarded.go", argument: "canonical"},
 		"guardedCreateProposalHash":              {file: "jira_create_guarded_snapshot.go", argument: "canonical"},

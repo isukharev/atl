@@ -309,25 +309,29 @@ const (
 	triagePreviewActorKey  = "synthetic-operator"
 )
 
-func TestRepositoryJiraTriageHoldoutCurrentCLIGuardedPreviewIsNoWrite(t *testing.T) {
+func TestRepositoryJiraTriageHoldoutCurrentCLIGuardedCommentRecoversMalformedAcknowledgement(t *testing.T) {
 	holdout := triageCohorts[1]
 	root := triageRoot(holdout.directory)
 	fixture := loadRepositoryMockFixture(t, filepath.Join(root, "fixture.json"))
 	assertTriageFixtureTopology(t, fixture, holdout)
 	policy := triageCodexPolicy(t, root)
-	args := triageHoldoutCommentCommand(holdout)
+	previewArgs := triageHoldoutCommentPreviewCommand(holdout)
+	applyArgs := triageHoldoutCommentApplyCommand(holdout, strings.Repeat("a", 64))
 
-	// The regular admission path remains typed read-only before command-specific
-	// input handling, even though the current command default is a preview.
-	normal := startJiraTriageHoldoutPreviewProcess(t, root, fixture, holdout, policy)
-	assertJiraSyntheticWriteReadOnlyByDefault(t, normal, args)
+	normal := startJiraTriageHoldoutProcess(t, root, fixture, holdout, policy)
+	assertJiraSyntheticWriteReadOnlyByDefault(t, normal, applyArgs)
 
-	process := startJiraTriageHoldoutPreviewProcess(t, root, fixture, holdout, policy)
+	process := startJiraTriageHoldoutProcess(t, root, fixture, holdout, policy)
 	workspaceBefore, err := digestWorkspaceTree(process.workspaceRoot)
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := process.RunSyntheticWriteCLIJSON(t.Context(), args...)
+	for index := range holdout.queries {
+		callJiraTriageCLIJSON(t, process, triageSearchCommand(holdout, index))
+	}
+	callJiraTriageCLIJSON(t, process, triageIssueGetCommand(holdout, holdout.targetKey))
+
+	result, err := process.RunSyntheticWriteCLIJSON(t.Context(), previewArgs...)
 	if err != nil {
 		t.Fatalf("selected holdout guarded preview: %v", err)
 	}
@@ -340,11 +344,27 @@ func TestRepositoryJiraTriageHoldoutCurrentCLIGuardedPreviewIsNoWrite(t *testing
 	}
 	body := triageFixtureCommentBody(t, fixture)
 	ids := triageFixtureCommentBaselineIDs(t, fixture)
+	actorDigest := triageSHA256([]byte(`{"name":"` + triagePreviewActorName + `","key":"` + triagePreviewActorKey + `"}`))
 	if preview.Key != holdout.targetKey || preview.Mode != "dry-run" || preview.Status != "would_apply" || !preview.Complete ||
-		preview.Body != body || preview.BodySHA256 != triageSHA256([]byte(body)) || preview.BodyBytes != len(body) ||
-		preview.Actor != (JiraTriageCommentActor{Name: triagePreviewActorName, Key: triagePreviewActorKey}) ||
-		preview.CurrentCount != len(ids) || preview.BaselineSHA256 != triageBaselineSHA256(t, ids) {
+		preview.BodySHA256 != triageSHA256([]byte(body)) || preview.BodyBytes != len(body) || preview.ActorSHA256 != actorDigest ||
+		preview.CurrentCount != len(ids) || preview.Usage.Requests != 3 || !triageWireSHA256(preview.BaselineSHA256) || !triageWireSHA256(preview.ProposalHash) {
 		t.Fatalf("selected holdout guarded preview=%+v body=%q baseline_ids=%v", preview, body, ids)
+	}
+	applyArgs = triageHoldoutCommentApplyCommand(holdout, preview.ProposalHash)
+	result, err = process.RunSyntheticWriteCLIJSON(t.Context(), applyArgs...)
+	if err != nil {
+		t.Fatalf("selected holdout guarded apply: %v", err)
+	}
+	if result.ExitCode != 0 || len(result.JSON) == 0 || len(result.Stderr) != 0 {
+		t.Fatalf("selected holdout guarded apply exit=%d stdout_bytes=%d stderr_bytes=%d", result.ExitCode, len(result.JSON), len(result.Stderr))
+	}
+	applied, err := DecodeJiraTriageCommentApply(bytes.NewReader(result.JSON))
+	if err != nil {
+		t.Fatalf("decode selected holdout guarded apply: %v", err)
+	}
+	if applied.Mode != "apply" || applied.Status != "recovered" || applied.CommentID != holdout.commentID ||
+		!applied.WriteAttempted || !applied.Reconciled || !applied.Complete || applied.ProposalHash != preview.ProposalHash || applied.Usage.Requests != 9 {
+		t.Fatalf("selected holdout guarded apply=%+v", applied)
 	}
 	workspaceAfter, err := digestWorkspaceTree(process.workspaceRoot)
 	if err != nil {
@@ -355,22 +375,22 @@ func TestRepositoryJiraTriageHoldoutCurrentCLIGuardedPreviewIsNoWrite(t *testing
 	}
 
 	summary := process.Summary()
-	if !process.RequestSequenceComplete() || !maps.Equal(summary.HTTPMethods, map[string]int{"GET": 2}) ||
-		summary.UnexpectedRequests != 0 || summary.DuplicateRequests != 0 ||
-		!maps.Equal(summary.CLIInvocations, map[string]int{"comment": 1}) || len(summary.MCPInvocations) != 0 {
-		t.Fatalf("selected holdout guarded preview accounting drifted: summary=%+v sequence_complete=%t", summary, process.RequestSequenceComplete())
+	if !process.RequestSequenceComplete() || !maps.Equal(summary.HTTPMethods, holdout.methods) ||
+		summary.UnexpectedRequests != 0 || summary.DuplicateRequests != holdout.duplicates ||
+		!maps.Equal(summary.CLIInvocations, map[string]int{"search_specific": 1, "search_broad": 1, "candidate": 1, "preview_comment": 1, "comment": 1}) || len(summary.MCPInvocations) != 0 {
+		t.Fatalf("selected holdout guarded accounting drifted: summary=%+v sequence_complete=%t", summary, process.RequestSequenceComplete())
 	}
-	if _, err := process.RunSyntheticWriteCLIJSON(t.Context(), args...); err == nil {
-		t.Fatal("selected holdout guarded preview replay was admitted")
+	if _, err := process.RunSyntheticWriteCLIJSON(t.Context(), applyArgs...); err == nil {
+		t.Fatal("selected holdout guarded apply replay was admitted")
 	}
 	afterReplay := process.Summary()
 	if !maps.Equal(afterReplay.HTTPMethods, summary.HTTPMethods) || afterReplay.UnexpectedRequests != summary.UnexpectedRequests ||
 		afterReplay.DuplicateRequests != summary.DuplicateRequests || !maps.Equal(afterReplay.CLIInvocations, summary.CLIInvocations) {
-		t.Fatalf("selected holdout guarded preview replay changed evidence: before=%+v after=%+v", summary, afterReplay)
+		t.Fatalf("selected holdout guarded apply replay changed evidence: before=%+v after=%+v", summary, afterReplay)
 	}
 }
 
-func startJiraTriageHoldoutPreviewProcess(
+func startJiraTriageHoldoutProcess(
 	t *testing.T,
 	root string,
 	fixture MockFixture,
@@ -378,55 +398,52 @@ func startJiraTriageHoldoutPreviewProcess(
 	policy CLICommandPolicy,
 ) *SyntheticATLProcess {
 	t.Helper()
-	args := triageHoldoutCommentCommand(cohort)
-	match, err := policy.Match(args)
-	if err != nil || match.Name != "comment" {
-		t.Fatalf("holdout triage comment policy match=%+v err=%v", match, err)
+	writeRules := make(SyntheticWriteRules, 0, 2)
+	for _, args := range [][]string{triageHoldoutCommentPreviewCommand(cohort), triageHoldoutCommentApplyCommand(cohort, strings.Repeat("a", 64))} {
+		match, err := policy.Match(args)
+		if err != nil {
+			t.Fatalf("holdout triage comment policy match=%+v err=%v", match, err)
+		}
+		writeRules = append(writeRules, match.Name)
 	}
 	process, err := StartSyntheticATLProcess(t.Context(), SyntheticATLProcessConfig{
-		Binary: repositorySyntheticATLBinary(t), Fixture: prepareJiraTriageHoldoutPreviewFixture(t, fixture, cohort),
+		Binary: repositorySyntheticATLBinary(t), Fixture: prepareJiraTriageHoldoutProcessFixture(t, fixture, cohort),
 		ScratchRoot: privateSyntheticATLScratch(t), WorkspaceTemplate: filepath.Join(root, "workspace"),
-		SyntheticWriteRules: SyntheticWriteRules{"comment"}, CLIPolicy: policy,
+		SyntheticWriteRules: writeRules, CLIPolicy: policy,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
 		if err := process.Close(); err != nil {
-			t.Errorf("close selected holdout triage preview process: %v", err)
+			t.Errorf("close selected holdout triage process: %v", err)
 		}
 	})
 	return process
 }
 
-func prepareJiraTriageHoldoutPreviewFixture(t *testing.T, fixture MockFixture, cohort triageCohort) MockFixture {
+func prepareJiraTriageHoldoutProcessFixture(t *testing.T, fixture MockFixture, cohort triageCohort) MockFixture {
 	t.Helper()
 	if cohort.decision != "comment" || !slices.Equal(fixture.RequestSequence, cohort.sequence) {
 		t.Fatalf("holdout triage fixture branch drifted: decision=%q sequence=%v want=%v", cohort.decision, fixture.RequestSequence, cohort.sequence)
 	}
-	comments := triageRoute(t, fixture, "comments")
-	if len(comments.Responses) != 2 {
-		t.Fatalf("holdout triage preview needs one retained baseline from two historical responses, got %d", len(comments.Responses))
-	}
-	comments.Responses = []MockResponse{comments.Responses[0]}
-	comments.closedQuery = true
 	prepared := fixture
-	prepared.Routes = []MockRoute{{
-		Name: "current_user", Method: "GET", Path: fixture.JiraContext + "/rest/api/2/myself", Status: 200, closedQuery: true,
-		Body: json.RawMessage(`{"name":"synthetic-operator","key":"synthetic-operator","displayName":"Synthetic Operator","active":true}`),
-	}, comments}
-	prepared.RequestSequence = []string{"current_user", "comments"}
-	if slices.Equal(prepared.RequestSequence, cohort.sequence) || len(prepared.RequestSequence) != 2 {
-		t.Fatalf("holdout preview sequence accidentally became the retained historical trace: %v", prepared.RequestSequence)
+	prepared.Routes = slices.Clone(fixture.Routes)
+	for index := range prepared.Routes {
+		prepared.Routes[index].closedQuery = true
 	}
 	if err := prepared.Validate(); err != nil {
-		t.Fatalf("prepare holdout triage preview fixture: %v", err)
+		t.Fatalf("prepare holdout triage fixture: %v", err)
 	}
 	return prepared
 }
 
-func triageHoldoutCommentCommand(cohort triageCohort) []string {
-	return []string{"jira", "issue", "comment", "add", cohort.targetKey, "--from-md", "duplicate-comment.md"}
+func triageHoldoutCommentPreviewCommand(cohort triageCohort) []string {
+	return []string{"jira", "issue", "comment", "preview", cohort.targetKey, "--from-md", "duplicate-comment.md"}
+}
+
+func triageHoldoutCommentApplyCommand(cohort triageCohort, proposalHash string) []string {
+	return []string{"jira", "issue", "comment", "add", cohort.targetKey, "--from-md", "duplicate-comment.md", "--apply", "--expected-proposal-hash", proposalHash}
 }
 
 func triageFixtureCommentBody(t *testing.T, fixture MockFixture) string {
@@ -471,18 +488,6 @@ func triageFixtureCommentBaselineIDs(t *testing.T, fixture MockFixture) []string
 	}
 	slices.Sort(ids)
 	return ids
-}
-
-func triageBaselineSHA256(t *testing.T, ids []string) string {
-	t.Helper()
-	canonical, err := json.Marshal(struct {
-		SchemaVersion int      `json:"schema_version"`
-		IDs           []string `json:"ids"`
-	}{SchemaVersion: 1, IDs: ids})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return triageSHA256(canonical)
 }
 
 func triageSHA256(data []byte) string {

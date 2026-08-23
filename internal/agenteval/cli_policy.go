@@ -51,6 +51,7 @@ type CLIFlagRule struct {
 
 type CLICommandMatch struct {
 	Name                 string
+	Command              []string
 	BindsProposalHash    string
 	RequiresProposalHash string
 	MaxInvocations       int
@@ -179,7 +180,7 @@ func (p CLICommandPolicy) Match(args []string) (CLICommandMatch, error) {
 		return CLICommandMatch{}, fmt.Errorf("cli command policy is ambiguous")
 	}
 	return CLICommandMatch{
-		Name: matches[0].Name, BindsProposalHash: matches[0].BindsProposalHash,
+		Name: matches[0].Name, Command: append([]string(nil), matches[0].Command...), BindsProposalHash: matches[0].BindsProposalHash,
 		RequiresProposalHash: matches[0].RequiresProposalHash, MaxInvocations: matches[0].MaxInvocations,
 	}, nil
 }
