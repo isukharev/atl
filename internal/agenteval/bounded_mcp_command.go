@@ -579,7 +579,7 @@ func (b *synchronizedBoundedBuffer) Write(data []byte) (int, error) {
 			_, _ = b.buffer.Write(data[:remaining])
 		}
 		b.exceeded = true
-		return 0, io.ErrShortWrite
+		return int(remaining), io.ErrShortWrite
 	}
 	return b.buffer.Write(data)
 }

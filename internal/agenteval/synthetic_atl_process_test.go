@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
 	"maps"
 	"os"
 	"path/filepath"
@@ -14,6 +16,30 @@ import (
 	"testing"
 	"time"
 )
+
+func TestSynchronizedBoundedBufferBoundsAndStabilizesAfterOverflow(t *testing.T) {
+	exact := &synchronizedBoundedBuffer{maximum: 4}
+	if written, err := exact.Write([]byte("abcd")); written != 4 || err != nil {
+		t.Fatalf("exact-bound write=%d err=%v", written, err)
+	}
+	if exact.overflowed() || exact.buffer.String() != "abcd" {
+		t.Fatalf("exact-bound state: overflow=%t retained=%q", exact.overflowed(), exact.buffer.String())
+	}
+
+	overflow := &synchronizedBoundedBuffer{maximum: 4}
+	if written, err := overflow.Write([]byte("abcdef")); written != 4 || !errors.Is(err, io.ErrShortWrite) {
+		t.Fatalf("overflow write=%d err=%v", written, err)
+	}
+	if !overflow.overflowed() || overflow.buffer.String() != "abcd" {
+		t.Fatalf("overflow state: overflow=%t retained=%q", overflow.overflowed(), overflow.buffer.String())
+	}
+	if written, err := overflow.Write([]byte("z")); written != 0 || !errors.Is(err, io.ErrShortWrite) {
+		t.Fatalf("subsequent write=%d err=%v", written, err)
+	}
+	if !overflow.overflowed() || overflow.buffer.String() != "abcd" {
+		t.Fatalf("subsequent state: overflow=%t retained=%q", overflow.overflowed(), overflow.buffer.String())
+	}
+}
 
 func TestSyntheticMCPServeArgsPreserveDefaultProfileOmission(t *testing.T) {
 	for _, test := range []struct {
@@ -892,7 +918,12 @@ exec /bin/sleep 10`,
 		},
 		"stderr": {
 			maxMCP: 4096, maxStderr: 64, wantError: "stderr exceeded",
-			body: validResponsePrefix + `i=0; while [ "$i" -lt 100 ]; do printf '0123456789' >&2; i=$((i + 1)); done
+			// The bounded 2 MiB producer exceeds supported Unix pipe capacities. Its
+			// subshell must observe the reader closing before stdout is published.
+			body: validResponsePrefix + `(i=0; while [ "$i" -lt 2048 ]; do
+  printf '%1024s' x >&2 || exit
+  i=$((i + 1))
+done) || :
 printf '%s\n' '{"jsonrpc":"2.0","id":2,"result":{"content":[{"type":"text","text":"ok"}],"structuredContent":{"schema_version":1},"isError":false}}'
 exec /bin/sleep 10`,
 		},
