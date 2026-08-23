@@ -15,19 +15,19 @@ import (
 // coarse recovery action. Transport layers may add their own policy-specific
 // cases before calling Classify.
 func Classify(err error) (kind, remediation string) {
-	terminalAmbiguous := terminalAmbiguousCheckFailure(err)
+	terminal := terminalCheckFailure(err)
 	switch {
-	case !terminalAmbiguous && errors.Is(err, domain.ErrAuth):
+	case !terminal && errors.Is(err, domain.ErrAuth):
 		return "authentication_failed", "reauthenticate"
-	case !terminalAmbiguous && errors.Is(err, domain.ErrNotFound):
+	case !terminal && errors.Is(err, domain.ErrNotFound):
 		return "not_found", "verify_identifier_or_access"
-	case !terminalAmbiguous && errors.Is(err, domain.ErrVersionConflict):
+	case !terminal && errors.Is(err, domain.ErrVersionConflict):
 		return "version_conflict", "refresh_and_reapply"
-	case !terminalAmbiguous && errors.Is(err, domain.ErrForbidden):
+	case !terminal && errors.Is(err, domain.ErrForbidden):
 		return "forbidden", "request_access"
-	case !terminalAmbiguous && errors.Is(err, domain.ErrConfig):
+	case !terminal && errors.Is(err, domain.ErrConfig):
 		return "configuration_error", "complete_configuration"
-	case !terminalAmbiguous && errors.Is(err, domain.ErrOutputLimit):
+	case !terminal && errors.Is(err, domain.ErrOutputLimit):
 		return "output_limit_exceeded", "narrow_or_raise_bound"
 	case errors.Is(err, domain.ErrCheckFailed):
 		return "check_failed", "review_failed_check"
@@ -48,7 +48,11 @@ func Classify(err error) (kind, remediation string) {
 	return "unexpected_error", "inspect_error"
 }
 
-func terminalAmbiguousCheckFailure(err error) bool {
+func terminalCheckFailure(err error) bool {
+	var terminal terminalCheckFailureMetadata
+	if errors.Is(err, domain.ErrCheckFailed) && errors.As(err, &terminal) && terminal.DiagnosticTerminalCheckFailure() {
+		return true
+	}
 	var ambiguous ambiguousWriteMetadata
 	return errors.Is(err, domain.ErrCheckFailed) && errors.As(err, &ambiguous) && ambiguous.DiagnosticAmbiguousWrite()
 }

@@ -18,9 +18,12 @@ command substitution, pipeline, or value from another preview.
 atl jira issue create preview --project LAB --type Bug --summary 'Cache: refresh fails after token rotation' --from-md new-bug.md
 env -u ATL_READ_ONLY atl jira issue create --project LAB --type Bug --summary 'Cache: refresh fails after token rotation' --from-md new-bug.md --apply --expected-proposal-hash PREVIEW_PROPOSAL_HASH
 
-If the rule selects the open-duplicate alternative, first list its comments, then run only this write, and list comments once more only if the write response is ambiguous:
+If the rule selects the open-duplicate alternative, run the adjacent guarded
+preview/apply pair below. Strictly read this preview's JSON `proposal_hash` and
+replace `PREVIEW_PROPOSAL_HASH` in its apply with that exact value under the
+same substitution restrictions:
 
-atl jira issue comment list LAB-52
-env -u ATL_READ_ONLY atl jira issue comment add LAB-52 --from-md duplicate-comment.md
+atl jira issue comment preview LAB-52 --from-md duplicate-comment.md
+env -u ATL_READ_ONLY atl jira issue comment add LAB-52 --from-md duplicate-comment.md --apply --expected-proposal-hash PREVIEW_PROPOSAL_HASH
 
 Return only the requested structured response. Search completeness comes from each search page contract. Report exact JQL, candidate signals and scores, decision, returned key or reconciled comment id, one write attempt, no replay, CLI failure count, and `next_action` `complete`.

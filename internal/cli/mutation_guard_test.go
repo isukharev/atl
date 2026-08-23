@@ -261,7 +261,7 @@ func TestMutationGuardSpecsPreserveReviewedPhasesAndFamilies(t *testing.T) {
 		"conf page title set":          {mutationGuardCommandOwned, mutationGuardGeneric},
 		"conf plan apply":              {mutationGuardCommandOwned, mutationGuardGeneric},
 		"corpus cache retention apply": {mutationGuardPreConfig, mutationGuardGeneric},
-		"jira issue comment add":       {mutationGuardCommandOwned, mutationGuardGeneric},
+		"jira issue comment add":       {mutationGuardPreConfig, mutationGuardJiraGuardedComment},
 		"jira issue create":            {mutationGuardPreConfig, mutationGuardJiraGuardedCreate},
 		"jira issue delete":            {mutationGuardPreConfig, mutationGuardJiraIssueDelete},
 		"jira issue edit":              {mutationGuardPreConfig, mutationGuardJiraDescriptionEdit},

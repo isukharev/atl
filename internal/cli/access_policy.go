@@ -96,6 +96,7 @@ const (
 	mutationGuardJiraGuardedLink
 	mutationGuardJiraGuardedCreate
 	mutationGuardJiraGuardedLabels
+	mutationGuardJiraGuardedComment
 )
 
 type mutationGuardSpec struct {
@@ -279,7 +280,7 @@ R remote-read json,text,id jira issue attachment list
 M remote-write-with-local remote-direct create jira-issue-arg - json jira issue attachment upload
 R remote-read json,text jira issue check
 R remote-read json,text,id jira issue children
-M remote-write-with-local preview-apply comment jira-issue-arg apply,expected-proposal-hash command generic json,text jira issue comment add
+M remote-write-with-local preview-apply comment jira-issue-arg apply,expected-proposal-hash pre-config jira-guarded-comment json,text jira issue comment add
 M remote-write remote-direct delete jira-issue-arg - json jira issue comment delete
 R remote-read json,text,id jira issue comment list
 R remote-read-with-local json,text jira issue comment preview
@@ -616,13 +617,8 @@ func installPureGroupFallbacks(cmd *cobra.Command) {
 }
 func validateMutationInvocation(cmd *cobra.Command) error {
 	path := commandRegistryPath(cmd.Root(), cmd)
-	// Dedicated previews retain their parents' pure pre-config validation so
-	// malformed inputs cannot reach credentials, stdin, self-update, or network.
-	if path == "jira issue create preview" {
-		return validateJiraGuardedCreateInvocation(cmd, false)
-	}
-	if path == "jira issue labels preview" {
-		return validateJiraGuardedLabelInvocation(cmd, false)
+	if handled, err := validateGuardedPreviewInvocation(cmd, path); handled {
+		return err
 	}
 	registration, ok := commandRegistry.nodes[path]
 	if !ok || registration.traits&commandMutating == 0 {
@@ -678,6 +674,9 @@ func validateMutationInvocation(cmd *cobra.Command) error {
 		}
 		if missing {
 			if registration.profile == mutationPreviewApply {
+				if guard.family == mutationGuardJiraGuardedComment && requirement == mutationGuardExpectedProposalHash {
+					return usageErr("--expected-proposal-hash is required with --apply; run the dry-run first")
+				}
 				return usageErr("--%s is required with --apply", name)
 			}
 			return usageErr("--%s is required for this apply command", name)
@@ -705,6 +704,8 @@ func validateMutationGuardFamily(cmd *cobra.Command, family mutationGuardFamily,
 		return validateJiraGuardedCreateInvocation(cmd, applyRequested)
 	case mutationGuardJiraGuardedLabels:
 		return validateJiraGuardedLabelInvocation(cmd, applyRequested)
+	case mutationGuardJiraGuardedComment:
+		return validateJiraGuardedCommentInvocation(cmd, applyRequested)
 	default:
 		return &accessPolicyInvariantError{Command: fmt.Sprintf("%s has invalid mutation guard family", cmd.CommandPath())}
 	}

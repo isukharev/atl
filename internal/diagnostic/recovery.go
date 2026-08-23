@@ -2,6 +2,8 @@ package diagnostic
 
 import (
 	"errors"
+
+	"github.com/isukharev/atl/internal/domain"
 )
 
 const RecoverySchemaVersion = 1
@@ -88,6 +90,10 @@ type ambiguousWriteMetadata interface {
 	DiagnosticAmbiguousWrite() bool
 }
 
+type terminalCheckFailureMetadata interface {
+	DiagnosticTerminalCheckFailure() bool
+}
+
 type readOnlyPolicyMetadata interface {
 	DiagnosticReadOnlyPolicy() bool
 }
@@ -114,6 +120,10 @@ func Recover(err error, operation OperationContext) Recovery {
 	var ambiguous ambiguousWriteMetadata
 	if errors.As(err, &ambiguous) && ambiguous.DiagnosticAmbiguousWrite() {
 		base.Action = RecoveryReconcileWriteOutcome
+		return base
+	}
+	var terminal terminalCheckFailureMetadata
+	if errors.Is(err, domain.ErrCheckFailed) && errors.As(err, &terminal) && terminal.DiagnosticTerminalCheckFailure() {
 		return base
 	}
 

@@ -67,16 +67,17 @@ var triageCohorts = []triageCohort{
 			{key: "OPS-88", status: "Open", signature: true, component: true, trigger: true, open: true, score: 100},
 		},
 		decision: "comment", targetKey: "OPS-88", commentID: "801", newSummary: "Indexer: retry storm after lease renewal",
-		sequence: []string{"search_specific", "search_broad", "candidate", "comments", "comment", "comments"},
-		methods:  map[string]int{"GET": 5, "POST": 1}, exitCodes: []int{0, 0, 0, 0, 1, 0}, duplicates: 1, failures: 1,
+		sequence: []string{
+			"search_specific", "search_broad", "candidate",
+			"current_user", "guarded_issue_key", "comments",
+			"current_user", "guarded_issue_key", "comments",
+			"current_user", "guarded_issue_id", "comments", "comment", "guarded_issue_id", "comments",
+		},
+		methods: map[string]int{"GET": 14, "POST": 1}, exitCodes: []int{0, 0, 0, 0, 0}, duplicates: 7,
 	},
 }
 
-// TestRepositoryJiraTriageIssueFixturesDriveSelectedCLIAndHistoricalOracles
-// keeps the primary evidence bound to the selected CLI. The paired holdout is
-// a retained historical trace: its old raw POST-failure/reconciliation shape is
-// checked statically below and is not represented as current CLI behavior.
-func TestRepositoryJiraTriageIssueFixturesDriveSelectedCLIAndHistoricalOracles(t *testing.T) {
+func TestRepositoryJiraTriageIssueFixturesDriveSelectedCLIAndGuardedOracles(t *testing.T) {
 	primary := triageCohorts[0]
 	t.Run(primary.directory+" selected CLI", func(t *testing.T) {
 		root := triageRoot(primary.directory)
@@ -89,23 +90,20 @@ func TestRepositoryJiraTriageIssueFixturesDriveSelectedCLIAndHistoricalOracles(t
 	})
 
 	holdout := triageCohorts[1]
-	t.Run(holdout.directory+" retained historical oracle", func(t *testing.T) {
+	t.Run(holdout.directory+" guarded oracle", func(t *testing.T) {
 		root := triageRoot(holdout.directory)
 		fixture := loadRepositoryMockFixture(t, filepath.Join(root, "fixture.json"))
 		assertTriageFixtureTopology(t, fixture, holdout)
-		assertTriageHistoricalFixtureReconciliation(t, fixture, holdout)
-		// The fixture deliberately records an earlier raw POST failure followed by
-		// readback. The active provider contract still describes that selected
-		// comment branch exactly; guarded create remains its unused alternative.
+		assertTriageGuardedFixtureRecovery(t, fixture, holdout)
 		assertTriageProviderOracles(t, root, holdout, triageFinal(t, holdout), holdout.methods, holdout.duplicates)
 	})
 }
 
-func assertTriageHistoricalFixtureReconciliation(t *testing.T, fixture MockFixture, cohort triageCohort) {
+func assertTriageGuardedFixtureRecovery(t *testing.T, fixture MockFixture, cohort triageCohort) {
 	t.Helper()
 	comments := triageRoute(t, fixture, "comments")
-	if len(comments.Responses) != 2 {
-		t.Fatalf("historical comments responses=%d want=2", len(comments.Responses))
+	if len(comments.Responses) != 4 {
+		t.Fatalf("guarded comments responses=%d want=4", len(comments.Responses))
 	}
 	decode := func(raw json.RawMessage) []triageHistoricalComment {
 		var document struct {
@@ -122,7 +120,7 @@ func assertTriageHistoricalFixtureReconciliation(t *testing.T, fixture MockFixtu
 		result := make([]triageHistoricalComment, len(document.Comments))
 		for index, comment := range document.Comments {
 			if comment.ID == "" {
-				t.Fatal("historical comment response contains an empty id")
+				t.Fatal("guarded comment response contains an empty id")
 			}
 			result[index] = triageHistoricalComment{id: comment.ID, body: comment.Body}
 		}
@@ -134,9 +132,13 @@ func assertTriageHistoricalFixtureReconciliation(t *testing.T, fixture MockFixtu
 	if err := json.Unmarshal(triageRoute(t, fixture, "comment").RequestBody, &request); err != nil || request.Body == "" {
 		t.Fatalf("decode historical comment request: %v", err)
 	}
-	id, ok := reconcileTriageComment(decode(comments.Responses[0].Body), decode(comments.Responses[1].Body), request.Body)
+	commentRoute := triageRoute(t, fixture, "comment")
+	if commentRoute.Status != http.StatusCreated || string(commentRoute.Body) != "{}" || commentRoute.Path != fixture.JiraContext+"/rest/api/2/issue/9188/comment" {
+		t.Fatalf("guarded malformed acknowledgement route=%+v", commentRoute)
+	}
+	id, ok := reconcileTriageComment(decode(comments.Responses[2].Body), decode(comments.Responses[3].Body), request.Body)
 	if !ok || id != cohort.commentID {
-		t.Fatalf("historical fixture reconciliation id=%q ok=%t want=%q", id, ok, cohort.commentID)
+		t.Fatalf("guarded fixture reconciliation id=%q ok=%t want=%q", id, ok, cohort.commentID)
 	}
 }
 
@@ -375,12 +377,20 @@ func assertTriageFixtureTopology(t *testing.T, fixture MockFixture, cohort triag
 				t.Fatalf("create route drifted: %+v", route)
 			}
 		case route.Name == "comments":
-			if len(route.Responses) != 2 || route.QueryEquals["startAt"] != "0" || route.QueryEquals["maxResults"] != "100" {
+			if len(route.Responses) != 4 || route.Path != "/jira/rest/api/2/issue/9188/comment" || route.QueryEquals["startAt"] != "0" || route.QueryEquals["maxResults"] != "100" {
 				t.Fatalf("stateful comments route drifted: %+v", route)
 			}
 		case route.Name == "comment":
-			if route.Method != "POST" || route.Status != 500 || len(route.RequestBody) == 0 {
+			if route.Method != "POST" || route.Path != "/jira/rest/api/2/issue/9188/comment" || route.Status != http.StatusCreated || string(route.Body) != "{}" || len(route.RequestBody) == 0 {
 				t.Fatalf("comment route drifted: %+v", route)
+			}
+		case route.Name == "current_user":
+			if route.Method != "GET" || route.Path != "/jira/rest/api/2/myself" || route.Status != http.StatusOK {
+				t.Fatalf("guarded actor route drifted: %+v", route)
+			}
+		case strings.HasPrefix(route.Name, "guarded_issue_"):
+			if route.Method != "GET" || route.QueryEquals["fields"] != "project,updated" || len(route.Responses) != 2 {
+				t.Fatalf("guarded issue route drifted: %+v", route)
 			}
 		}
 	}
@@ -461,14 +471,14 @@ func TestRepositoryJiraTriageIssueFailsClosedBoundaries(t *testing.T) {
 		for _, name := range holdout.sequence {
 			want := http.StatusOK
 			if name == "comment" {
-				want = http.StatusInternalServerError
+				want = http.StatusCreated
 			}
 			if status := sendTriageRoute(t, backend, triageRoute(t, holdoutFixture, name), nil); status != want {
-				t.Fatalf("historical route %s status=%d want=%d", name, status, want)
+				t.Fatalf("guarded route %s status=%d want=%d", name, status, want)
 			}
 		}
 		if !backend.RequestSequenceComplete() {
-			t.Fatal("retained historical request sequence did not complete")
+			t.Fatal("guarded request sequence did not complete")
 		}
 		before := triageRequestIndex(backend)
 		if status := sendTriageRoute(t, backend, triageRoute(t, holdoutFixture, "comment"), nil); status != http.StatusNotFound || triageRequestIndex(backend) != before {
@@ -642,7 +652,7 @@ func assertTriagePromptBoundary(t *testing.T, prompt []byte, provider string) {
 		}
 	}
 	if strings.Count(text, "env -u ATL_READ_ONLY atl ") != 2 ||
-		strings.Count(text, "--expected-proposal-hash PREVIEW_PROPOSAL_HASH") != 1 {
+		strings.Count(text, "--expected-proposal-hash PREVIEW_PROPOSAL_HASH") != 2 {
 		t.Fatal("prompt guarded-write boundary drifted")
 	}
 }
@@ -679,20 +689,24 @@ func assertTriagePolicyAlternativesAndMutations(t *testing.T, policy CLICommandP
 	for _, rule := range policy.Rules {
 		names[rule.Name] = rule.MaxInvocations
 	}
-	if names["preview_create"] != 1 || names["create"] != 1 || names["comment"] != 1 || names["comments"] != 2 {
+	if names["preview_create"] != 1 || names["create"] != 1 || names["preview_comment"] != 1 || names["comment"] != 1 {
 		t.Fatalf("policy alternatives/counts=%v", names)
 	}
-	var producers, consumers int
+	bindings := map[string][2]int{}
 	for _, rule := range policy.Rules {
-		if rule.BindsProposalHash == "create" {
-			producers++
+		counts := bindings[rule.BindsProposalHash]
+		if rule.BindsProposalHash != "" {
+			counts[0]++
+			bindings[rule.BindsProposalHash] = counts
 		}
-		if rule.RequiresProposalHash == "create" {
-			consumers++
+		counts = bindings[rule.RequiresProposalHash]
+		if rule.RequiresProposalHash != "" {
+			counts[1]++
+			bindings[rule.RequiresProposalHash] = counts
 		}
 	}
-	if producers != 1 || consumers != 1 {
-		t.Fatalf("create binding producers=%d consumers=%d", producers, consumers)
+	if bindings["create"] != [2]int{1, 1} || bindings["comment"] != [2]int{1, 1} {
+		t.Fatalf("proposal bindings=%v", bindings)
 	}
 	project, key, specific, summary := "LAB", "LAB-52", triageCohorts[0].queries[0], triageCohorts[0].newSummary
 	if holdout {
@@ -701,8 +715,8 @@ func assertTriagePolicyAlternativesAndMutations(t *testing.T, policy CLICommandP
 	alternatives := [][]string{
 		{"jira", "issue", "create", "preview", "--project", project, "--type", "Bug", "--summary", summary, "--from-md", "new-bug.md"},
 		{"jira", "issue", "create", "--project", project, "--type", "Bug", "--summary", summary, "--from-md", "new-bug.md", "--apply", "--expected-proposal-hash", strings.Repeat("a", 64)},
-		{"jira", "issue", "comment", "list", key},
-		{"jira", "issue", "comment", "add", key, "--from-md", "duplicate-comment.md"},
+		{"jira", "issue", "comment", "preview", key, "--from-md", "duplicate-comment.md"},
+		{"jira", "issue", "comment", "add", key, "--from-md", "duplicate-comment.md", "--apply", "--expected-proposal-hash", strings.Repeat("a", 64)},
 	}
 	for _, argv := range alternatives {
 		if !slices.ContainsFunc(policy.Rules, func(rule CLICommandRule) bool { return matchCLICommandRule(rule, argv) }) {
@@ -719,8 +733,9 @@ func assertTriagePolicyAlternativesAndMutations(t *testing.T, policy CLICommandP
 		{"jira", "issue", "search", "--jql", specific, "--limit", "10", "--columns", "key,summary,status"},
 		wrongCandidate,
 		{"jira", "issue", "create", "--project", project, "--type", "Bug", "--summary", summary + " changed", "--from-md", "new-bug.md"},
-		{"jira", "issue", "comment", "add", key, "--from-md", "wrong.md"},
-		{"jira", "issue", "comment", "add", "WRONG-1", "--from-md", "duplicate-comment.md"},
+		{"jira", "issue", "comment", "preview", key, "--from-md", "wrong.md"},
+		{"jira", "issue", "comment", "add", key, "--from-md", "duplicate-comment.md"},
+		{"jira", "issue", "comment", "add", "WRONG-1", "--from-md", "duplicate-comment.md", "--apply", "--expected-proposal-hash", strings.Repeat("a", 64)},
 	}
 	if !holdout {
 		mutations = append(mutations,

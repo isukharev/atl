@@ -381,7 +381,7 @@ func matchingCommand(commands []*cobra.Command, token string) *cobra.Command {
 }
 
 func codeFor(err error) int {
-	if terminalAmbiguousCheckFailure(err) {
+	if terminalCheckFailure(err) {
 		return exitCheckFailed
 	}
 	switch {
@@ -404,7 +404,11 @@ func codeFor(err error) int {
 	}
 }
 
-func terminalAmbiguousCheckFailure(err error) bool {
+func terminalCheckFailure(err error) bool {
+	var terminal interface{ DiagnosticTerminalCheckFailure() bool }
+	if errors.Is(err, domain.ErrCheckFailed) && errors.As(err, &terminal) && terminal.DiagnosticTerminalCheckFailure() {
+		return true
+	}
 	var ambiguous interface{ DiagnosticAmbiguousWrite() bool }
 	return errors.Is(err, domain.ErrCheckFailed) && errors.As(err, &ambiguous) && ambiguous.DiagnosticAmbiguousWrite()
 }

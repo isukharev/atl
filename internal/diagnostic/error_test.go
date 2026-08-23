@@ -16,9 +16,26 @@ func (*classifiedAmbiguousWrite) Error() string                  { return "conte
 func (e *classifiedAmbiguousWrite) Unwrap() []error              { return []error{domain.ErrCheckFailed, e.cause} }
 func (*classifiedAmbiguousWrite) DiagnosticAmbiguousWrite() bool { return true }
 
+type classifiedTerminalCheckFailure struct{ cause error }
+
+func (*classifiedTerminalCheckFailure) Error() string { return "content-free terminal check failure" }
+func (e *classifiedTerminalCheckFailure) Unwrap() []error {
+	return []error{domain.ErrCheckFailed, e.cause}
+}
+func (*classifiedTerminalCheckFailure) DiagnosticTerminalCheckFailure() bool { return true }
+
 func TestClassifyTerminalAmbiguityPrecedesSafeNestedCauses(t *testing.T) {
+	assertTerminalCheckFailureClassification(t, func(cause error) error { return &classifiedAmbiguousWrite{cause: cause} })
+}
+
+func TestClassifyClosedTerminalFailurePrecedesSafeNestedCauses(t *testing.T) {
+	assertTerminalCheckFailureClassification(t, func(cause error) error { return &classifiedTerminalCheckFailure{cause: cause} })
+}
+
+func assertTerminalCheckFailureClassification(t *testing.T, wrap func(error) error) {
+	t.Helper()
 	for _, cause := range []error{domain.ErrAuth, domain.ErrNotFound, domain.ErrForbidden, domain.ErrConfig} {
-		err := &classifiedAmbiguousWrite{cause: cause}
+		err := wrap(cause)
 		if !errors.Is(err, cause) || !errors.Is(err, domain.ErrCheckFailed) {
 			t.Fatalf("safe identities lost for %v", cause)
 		}

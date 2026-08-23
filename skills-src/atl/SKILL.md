@@ -413,10 +413,13 @@ exports, with `--root` subtree selection where supported. Breaking command
 groups are `comment preview|add|list|delete` and
 `link add [preview]|list|delete [preview]`;
 comment preview is GET-only, while add is dry-run by default and applies only
-with its reviewed baseline-bound proposal hash. `issue transition preview` is
+with its reviewed full-record/body/actor/issue proposal hash. Comment stdout is
+content-minimized; `applied` and `recovered` require exact advancing readback,
+and any attempted `outcome_unknown` must never be replayed. `issue transition preview` is
 also GET-only; the parent transition command is dry-run by default and applies
 the exact reviewed target/comment/`--field k=v` or `--field-json k=JSON` proposal only with its hash.
-Conflict or unverifiable transition/comment outcomes are never replay-safe.
+Conflict or unverifiable transition outcomes and `outcome_unknown` comments are
+never replay-safe.
 Link preview children are GET-only; both parents require the exact reviewed
 hash for one bounded immutable-id write and use two `kind:link` policy targets.
 

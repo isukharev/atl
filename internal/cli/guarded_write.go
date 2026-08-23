@@ -55,3 +55,18 @@ func (flags *guardedWriteFlags) text() (hashHelp, applyHelp, missingHash string)
 	}
 	return hashHelp, applyHelp, missingHash
 }
+
+// validateGuardedPreviewInvocation keeps dedicated read-only children on the
+// same pure pre-configuration validation path as their guarded parents.
+func validateGuardedPreviewInvocation(cmd *cobra.Command, path string) (bool, error) {
+	switch path {
+	case "jira issue create preview":
+		return true, validateJiraGuardedCreateInvocation(cmd, false)
+	case "jira issue labels preview":
+		return true, validateJiraGuardedLabelInvocation(cmd, false)
+	case "jira issue comment preview":
+		return true, validateJiraGuardedCommentInvocation(cmd, false)
+	default:
+		return false, nil
+	}
+}

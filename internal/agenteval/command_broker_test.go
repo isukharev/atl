@@ -115,20 +115,20 @@ func TestCommandBrokerBindsAndConsumesExactPreviewProposalHash(t *testing.T) {
 	executions := filepath.Join(root, "executions")
 	binary := filepath.Join(root, "atl")
 	script := "#!/bin/sh\n" +
-		"printf '%s\\n' \"$1\" >>\"$TEST_EXECUTIONS\"\n" +
-		"case \"$1\" in preview-a) cat \"$PREVIEW_A\";; preview-b) cat \"$PREVIEW_B\";; *) printf '{}\\n';; esac\n"
+		"printf '%s\\n' \"$*\" >>\"$TEST_EXECUTIONS\"\n" +
+		"case \"$*\" in 'jira issue create preview --project A') cat \"$PREVIEW_A\";; 'jira issue create preview --project B') cat \"$PREVIEW_B\";; *) printf '{}\\n';; esac\n"
 	if err := os.WriteFile(binary, []byte(script), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	producer := func(name, binding string) CLICommandRule {
-		return CLICommandRule{Name: name, Command: []string{name}, BindsProposalHash: binding, MaxInvocations: 1}
+	producer := func(name, binding, project string) CLICommandRule {
+		return CLICommandRule{Name: name, Command: []string{"jira", "issue", "create", "preview"}, Flags: []CLIFlagRule{{Name: "--project", Values: []string{project}, Required: true}}, BindsProposalHash: binding, MaxInvocations: 1}
 	}
-	consumer := func(name, binding string) CLICommandRule {
-		return CLICommandRule{Name: name, Command: []string{name}, Flags: []CLIFlagRule{{Name: "--expected-proposal-hash", ValueFormat: "sha256", Required: true}}, RequiresProposalHash: binding, MaxInvocations: 2}
+	consumer := func(name, binding, project string) CLICommandRule {
+		return CLICommandRule{Name: name, Command: []string{"jira", "issue", "create"}, Flags: []CLIFlagRule{{Name: "--project", Values: []string{project}, Required: true}, {Name: "--expected-proposal-hash", ValueFormat: "sha256", Required: true}}, RequiresProposalHash: binding, MaxInvocations: 2}
 	}
 	policy := CLICommandPolicy{SchemaVersion: CLICommandPolicySchemaVersion, Rules: []CLICommandRule{
-		producer("preview-a", "candidate_a"), consumer("apply-a", "candidate_a"),
-		producer("preview-b", "candidate_b"), consumer("apply-b", "candidate_b"),
+		producer("preview-a", "candidate_a", "A"), consumer("apply-a", "candidate_a", "A"),
+		producer("preview-b", "candidate_b", "B"), consumer("apply-b", "candidate_b", "B"),
 	}}
 	manifest := filepath.Join(root, "broker.json")
 	broker, err := StartCommandBroker(CommandBrokerConfig{
@@ -148,16 +148,16 @@ func TestCommandBrokerBindsAndConsumesExactPreviewProposalHash(t *testing.T) {
 			t.Fatalf("args=%v response=%+v err=%v want=%q", args, response, err, want)
 		}
 	}
-	call([]string{"preview-a"}, "executed")
-	call([]string{"apply-a", "--expected-proposal-hash", wrong}, "rejected")
-	call([]string{"apply-b", "--expected-proposal-hash", hashA}, "rejected")
-	call([]string{"apply-a", "--expected-proposal-hash", hashA}, "executed")
-	call([]string{"apply-a", "--expected-proposal-hash", hashA}, "rejected")
-	call([]string{"preview-b"}, "executed")
-	call([]string{"apply-b", "--expected-proposal-hash", hashA}, "rejected")
-	call([]string{"apply-b", "--expected-proposal-hash", hashB}, "executed")
+	call([]string{"jira", "issue", "create", "preview", "--project", "A"}, "executed")
+	call([]string{"jira", "issue", "create", "--project", "A", "--expected-proposal-hash", wrong}, "rejected")
+	call([]string{"jira", "issue", "create", "--project", "B", "--expected-proposal-hash", hashA}, "rejected")
+	call([]string{"jira", "issue", "create", "--project", "A", "--expected-proposal-hash", hashA}, "executed")
+	call([]string{"jira", "issue", "create", "--project", "A", "--expected-proposal-hash", hashA}, "rejected")
+	call([]string{"jira", "issue", "create", "preview", "--project", "B"}, "executed")
+	call([]string{"jira", "issue", "create", "--project", "B", "--expected-proposal-hash", hashA}, "rejected")
+	call([]string{"jira", "issue", "create", "--project", "B", "--expected-proposal-hash", hashB}, "executed")
 	data, err := os.ReadFile(executions)
-	if err != nil || string(data) != "preview-a\napply-a\npreview-b\napply-b\n" {
+	if err != nil || string(data) != "jira issue create preview --project A\njira issue create --project A --expected-proposal-hash "+hashA+"\njira issue create preview --project B\njira issue create --project B --expected-proposal-hash "+hashB+"\n" {
 		t.Fatalf("executions=%q err=%v", data, err)
 	}
 }
@@ -182,13 +182,13 @@ func TestCommandBrokerReadOnlyPreviewBindsWithoutAdmittingApply(t *testing.T) {
 	binary := filepath.Join(root, "atl")
 	script := "#!/bin/sh\n" +
 		"printf '%s\\n' \"$*\" >>\"$TEST_EXECUTIONS\"\n" +
-		"case \"$1 $2\" in '--read-only preview') printf '%s\\n' \"$PREVIEW\";; 'apply --expected-proposal-hash') printf '{}\\n';; *) exit 91;; esac\n"
+		"case \"$*\" in '--read-only jira issue create preview') printf '%s\\n' \"$PREVIEW\";; 'jira issue create --expected-proposal-hash '*) printf '{}\\n';; *) exit 91;; esac\n"
 	if err := os.WriteFile(binary, []byte(script), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	policy := CLICommandPolicy{SchemaVersion: CLICommandPolicySchemaVersion, Rules: []CLICommandRule{
-		{Name: "preview", Command: []string{"preview"}, BindsProposalHash: "create", MaxInvocations: 1},
-		{Name: "apply", Command: []string{"apply"}, Flags: []CLIFlagRule{{Name: "--expected-proposal-hash", ValueFormat: "sha256", Required: true}}, RequiresProposalHash: "create", MaxInvocations: 1},
+		{Name: "preview", Command: []string{"jira", "issue", "create", "preview"}, BindsProposalHash: "create", MaxInvocations: 1},
+		{Name: "apply", Command: []string{"jira", "issue", "create"}, Flags: []CLIFlagRule{{Name: "--expected-proposal-hash", ValueFormat: "sha256", Required: true}}, RequiresProposalHash: "create", MaxInvocations: 1},
 	}}
 	manifest := filepath.Join(root, "broker.json")
 	broker, err := StartCommandBroker(CommandBrokerConfig{
@@ -201,21 +201,125 @@ func TestCommandBrokerReadOnlyPreviewBindsWithoutAdmittingApply(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = broker.Close() })
-	response, err := CallCommandBrokerReadOnly(manifest, []string{"preview"})
+	response, err := CallCommandBrokerReadOnly(manifest, []string{"jira", "issue", "create", "preview"})
 	if err != nil || response.Status != "executed" {
 		t.Fatalf("read-only preview response=%+v err=%v", response, err)
 	}
-	response, err = CallCommandBrokerReadOnly(manifest, []string{"apply", "--expected-proposal-hash", hash})
+	response, err = CallCommandBrokerReadOnly(manifest, []string{"jira", "issue", "create", "--expected-proposal-hash", hash})
 	if err != nil || response.Status != "rejected" {
 		t.Fatalf("read-only apply response=%+v err=%v", response, err)
 	}
-	response, err = CallCommandBroker(manifest, []string{"apply", "--expected-proposal-hash", hash}, false)
+	response, err = CallCommandBroker(manifest, []string{"jira", "issue", "create", "--expected-proposal-hash", hash}, false)
 	if err != nil || response.Status != "executed" {
 		t.Fatalf("reviewed apply response=%+v err=%v", response, err)
 	}
 	data, err := os.ReadFile(executions)
-	if err != nil || string(data) != "--read-only preview\napply --expected-proposal-hash "+hash+"\n" {
+	if err != nil || string(data) != "--read-only jira issue create preview\njira issue create --expected-proposal-hash "+hash+"\n" {
 		t.Fatalf("executions=%q err=%v", data, err)
+	}
+}
+
+func TestCommandBrokerProposalDecoderIsProducerSpecific(t *testing.T) {
+	const hash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	create := []byte(`{"schema_version":1,"operation":"jira_issue_create","backend_sha256":"` + hash + `","requested_project":"TEST","project":{"id":"1","key":"TEST","archived":false},"type_selector":{},"issue_type":{"id":"2","name":"Task","subtask":false},"summary":{},"description":{},"fields":{},"metadata_count":1,"metadata_sha256":"x","request_sha256":"x","request_bytes":1,"registration_requested":false,"bounds":{},"proposal_hash":"` + hash + `","mode":"preview","status":"would_apply","write_attempted":false,"readback_reconciled":false,"usage":{}}`)
+	comment := validJiraTriageCommentPreviewWire(t)
+	for _, test := range []struct {
+		name    string
+		command []string
+		wire    []byte
+		ok      bool
+	}{
+		{name: "create", command: []string{"jira", "issue", "create", "preview"}, wire: create, ok: true},
+		{name: "comment", command: []string{"jira", "issue", "comment", "preview"}, wire: comment, ok: true},
+		{name: "create on comment", command: []string{"jira", "issue", "comment", "preview"}, wire: create},
+		{name: "comment on create", command: []string{"jira", "issue", "create", "preview"}, wire: comment},
+		{name: "unknown producer", command: []string{"preview"}, wire: create},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			hash, _, err := commandBrokerProposalProducer(test.command, test.wire)
+			if (err == nil) != test.ok || test.ok && !triageWireSHA256(hash) {
+				t.Fatalf("hash=%q err=%v", hash, err)
+			}
+		})
+	}
+	if commandBrokerProposalConsumer("jira issue create preview", []string{"jira", "issue", "comment", "add"}) ||
+		commandBrokerProposalConsumer("jira issue comment preview", []string{"jira", "issue", "create"}) {
+		t.Fatal("cross-producer consumer admitted")
+	}
+}
+
+func TestCommandBrokerRejectsProducerWireSwapBeforeBinding(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake executable scripts are Unix-only")
+	}
+	const createHash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	createWire := []byte(`{"schema_version":1,"operation":"jira_issue_create","backend_sha256":"` + createHash + `","requested_project":"TEST","project":{"id":"1","key":"TEST","archived":false},"type_selector":{},"issue_type":{"id":"2","name":"Task","subtask":false},"summary":{},"description":{},"fields":{},"metadata_count":1,"metadata_sha256":"x","request_sha256":"x","request_bytes":1,"registration_requested":false,"bounds":{},"proposal_hash":"` + createHash + `","mode":"preview","status":"would_apply","write_attempted":false,"readback_reconciled":false,"usage":{}}`)
+	for _, test := range []struct {
+		name            string
+		producerCommand []string
+		consumerCommand []string
+		wire            func(*testing.T) []byte
+		consumerHash    string
+	}{
+		{name: "comment producer emits create wire", producerCommand: []string{"jira", "issue", "comment", "preview"}, consumerCommand: []string{"jira", "issue", "comment", "add"}, wire: func(*testing.T) []byte { return createWire }, consumerHash: createHash},
+		{name: "create producer emits comment wire", producerCommand: []string{"jira", "issue", "create", "preview"}, consumerCommand: []string{"jira", "issue", "create"}, wire: validJiraTriageCommentPreviewWire, consumerHash: triageTriageHash("proposal")},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			if err := os.Chmod(root, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			requests, responses := filepath.Join(root, "requests"), filepath.Join(root, "responses")
+			for _, directory := range []string{requests, responses} {
+				if err := os.Mkdir(directory, 0o700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			wirePath, executions := filepath.Join(root, "proposal.json"), filepath.Join(root, "executions")
+			if err := os.WriteFile(wirePath, append(test.wire(t), '\n'), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			binary := filepath.Join(root, "atl")
+			script := "#!/bin/sh\nprintf '%s\\n' \"$*\" >>\"$TEST_EXECUTIONS\"\ncat \"$TEST_WIRE\"\n"
+			if err := os.WriteFile(binary, []byte(script), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			policy := CLICommandPolicy{SchemaVersion: CLICommandPolicySchemaVersion, Rules: []CLICommandRule{
+				{Name: "producer", Command: test.producerCommand, BindsProposalHash: "candidate", MaxInvocations: 1},
+				{Name: "consumer", Command: test.consumerCommand, Flags: []CLIFlagRule{{Name: "--expected-proposal-hash", ValueFormat: "sha256", Required: true}}, RequiresProposalHash: "candidate", MaxInvocations: 1},
+			}}
+			manifest := filepath.Join(root, "broker.json")
+			broker, err := StartCommandBroker(CommandBrokerConfig{
+				RequestDirectory: requests, ResponseDirectory: responses, ManifestPath: manifest, RealBinary: binary,
+				WorkingDirectory: root, Policy: policy, Environment: []string{"PATH=/usr/bin:/bin", "TEST_EXECUTIONS=" + executions, "TEST_WIRE=" + wirePath},
+				MaxStdoutBytes: 4096, MaxStderrBytes: 4096, CommandTimeout: time.Second,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			response, err := CallCommandBroker(manifest, test.producerCommand, false)
+			if err != nil || response.Status != "failed" {
+				t.Fatalf("producer response=%+v err=%v", response, err)
+			}
+			consumerArgs := append(append([]string(nil), test.consumerCommand...), "--expected-proposal-hash", test.consumerHash)
+			response, err = CallCommandBroker(manifest, consumerArgs, false)
+			if err != nil || response.Status != "rejected" {
+				t.Fatalf("unbound consumer response=%+v err=%v", response, err)
+			}
+			if err := broker.Close(); err != nil {
+				t.Fatal(err)
+			}
+			if counts := broker.invocationCounts(); counts["producer"] != 1 || counts["consumer"] != 0 {
+				t.Fatalf("invocation counts=%v", counts)
+			}
+			if len(broker.proposalHashes) != 0 {
+				t.Fatalf("producer wire swap created bindings: %+v", broker.proposalHashes)
+			}
+			data, err := os.ReadFile(executions)
+			if err != nil || string(data) != strings.Join(test.producerCommand, " ")+"\n" {
+				t.Fatalf("executions=%q err=%v, consumer must not reach selected binary", data, err)
+			}
+		})
 	}
 }
 

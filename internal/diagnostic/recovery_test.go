@@ -83,6 +83,19 @@ func TestRecoverExactReplaySafetyIsOperationBound(t *testing.T) {
 	}
 }
 
+func TestRecoverClosedTerminalFailurePrecedesSafeNestedCauses(t *testing.T) {
+	for _, cause := range []error{domain.ErrAuth, domain.ErrNotFound, domain.ErrForbidden, domain.ErrConfig} {
+		err := &classifiedTerminalCheckFailure{cause: cause}
+		got := Recover(err, OperationWrite)
+		if !errors.Is(err, cause) || !errors.Is(err, domain.ErrCheckFailed) {
+			t.Fatalf("safe identities lost for %v", cause)
+		}
+		if got.Action != RecoveryInspectFailure || got.RetrySafe || hasRecoveryFacts(got) || !ValidateRecovery(got) {
+			t.Fatalf("cause=%v recovery=%+v", cause, got)
+		}
+	}
+}
+
 func TestRecoverTypedFactsAndPrecedence(t *testing.T) {
 	pageAndSelection := &recoveryFactsError{
 		cause: domain.ErrCheckFailed, expected: 7, observed: 8,
