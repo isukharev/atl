@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"sort"
 	"time"
 
 	"github.com/isukharev/atl/internal/backendid"
@@ -291,16 +290,17 @@ func (s *JiraService) executeJiraPlanRow(row *JiraPlanResultRow, prepared *jiraP
 			row.Status = "not_applied"
 		}
 	}
-	if row.Status == "blocked" {
+	switch row.Status {
+	case "blocked":
 		row.Complete = true
 		if prepared.execution.ctx.Err() != nil {
 			row.Reason = "deadline_expired"
 		} else {
 			row.Reason = "write_rejected"
 		}
-	} else if row.Status == "not_applied" {
+	case "not_applied":
 		row.Reason, row.Complete = "write_rejected", true
-	} else if row.Status == "outcome_unknown" {
+	case "outcome_unknown":
 		row.Reason = "ambiguous_outcome"
 		row.Complete = false
 	}
@@ -314,12 +314,6 @@ func (s *JiraService) executeJiraPlanRow(row *JiraPlanResultRow, prepared *jiraP
 func setJiraPlanRowUsage(row *JiraPlanResultRow, execution *jiraGuardedExecution) {
 	usage := execution.Usage()
 	row.Usage = JiraPlanUsage{usage.Attempts, usage.ResponseBytes}
-}
-
-func jiraPlanSortedSelectors(values []string) []string {
-	out := append([]string(nil), values...)
-	sort.Strings(out)
-	return out
 }
 
 // planValueContains is retained for the guarded field owner's structural

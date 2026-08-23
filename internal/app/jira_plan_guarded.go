@@ -731,10 +731,6 @@ func jiraPlanRowBackend(prepared *jiraPlanPreparedRow) string {
 	}
 	return ""
 }
-func jiraPlanAuthorizationDigest(requests []domain.WriteAuthorizationRequest) string {
-	encoded, _ := json.Marshal(requests)
-	return sha256Hex(encoded)
-}
 func jiraPlanUpdatedDigest(value string) string { return sha256Hex([]byte(value)) }
 func jiraPlanErrorAmbiguous(err error) bool {
 	var diagnostic interface{ DiagnosticAmbiguousWrite() bool }
