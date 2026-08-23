@@ -3,6 +3,8 @@ package agenteval
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -10,6 +12,21 @@ import (
 	"testing"
 	"time"
 )
+
+func TestBoundedCommandBufferReportsRetainedBytesAndStabilizesAfterOverflow(t *testing.T) {
+	exact := &boundedCommandBuffer{maximum: 4}
+	if n, err := exact.Write([]byte("abcd")); n != 4 || err != nil || exact.exceeded || string(exact.Bytes()) != "abcd" {
+		t.Fatalf("exact n=%d err=%v exceeded=%v bytes=%q", n, err, exact.exceeded, exact.Bytes())
+	}
+
+	partial := &boundedCommandBuffer{maximum: 4}
+	if n, err := partial.Write([]byte("abcdef")); n != 4 || !errors.Is(err, io.ErrShortWrite) || !partial.exceeded || string(partial.Bytes()) != "abcd" {
+		t.Fatalf("partial n=%d err=%v exceeded=%v bytes=%q", n, err, partial.exceeded, partial.Bytes())
+	}
+	if n, err := partial.Write([]byte("z")); n != 0 || !errors.Is(err, io.ErrShortWrite) || string(partial.Bytes()) != "abcd" {
+		t.Fatalf("subsequent n=%d err=%v bytes=%q", n, err, partial.Bytes())
+	}
+}
 
 func TestCommandBrokerExecutesOnlyReviewedArgumentsWithinIndependentBudget(t *testing.T) {
 	if runtime.GOOS == "windows" {
