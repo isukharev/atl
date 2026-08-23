@@ -39,6 +39,7 @@ type atlGradingObservation struct {
 	mcpInvocations             []MCPInvocation
 	mcpInvocationsObserved     bool
 	cliErrorContracts          []CLIErrorContract
+	producedProposalHashes     map[string]string
 }
 
 type atlGradingEvaluation struct {
@@ -244,6 +245,22 @@ func atlGradingCheck(check RunCheck, evidenceID string) (grading.Check, error) {
 		result.Kind = grading.CheckJSONValue
 		result.JSONValue = &grading.JSONValueRule{EvidenceID: evidenceID, Pointer: "", Expected: expected}
 		return result, nil
+	case "json_equals_proposal_hash_binding":
+		expectation, ok := proposalHashBindingExpectationFrom(check.Expected)
+		if !ok {
+			return grading.Check{}, fmt.Errorf("invalid proposal hash binding expectation")
+		}
+		predicateSHA256, err := atlProposalHashBindingPredicateSHA256(check, expectation)
+		if err != nil {
+			return grading.Check{}, fmt.Errorf("bind proposal hash predicate: %w", err)
+		}
+		expected, err := json.Marshal(predicateSHA256)
+		if err != nil {
+			return grading.Check{}, fmt.Errorf("encode proposal hash predicate: %w", err)
+		}
+		result.Kind = grading.CheckJSONValue
+		result.JSONValue = &grading.JSONValueRule{EvidenceID: evidenceID, Pointer: "", Expected: expected}
+		return result, nil
 	case "workspace_file_sha256":
 		expectation, ok := workspaceFileSHA256ExpectationFrom(check.Expected)
 		if !ok {
@@ -428,6 +445,21 @@ func atlGradingEvidence(checks []RunCheck, plan grading.Plan, observed atlGradin
 				}
 			}
 			evidence.Files = append(evidence.Files, file)
+		case "json_equals_proposal_hash_binding":
+			expectation, _ := proposalHashBindingExpectationFrom(check.Expected)
+			actual, found := selectLegacyJSON()
+			actualHash, stringValue := actual.(string)
+			observedHash, observed := observed.producedProposalHashes[expectation.Binding]
+			predicateSHA256, predicateErr := atlProposalHashBindingPredicateSHA256(check, expectation)
+			if predicateErr != nil {
+				return grading.EvidenceSet{}, fmt.Errorf("bind proposal hash predicate: %w", predicateErr)
+			}
+			file := grading.FileEvidence{ID: evidenceID, Visibility: grading.VisibilityHidden,
+				Present: true, Mode: 0o600, Data: []byte(`"mismatch"`)}
+			if found && stringValue && observed && validSHA256(actualHash) && validSHA256(observedHash) && constantTimeStringEqual(actualHash, observedHash) {
+				file.Data, err = json.Marshal(predicateSHA256)
+			}
+			evidence.Files = append(evidence.Files, file)
 		case "workspace_file_sha256":
 			expectation, _ := workspaceFileSHA256ExpectationFrom(check.Expected)
 			file := grading.FileEvidence{ID: evidenceID, Visibility: grading.VisibilityHidden}
@@ -499,6 +531,14 @@ func atlWorkspaceJSONPredicateSHA256(check RunCheck, expectation workspaceJSONEx
 		WorkspacePath    string `json:"workspace_path"`
 		WorkspacePointer string `json:"workspace_pointer"`
 	}{check.Pointer, expectation.Path, expectation.Pointer})
+}
+
+func atlProposalHashBindingPredicateSHA256(check RunCheck, expectation proposalHashBindingExpectation) (string, error) {
+	return contentMinimizedAttemptDigest("atl-proposal-hash-binding-predicate", struct {
+		CheckID      string `json:"check_id"`
+		FinalPointer string `json:"final_pointer"`
+		Binding      string `json:"binding"`
+	}{CheckID: atlGradingCheckID(check.Name), FinalPointer: check.Pointer, Binding: expectation.Binding})
 }
 
 func atlSequenceSHA256(values []string) string {

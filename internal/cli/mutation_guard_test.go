@@ -268,7 +268,7 @@ func TestMutationGuardSpecsPreserveReviewedPhasesAndFamilies(t *testing.T) {
 		"jira issue labels":            {mutationGuardPreConfig, mutationGuardJiraGuardedLabels},
 		"jira issue link add":          {mutationGuardPreConfig, mutationGuardJiraGuardedLink},
 		"jira issue link delete":       {mutationGuardPreConfig, mutationGuardJiraGuardedLink},
-		"jira issue field set":         {mutationGuardCommandOwned, mutationGuardGeneric},
+		"jira issue field set":         {mutationGuardPreConfig, mutationGuardJiraGuardedField},
 		"jira issue plan apply":        {mutationGuardCommandOwned, mutationGuardGeneric},
 		"jira issue transition":        {mutationGuardCommandOwned, mutationGuardGeneric},
 		"jira issue watchers add":      {mutationGuardCommandOwned, mutationGuardGeneric},

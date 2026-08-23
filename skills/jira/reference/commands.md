@@ -81,7 +81,7 @@ not display/short URLs, and no page body or backlink query is made.
 | `jira issue get <KEY>` | Get an issue | `--fields` |
 | `jira issue fields <KEY>` | Compact non-empty named field inspection | repeat `--field`; opt in with `--include-empty` or private `--raw` |
 | `jira issue field get <KEY>` | Qualified bounded expansion of one exact compact value | `--field` required; `--max-bytes` 256..131072, default 16384 |
-| `jira issue field preview <KEY>` | GET-only file-backed custom-field proposal, safe under `ATL_READ_ONLY=1` | `--from-file FIELD=PATH`, `--from-md FIELD=PATH`, `--allow-fields` |
+| `jira issue field preview <KEY>` | Two-GET, schema-v3 file-backed custom-field proposal, safe under `ATL_READ_ONLY=1` | `--from-file FIELD=PATH`, `--from-md FIELD=PATH`, `--allow-fields` |
 | `jira issue view <KEY>` | Render one configured Markdown view without writing files | `-o text`, `--render-root`, `--render-profile`, `--render-include`, `--render-exclude` |
 | `jira issue search` | Search as a paginated common IssueList / Markdown table | `--jql`, `--view`, `--columns`, `--limit` 1..1000, `--cursor` |
 | `jira issue search -o id` | Print matching issue keys one per line | `-o id` |
@@ -92,7 +92,7 @@ not display/short URLs, and no page body or backlink query is made.
 | `jira epic digest <EPIC-KEY>` | Deterministic multi-source epic evidence with per-source completeness | `--projection compact|full`, period, includes, fields, caps, optional bounded Confluence heading expansion |
 | `jira issue create [preview]` | Preview by default; apply one exact hash-guarded create and optionally register its proved readback | candidate flags plus apply-only `--apply --expected-proposal-hash`; `--register --into <ROOT>` |
 | `jira issue update <KEY>` | Update summary/description/fields (whole body) | `--summary`, `--from-md`, `--from-file`, `--field k=v`, `--field-json k=JSON` |
-| `jira issue field set <KEY>` | Apply a reviewed file-backed custom-field proposal | `--from-file FIELD=PATH`, `--from-md FIELD=PATH`, `--allow-fields`, `--expected-updated`, `--expected-proposal-hash`, `--apply` |
+| `jira issue field set <KEY>` | Apply one reviewed proposal with prewrite qualification, byte-exact single-attempt numeric-id PUT, and mandatory readback | `--from-file FIELD=PATH`, `--from-md FIELD=PATH`, `--allow-fields`, `--expected-updated`, `--expected-proposal-hash`, `--apply` |
 | `jira issue edit preview <KEY>` | GET-only content-free targeted-description proposal | `--old`, `--new`, `--old-file`, `--new-file`, `--all`; safe under `ATL_READ_ONLY=1` |
 | `jira issue edit <KEY>` | Preview or apply one hash-bound targeted description edit | same matcher inputs; apply with `--apply --expected-proposal-hash`; `--dry-run` is a preview alias |
 | `jira issue assign <KEY>` | Set or clear the assignee | exactly one of `--to USER`, `--me`, `--none` |

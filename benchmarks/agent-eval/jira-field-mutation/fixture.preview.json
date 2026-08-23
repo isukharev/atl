@@ -2,18 +2,9 @@
   "schema_version": 1,
   "jira_context": "/jira",
   "confluence_context": "/wiki",
+  "request_sequence": ["catalog", "issue_key"],
   "routes": [
-    {
-      "method": "GET",
-      "path": "/jira/rest/api/2/field",
-      "status": 200,
-      "body": [{"id":"customfield_12000","name":"Delivery Narrative","custom":true,"schema":{"type":"string"}}]
-    },
-    {
-      "method": "GET",
-      "path": "/jira/rest/api/2/issue/PROJ-1",
-      "status": 200,
-      "body": {"id":"12001","key":"PROJ-1","fields":{"updated":"2026-07-15T09:30:00.000+0000","customfield_12000":"Previous synthetic narrative."}}
-    }
+    {"name":"catalog","method":"GET","path":"/jira/rest/api/2/field","query_equals":{},"status":200,"body":[{"id":"customfield_12000","name":"Delivery Narrative","custom":true,"schema":{"type":"string"}}]},
+    {"name":"issue_key","method":"GET","path":"/jira/rest/api/2/issue/PROJ-1","query_equals":{"fields":"customfield_12000,project,updated"},"status":200,"body":{"id":"12001","key":"PROJ-1","fields":{"project":{"key":"PROJ"},"updated":"2026-07-15T09:30:00.000+0000","customfield_12000":"Previous synthetic narrative."}}}
   ]
 }

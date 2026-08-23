@@ -569,6 +569,53 @@ func TestMockBackendMatchesExpectedJSONRequestBody(t *testing.T) {
 	}
 }
 
+func TestMockBackendExactRequestBodyRejectsJSONByteDrift(t *testing.T) {
+	exact := []byte(`{"a":"\u003c","b":2}`)
+	fixture := MockFixture{
+		SchemaVersion: 1, JiraContext: "/jira", ConfluenceContext: "/wiki",
+		Routes: []MockRoute{{Method: http.MethodPut, Path: "/jira/rest/api/2/issue/10001", RequestBody: exact, RequestBodyMatch: "exact", Status: http.StatusNoContent, Body: []byte(`{}`)}},
+	}
+	backend, err := StartMockBackend(fixture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer backend.Close()
+	for _, body := range [][]byte{
+		[]byte(`{"b":2,"a":"\u003c"}`),
+		[]byte(`{ "a":"\u003c","b":2}`),
+		[]byte(`{"a":"<","b":2}`),
+		exact,
+	} {
+		request, _ := http.NewRequest(http.MethodPut, backend.Environment()["ATL_JIRA_URL"]+"/rest/api/2/issue/10001", bytes.NewReader(body))
+		response, requestErr := http.DefaultClient.Do(request)
+		if requestErr != nil {
+			t.Fatal(requestErr)
+		}
+		_ = response.Body.Close()
+		want := http.StatusNotFound
+		if bytes.Equal(body, exact) {
+			want = http.StatusNoContent
+		}
+		if response.StatusCode != want {
+			t.Fatalf("body=%s status=%d want=%d", body, response.StatusCode, want)
+		}
+	}
+}
+
+func TestMockFixtureRejectsOpenOrUnknownExactBodyMatcher(t *testing.T) {
+	base := MockFixture{SchemaVersion: 1, JiraContext: "/jira", ConfluenceContext: "/wiki", Routes: []MockRoute{{
+		Method: http.MethodPut, Path: "/jira/rest/api/2/issue/10001", Status: http.StatusNoContent, Body: []byte(`{}`),
+	}}}
+	for _, matcher := range []string{"exact", "semantic"} {
+		fixture := base
+		fixture.Routes = append([]MockRoute(nil), base.Routes...)
+		fixture.Routes[0].RequestBodyMatch = matcher
+		if err := fixture.Validate(); err == nil {
+			t.Fatalf("matcher=%q without a closed exact body passed", matcher)
+		}
+	}
+}
+
 func TestMockFixtureValidatesRequestSequence(t *testing.T) {
 	valid := MockFixture{
 		SchemaVersion: 1, JiraContext: "/jira", ConfluenceContext: "/wiki",

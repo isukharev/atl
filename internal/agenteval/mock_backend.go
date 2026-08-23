@@ -25,15 +25,16 @@ type MockFixture struct {
 }
 
 type MockRoute struct {
-	Name          string            `json:"name,omitempty"`
-	Method        string            `json:"method"`
-	Path          string            `json:"path"`
-	QueryContains map[string]string `json:"query_contains,omitempty"`
-	QueryEquals   map[string]string `json:"query_equals,omitempty"`
-	RequestBody   json.RawMessage   `json:"request_body,omitempty"`
-	Status        int               `json:"status,omitempty"`
-	Body          json.RawMessage   `json:"body,omitempty"`
-	Responses     []MockResponse    `json:"responses,omitempty"`
+	Name             string            `json:"name,omitempty"`
+	Method           string            `json:"method"`
+	Path             string            `json:"path"`
+	QueryContains    map[string]string `json:"query_contains,omitempty"`
+	QueryEquals      map[string]string `json:"query_equals,omitempty"`
+	RequestBody      json.RawMessage   `json:"request_body,omitempty"`
+	RequestBodyMatch string            `json:"request_body_match,omitempty"`
+	Status           int               `json:"status,omitempty"`
+	Body             json.RawMessage   `json:"body,omitempty"`
+	Responses        []MockResponse    `json:"responses,omitempty"`
 
 	// closedQuery is evaluator-runtime policy, not part of the retained fixture
 	// schema. It requires QueryEquals to name the complete request query so an
@@ -133,6 +134,9 @@ func (f MockFixture) Validate() error {
 		}
 		if len(route.RequestBody) > 1<<20 || len(route.RequestBody) > 0 && (!json.Valid(route.RequestBody) || route.Method == http.MethodGet || route.Method == http.MethodHead) {
 			return fmt.Errorf("invalid mock request body for %s %s", route.Method, route.Path)
+		}
+		if route.RequestBodyMatch != "" && route.RequestBodyMatch != "exact" || route.RequestBodyMatch == "exact" && len(route.RequestBody) == 0 {
+			return fmt.Errorf("invalid mock request body matcher for %s %s", route.Method, route.Path)
 		}
 		if len(route.QueryContains)+len(route.QueryEquals) > 16 {
 			return fmt.Errorf("mock route query constraints exceed 16 entries")
@@ -274,7 +278,7 @@ func (b *MockBackend) handle(w http.ResponseWriter, r *http.Request) {
 	var route MockRoute
 	matched := 0
 	for _, candidate := range candidates {
-		if mockRouteQueryMatches(candidate, r) && bodyOK && (len(candidate.RequestBody) == 0 || equalJSONBody(requestBody, candidate.RequestBody)) {
+		if mockRouteQueryMatches(candidate, r) && bodyOK && mockRouteBodyMatches(candidate, requestBody) {
 			route = candidate
 			matched++
 		}
@@ -346,13 +350,17 @@ func mockRouteQueryMatches(route MockRoute, request *http.Request) bool {
 
 func mockRouteSelectorKey(route MockRoute) string {
 	requestBody := canonicalMockRequestBody(route.RequestBody)
+	if route.RequestBodyMatch == "exact" {
+		requestBody = append(json.RawMessage(nil), route.RequestBody...)
+	}
 	selector, _ := json.Marshal(struct {
-		Method        string            `json:"method"`
-		Path          string            `json:"path"`
-		QueryContains map[string]string `json:"query_contains,omitempty"`
-		QueryEquals   map[string]string `json:"query_equals,omitempty"`
-		RequestBody   json.RawMessage   `json:"request_body,omitempty"`
-	}{route.Method, route.Path, route.QueryContains, route.QueryEquals, requestBody})
+		Method           string            `json:"method"`
+		Path             string            `json:"path"`
+		QueryContains    map[string]string `json:"query_contains,omitempty"`
+		QueryEquals      map[string]string `json:"query_equals,omitempty"`
+		RequestBody      json.RawMessage   `json:"request_body,omitempty"`
+		RequestBodyMatch string            `json:"request_body_match,omitempty"`
+	}{route.Method, route.Path, route.QueryContains, route.QueryEquals, requestBody, route.RequestBodyMatch})
 	return string(selector)
 }
 
@@ -391,6 +399,16 @@ func equalJSONBody(left, right []byte) bool {
 	leftJSON, leftErr := json.Marshal(leftValue)
 	rightJSON, rightErr := json.Marshal(rightValue)
 	return leftErr == nil && rightErr == nil && bytes.Equal(leftJSON, rightJSON)
+}
+
+func mockRouteBodyMatches(route MockRoute, body []byte) bool {
+	if len(route.RequestBody) == 0 {
+		return true
+	}
+	if route.RequestBodyMatch == "exact" {
+		return bytes.Equal(body, route.RequestBody)
+	}
+	return equalJSONBody(body, route.RequestBody)
 }
 
 func validContextPath(value string) bool {

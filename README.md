@@ -175,15 +175,15 @@ env -u ATL_READ_ONLY atl conf push \
   "$ATL_WORKSPACE_ROOT/SPACE/page/page.csf" --dry-run
 ```
 
-After reviewing the result, run the same command without `--dry-run`.
-A Confluence version conflict exits `5`; preserve the candidate and use
-`conf reconcile preview` instead of auto-forcing. Proposal-bound comment,
-Jira create, Confluence copy, trash, field, transition, and deletion workflows require the
-emitted expected values and never retry ambiguous writes. Follow the
-[safe-write guide](docs/safe-writes.md) for exact apply and recovery commands.
-Confluence page trash accepts only a canonical positive numeric `--id`; page
-aliases, URLs, signs, leading zeroes, and surrounding whitespace fail before
-configuration or backend access.
+After review, run the command without `--dry-run`. Confluence version conflict
+exits `5`; use `conf reconcile preview`, never auto-force. Hash-bound writes use
+emitted gates, one attempt, and reconciliation; never replay
+`write_attempted:true`. Large Jira fields use GET-only
+`jira issue field preview`; schema v3 binds backend/identity and parser/value
+depths 10,000/9,997 (three-container envelope). Invalid UTF-8 fails before
+classification. Typed adapter no-attempt migrates `failed`→`blocked` (exit 8). See
+the [safe-write guide](docs/safe-writes.md). Confluence trash accepts only a
+canonical positive numeric `--id`; aliases and noncanonical forms fail locally.
 
 ## Coding agents
 

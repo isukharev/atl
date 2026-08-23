@@ -185,6 +185,8 @@ func parseMutationGuardFamily(value string) (mutationGuardFamily, bool) {
 		return mutationGuardJiraGuardedLabels, true
 	case "jira-guarded-comment":
 		return mutationGuardJiraGuardedComment, true
+	case "jira-guarded-field":
+		return mutationGuardJiraGuardedField, true
 	default:
 		return 0, false
 	}

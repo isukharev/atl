@@ -26,6 +26,7 @@ type headlessOutcomeInput struct {
 	agentObservationSHA256  *string
 	gradingPlan             GradingPlan
 	gradingReceiptSHA256    *string
+	producedProposalHashes  map[string]string
 }
 
 func finalizeHeadlessOutcome(input headlessOutcomeInput) (Result, error) {
@@ -131,7 +132,9 @@ func finalizeHeadlessOutcome(input headlessOutcomeInput) (Result, error) {
 			capabilityFamilies: capabilityFamilies, capabilityFamiliesObserved: familyCoverage,
 			capabilitySequence: capabilitySequence, mcpInvocations: providerMetrics.MCPInvocations,
 			mcpInvocationsObserved: familyCoverage && providerMetrics.MCPInvocationCoverage,
-			cliErrorContracts:      trajectory.cliErrorContracts})
+			cliErrorContracts:      trajectory.cliErrorContracts,
+			producedProposalHashes: input.producedProposalHashes})
+
 	if err != nil {
 		return Result{}, err
 	}

@@ -97,6 +97,7 @@ const (
 	mutationGuardJiraGuardedCreate
 	mutationGuardJiraGuardedLabels
 	mutationGuardJiraGuardedComment
+	mutationGuardJiraGuardedField
 )
 
 type mutationGuardSpec struct {
@@ -292,8 +293,8 @@ M remote-write preview-apply delete jira-issue-arg apply,confirm,expected-propos
 M remote-write-with-local preview-apply update,move? jira-issue-arg apply,expected-proposal-hash pre-config jira-description-edit json,text jira issue edit
 R remote-read-with-local json,text jira issue edit preview
 R remote-read json,text jira issue field get
-R remote-read-with-local json,text jira issue field preview
-M remote-write-with-local preview-apply update,move? jira-issue-arg apply,expected-proposal-hash,expected-updated command generic json,text jira issue field set
+R guarded-field-preview json,text jira issue field preview
+M guarded-field-apply preview-apply update jira-issue-arg apply,expected-proposal-hash,expected-updated pre-config jira-guarded-field json,text jira issue field set
 R remote-read json,text jira issue fields
 R remote-read json,text jira issue get
 R remote-read-caller-bounded json,text jira issue graph
@@ -643,6 +644,11 @@ func validateMutationInvocation(cmd *cobra.Command) error {
 	if guard.phase == mutationGuardPreConfig && registration.profile == mutationPreviewApply && !applyRequested {
 		return validateMutationGuardFamily(cmd, guard.family, false)
 	}
+	// The guarded-field family owns the reviewed prerequisite ordering and exact
+	// diagnostics for its multi-input apply contract.
+	if guard.family == mutationGuardJiraGuardedField {
+		return validateMutationGuardFamily(cmd, guard.family, applyRequested)
+	}
 	for _, requirement := range guard.requirements {
 		name, ok := mutationGuardRequirementName(requirement)
 		if !ok {
@@ -706,6 +712,8 @@ func validateMutationGuardFamily(cmd *cobra.Command, family mutationGuardFamily,
 		return validateJiraGuardedLabelInvocation(cmd, applyRequested)
 	case mutationGuardJiraGuardedComment:
 		return validateJiraGuardedCommentInvocation(cmd, applyRequested)
+	case mutationGuardJiraGuardedField:
+		return validateJiraGuardedFieldInvocation(cmd, applyRequested)
 	default:
 		return &accessPolicyInvariantError{Command: fmt.Sprintf("%s has invalid mutation guard family", cmd.CommandPath())}
 	}

@@ -260,6 +260,46 @@ at most one description-only PUT and then requires exact advancing readback.
 `recovered` proves the intended bytes after an ambiguous response;
 `outcome_unknown` is terminal and must never be replayed automatically.
 
+## Jira: guarded custom fields
+
+Use the dedicated GET-only child for review; do not use the mutation-classified
+parent as a read-only probe:
+
+```sh
+ATL_READ_ONLY=1 atl jira issue field preview EXAMPLE-1 \
+  --from-md customfield_10050=progress.md \
+  --allow-fields customfield_10050
+env -u ATL_READ_ONLY atl jira issue field set EXAMPLE-1 \
+  --from-md customfield_10050=progress.md \
+  --allow-fields customfield_10050 \
+  --expected-updated '<reviewed updated>' \
+  --expected-proposal-hash '<reviewed hash>' --apply
+```
+
+Qualification requires the complete bounded field catalog, exact custom-field
+allowlist, canonical key/project, immutable numeric id, selected current values,
+and prepared payload digest. The complete reserved list is `project`,
+`issuetype`, `summary`, `description`, `labels`, and `assignee`, even when case
+or surrounding whitespace differs; use their dedicated commands. Schema-v3
+hashes also bind the backend origin and fixed bounds, including the 10,000-level
+strict-parser ceiling and the exact 9,997-level structured-value limit that
+leaves three containers for the released result envelope. Invalid UTF-8 is
+rejected before raw classification; only a candidate from which no complete
+JSON value can be decoded, such as incomplete syntax, remains a string.
+
+Preview is exactly two GETs. Apply re-runs catalog/key qualification, then
+catalog/numeric-id qualification immediately before at most one raw numeric-id
+PUT. Every actual PUT—successful, ambiguous, or definitively rejected—gets
+exactly one numeric-id readback, for a six-request apply ceiling. All reads
+share one 60-second deadline and aggregate byte budget; the PUT is single
+attempt and never follows a mutating redirect.
+
+Do not replay when `write_attempted:true`. Only complete desired values with a
+strictly advancing `updated` prove `applied`. Old, nonsatisfying, nonadvancing,
+or unavailable readback after success/ambiguity is terminal `unknown`.
+Definitive rejection is `failed` unless complete readback proves another actor
+already satisfied the proposal. `blocked` means no PUT was dispatched.
+
 ## Jira: guarded issue labels
 
 Use the independently read-only child to review the exact add/remove proposal,

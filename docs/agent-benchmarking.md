@@ -909,8 +909,10 @@ positive write budget and explicit mutating HTTP method, and the spec includes
 `guard_no_denials`, `mock_no_unexpected`, and an exact `http_methods_equal`
 oracle. The proxy independently requires both configured backends to be plain
 HTTP loopback origins and rechecks the reviewed command prefixes. Mock routes
-may bind an exact semantic JSON `request_body`, so an allowed PUT with the
-wrong field or value still fails the route oracle. This mode is never valid for
+may bind semantic JSON `request_body`, or set the closed
+`request_body_match:"exact"` mode to require committed bytes exactly. The
+latter rejects whitespace, key-order, and escaping drift as well as a wrong
+field or value. This mode is never valid for
 private-live or MCP runs. Codex write-enabled synthetic specs use the same
 exact structured CLI rules, zero-network filesystem sandbox, and host-side
 broker; only their separately attested apply shape can remove the read-only
@@ -970,21 +972,31 @@ custom-field proposal. Preview runs under the inherited read-only policy and
 must make exactly two GETs and no write. Reviewed apply must first use the
 dedicated GET-only `jira issue field preview`, then bind its exact issue,
 timestamp, and proposal hash to one `field set --apply`; the fixture accepts
-only the exact JSON PUT body. The ambiguous variant returns a synthetic 5xx,
-requires atl's one reconciliation read, reports `unknown`, and forbids replay.
+only the byte-exact committed numeric-id JSON PUT body. The ambiguous variant returns a
+synthetic 5xx, requires atl's one immutable-id reconciliation read, reports
+`unknown`, and forbids replay.
+The evaluator uses a field-specific exact-case duplicate decoder rather than
+the shared case-folded 128-level wire policy: desired values may reach the
+released 9,997-container value bound while the three enclosing result
+containers remain within 10,000. Requested keys and immutable ids independently
+retain their advertised 64-byte caps.
 All variants require an exact `atl:jira` Skill event and a structured answer;
 the rubric scores the review boundary, proposal binding, ambiguity handling,
 actionability, and concision without retaining proposed field content.
 The current corpus provides semantically equivalent Codex and Claude Code
-specs for all three variants. Codex commands are constrained by exact argv and
-one-invocation rules. Execution success and the reported structured outcome
+specs for all three variants. Every spec carries the same closed schema-v2 CLI
+policy: one exact preview producer and one exact SHA-bound apply consumer. The
+broker strictly decodes the selected binary's schema-v3 preview and supplies
+its content-free hash binding dynamically to both one-use write admission and
+grading; no fixture, prompt, or run spec contains a literal proposal hash.
+Execution success and the reported structured outcome
 remain independent oracles, so a response that misreports an observed apply is
 retained as a deterministic model failure rather than rewritten from runner
 telemetry.
 The reviewed Claude Code baseline passed 3/3 in every variant and scored
-10,000 bps on all nine answers. Median trajectories were one atl invocation /
-two GETs for preview, two invocations / four GETs / one PUT for apply, and two
-invocations / five GETs / one PUT for the ambiguous case. Treat token, cost,
+10,000 bps on all nine answers. The enforced request geometry is one atl
+invocation / two GETs for preview and two invocations / seven GETs / one PUT
+for both apply variants; the combined sequence is ordered and stateful. Treat token, cost,
 and duration values as provider observations; the exact method/body, guard,
 proposal, outcome, and no-replay oracles are the stable claims.
 

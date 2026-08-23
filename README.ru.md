@@ -192,16 +192,16 @@ env -u ATL_READ_ONLY atl conf push \
   "$ATL_WORKSPACE_ROOT/SPACE/page/page.csf" --dry-run
 ```
 
-Проверив полный результат, запустите ту же команду без `--dry-run`. Version
-conflict Confluence завершается с кодом `5`: сохраните локальный candidate и
-используйте `conf reconcile preview`, не включая force автоматически.
-Proposal-bound workflow для комментариев, Jira create, Confluence copy, корзины, полей,
-transition и удаления требуют выведенных expected-значений и никогда не
-повторяют неоднозначную запись. Точные команды apply и восстановления приведены
-в [руководстве по безопасной записи](docs/safe-writes.md).
-Для перемещения страницы Confluence в корзину `--id` должен быть каноническим
-положительным числом: alias, URL, знак, ведущие нули и окружающие пробелы
-отклоняются до чтения конфигурации или обращения к backend.
+После review запустите команду без `--dry-run`. Version conflict Confluence
+завершается с кодом `5`: используйте `conf reconcile preview`, не auto-force.
+Hash-bound записи используют выведенные gates, одну попытку и reconciliation;
+`write_attempted:true` запрещает replay. Большие Jira fields начинайте с
+GET-only `jira issue field preview`; schema v3 связывает backend/identity и
+depths parser/value 10 000/9 997 (envelope из трёх containers). Invalid UTF-8
+отклоняется до classification. Typed adapter no-attempt мигрирует
+`failed`→`blocked` (exit 8). См.
+[руководство](docs/safe-writes.md). Confluence trash принимает
+только канонический положительный `--id`; иные формы отклоняются локально.
 
 ## Кодинг-агенты
 

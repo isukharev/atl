@@ -242,7 +242,7 @@ func TestEveryRemoteJiraMutatorUsesTheProcessPolicyBeforeBackendAccess(t *testin
 		{"jira", "issue", "create", "--project", "DOC", "--type", "Task", "--summary", "reviewed", "--apply", "--expected-proposal-hash", strings.Repeat("a", 64)},
 		{"jira", "issue", "delete", "DOC-1"},
 		{"jira", "issue", "edit", "DOC-1"},
-		{"jira", "issue", "field", "set", "DOC-1"},
+		{"jira", "issue", "field", "set", "DOC-1", "--from-file", "customfield_1=/definitely/missing", "--allow-fields", "customfield_1"},
 		{"jira", "issue", "labels", "DOC-1", "--add", "reviewed"},
 		{"jira", "issue", "link", "add", "DOC-1", "--to", "OPS-1", "--type", "Blocks"},
 		{"jira", "issue", "link", "delete", "1", "--from", "DOC-1", "--to", "OPS-1", "--type", "Blocks"},

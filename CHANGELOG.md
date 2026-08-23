@@ -1458,6 +1458,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   loopback-only backends, reviewed command prefixes, an explicit write/method
   budget, exact HTTP method counts, clean guard/mock oracles, and fixtures can
   verify the semantic JSON request body.
+- Strengthened guarded Jira custom-field writes with strict JSON decoding,
+  complete custom-field catalog qualification, schema-v3 backend/immutable-id
+  proposal binding, immediate pre-write requalification, a raw single-attempt
+  numeric-id PUT, and mandatory one-readback outcome proof. The public field
+  evaluator now uses producer-specific strict preview decoding and a dynamic
+  broker-observed hash binding instead of a literal corpus hash. Structured raw
+  input has an explicit 10,000-level parser bound, a result-envelope-safe
+  9,997-level structured-value bound, and content-free strict failures;
+  evaluator PUT fixtures now bind exact prepared bytes rather than semantic
+  JSON. A typed adapter refusal before dispatch now migrates from `failed` to
+  `blocked` with exit 8.
 
 - Added an offline durable Confluence mirror-review benchmark covering semantic,
   byte-only, unchanged, and baseline-mismatch states. Its deterministic route

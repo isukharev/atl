@@ -497,6 +497,23 @@ func (s RunSpec) Validate() error {
 			if _, ok := workspaceJSONExpectationFrom(check.Expected); !ok {
 				return fmt.Errorf("json_equals_workspace_json check %q requires a contained JSON file and pointer", check.Name)
 			}
+		case "json_equals_proposal_hash_binding":
+			expectation, ok := proposalHashBindingExpectationFrom(check.Expected)
+			if check.Pointer == "" || check.Minimum != 0 || check.Maximum != 0 || !ok {
+				return fmt.Errorf("json_equals_proposal_hash_binding check %q requires an output pointer and closed binding expectation", check.Name)
+			}
+			producers, consumers := 0, 0
+			for _, rule := range s.AllowedCLICommands {
+				if rule.BindsProposalHash == expectation.Binding {
+					producers++
+				}
+				if rule.RequiresProposalHash == expectation.Binding {
+					consumers++
+				}
+			}
+			if producers != 1 || consumers != 1 {
+				return fmt.Errorf("json_equals_proposal_hash_binding check %q requires one exact policy producer and consumer", check.Name)
+			}
 		case "workspace_file_sha256":
 			if check.Pointer != "" || check.Minimum != 0 {
 				return fmt.Errorf("workspace_file_sha256 check %q does not accept pointer or minimum", check.Name)
@@ -1253,6 +1270,20 @@ type workspaceJSONExpectation struct {
 type workspaceFileSHA256Expectation struct {
 	Path   string `json:"path"`
 	SHA256 string `json:"sha256"`
+}
+
+type proposalHashBindingExpectation struct {
+	Binding string `json:"binding"`
+}
+
+func proposalHashBindingExpectationFrom(raw json.RawMessage) (proposalHashBindingExpectation, bool) {
+	var value proposalHashBindingExpectation
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	if decoder.Decode(&value) != nil || decoder.Decode(new(any)) != io.EOF || !identifierRE.MatchString(value.Binding) {
+		return proposalHashBindingExpectation{}, false
+	}
+	return value, true
 }
 
 func workspaceFileSHA256ExpectationFrom(raw json.RawMessage) (workspaceFileSHA256Expectation, bool) {

@@ -152,7 +152,7 @@ delete|jira-issue-arg|jira issue comment delete
 create?|jira-project-flag|jira issue create
 delete|jira-issue-arg|jira issue delete
 update,move?|jira-issue-arg|jira issue edit
-update,move?|jira-issue-arg|jira issue field set
+update|jira-issue-arg|jira issue field set
 update|jira-issue-arg|jira issue labels
 update|jira-link-endpoints|jira issue link add
 delete|jira-link-endpoints|jira issue link delete

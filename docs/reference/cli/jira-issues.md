@@ -403,27 +403,55 @@ ATL_READ_ONLY=1 atl jira issue field preview PROJ-1 \
   --allow-fields customfield_10002,customfield_10003
 ```
 
-Only Jira fields marked custom in field metadata are accepted. Each input must
+Only Jira fields marked custom in the complete bounded `/rest/api/2/field`
+catalog are accepted. Each input must
 also be named in the exact `--allow-fields` policy. Use the dedicated commands
 for summary, Description, labels, assignee, links, comments, and transitions.
 Multiple fields are sent in one PUT. The reviewed timestamp covers the remote
 issue state, while one deterministic proposal hash covers every normalized
-field value independent of CLI input order and bound to the issue key (proposal
-hash schema v2). A changed input file, different issue key, or stale
+field value independent of CLI input order. Proposal-hash schema v3 also binds
+the backend origin digest, immutable numeric issue id, canonical key/project,
+complete catalog and current-value projections, prepared payload digest, and
+all enforced bounds. A changed backend, input file, issue identity, or stale
 timestamp emits a `blocked` result and exits 8 without writing.
 Already-satisfied values are a no-op after both gates pass. Jira has no
-server-side CAS, so a narrow read-to-write TOCTOU window remains.
+server-side CAS, so apply repeats catalog and issue qualification immediately
+before one numeric-id PUT. Preview uses exactly two GETs; an attempted apply
+uses six requests (five GETs and one PUT), including exactly one numeric-id
+readback after every actual dispatch. The 60-second deadline and shared byte
+budget cover the complete workflow.
 
-Raw parsing is deliberately small: only valid JSON whose top level is an object
-or array becomes structured. JSON-looking scalars (`true`, `7`, `null`) and
-malformed/object-like text stay strings. `--from-md` always produces a string,
-even when its rendered Jira wiki happens to look like JSON. Aggregate input and
-normalized output are each capped at 64 MiB; stdin (`FIELD=-`) may be used once.
+Raw parsing is deliberately small. All invalid UTF-8 is rejected before
+classification. Only valid JSON whose top level is an object or array becomes
+structured. The strict parser ceiling is 10,000 containers; guarded structured
+values are capped at exactly 9,997 so the result object, `fields` array, and
+selected-field object keep the released result within that parser ceiling.
+JSON-looking scalars (`true`, `7`, `null`) and only candidates from which no
+complete JSON value can be decoded, such as incomplete syntax, stay exact
+strings. Once a complete object/array decodes, duplicate members, unpaired
+surrogate escapes, or non-whitespace trailing bytes are usage errors rather
+than strings. Crossing the 9,997-value bound is also a usage error even when
+the candidate is incomplete. `--from-md` always
+produces a string, even when its rendered Jira wiki looks like JSON. Aggregate
+input and normalized output are each capped at 64 MiB; stdin (`FIELD=-`) may be
+used once.
 
-Default JSON includes the aggregate `proposal_hash` plus each normalized
+Default JSON schema version 3 includes canonical issue/backend identity,
+catalog/current/prepared content-free evidence, fixed bounds and usage,
+`write_attempted`, `reconciled`, and `complete`, plus the aggregate
+`proposal_hash` and each normalized
 proposed `value`, its `kind`, byte size, and SHA-256. That stdout is the review artifact and may contain private issue
 content. `-o text` omits values and prints only field ids, kinds, sizes, and
 hashes. Values are never written to verbose request logs.
+
+Terminal statuses are `would_apply`, `already_satisfied`, `applied`, `blocked`,
+`failed`, and `unknown`. `blocked` means no PUT was dispatched and exits 8.
+After any actual PUT, `write_attempted:true` forbids automatic replay. A
+successful or ambiguous dispatch is `applied` only when the single readback
+proves all desired values and a strictly advancing `updated`; otherwise it is
+`unknown` (exit 1). A definitive rejection remains `failed` unless complete
+readback proves another actor already satisfied the proposal; the rejection's
+normal sentinel exit is preserved.
 
 Flags:
 

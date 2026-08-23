@@ -32,11 +32,21 @@ GET-only review path: bodies are referenced as `FIELD=PATH`, not carried in
 argv; every field must be custom and present in `--allow-fields`. It works
 without removing an inherited read-only policy. The approved
 `jira issue field set --apply` requires the previewed `expected_updated` and
-aggregate `proposal_hash`. The
-timestamp binds remote state; the hash binds field ids, source kinds, types, and
-normalized values. Raw top-level JSON objects/arrays remain structured,
-Markdown becomes a Jira-wiki string, and all fields are sent in one request.
-Input and normalized output are capped at 64 MiB.
+aggregate schema-v3 `proposal_hash`. The timestamp binds remote state; the hash
+binds backend origin, immutable issue identity, the complete selected custom-
+field catalog/current projections, source kinds, normalized values, prepared
+payload digest, and fixed bounds, including strict parser depth 10,000 and the
+exact 9,997 structured-value depth that leaves three containers for the
+released result envelope. Invalid UTF-8 is rejected before raw classification.
+Raw top-level JSON objects/arrays remain structured only after strict complete
+validation; duplicate members, unpaired surrogates, trailing non-whitespace,
+and over-depth candidates are rejected. Only a candidate from which no complete
+JSON value can be decoded, such as incomplete syntax, remains a string. Markdown becomes a
+Jira-wiki string, and all fields are sent in one request.
+Input and normalized output are capped at 64 MiB. Preview uses two GETs. Apply
+requalifies immediately before one numeric-id PUT and performs one numeric-id
+readback after every actual dispatch, all within a single deadline and shared
+request/response-byte budget.
 
 ## Non-Goals
 
@@ -141,12 +151,16 @@ No command should rely on request retries for idempotency. The HTTP layer alread
 does not retry POST; writeback commands must still make duplicate writes
 harmless through preflight checks.
 
-The single-issue field command never retries the PUT. After any write error it
-performs one fresh read. After a definitive 4xx rejection, desired values
+The single-issue field command never retries the PUT and never follows a
+mutating redirect. After any actual PUT—including a success or definitive
+rejection—it performs exactly one fresh immutable-id read. After a definitive
+4xx rejection, desired values
 already visible → `already_satisfied` (possibly produced by another actor),
-otherwise → `failed`. For an ambiguous transport/timeout/5xx outcome, desired
-values visible → `applied`; otherwise → `unknown` because an immediate old
-read cannot rule out an in-flight commit. Reconciled results say so explicitly.
+otherwise → `failed`. For a success or ambiguous transport/timeout/5xx outcome,
+desired values plus a strictly advancing `updated` → `applied`; otherwise →
+`unknown` because an immediate old/nonadvancing read cannot rule out an
+in-flight commit. `write_attempted:true` always forbids automatic replay;
+complete readback alone sets `reconciled:true`.
 
 ## Failure Behavior
 
@@ -182,7 +196,7 @@ The implementation has regression tests for:
   request values for `jira issue field set`;
 - dry-run timestamp capture, stale refusal, atomic multi-field apply, and
   already-satisfied no-op behavior for the single-issue field path;
-- changed-file proposal-hash refusal before network/write and reserved-marker
+- changed-file proposal-hash refusal after initial reads but before prewrite/write and reserved-marker
   rejection inside editable Jira regions.
 
 ## Implemented Gate
