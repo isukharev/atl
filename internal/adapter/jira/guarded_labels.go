@@ -58,7 +58,7 @@ func (j *Jira) ReadGuardedLabelSnapshot(ctx context.Context, reference string) (
 		return domain.JiraGuardedLabelSnapshot{}, err
 	}
 	var response guardedLabelSnapshotDTO
-	if !utf8.Valid(data) || !strictjson.ValidUnicodeEscapes(data) || decodeOneJSON(data, &response) != nil || !guardedLinkID(response.ID) || !guardedLinkKey(response.Key) {
+	if strictjson.Decode(data, &response) != nil || !guardedLinkID(response.ID) || !guardedLinkKey(response.Key) {
 		return domain.JiraGuardedLabelSnapshot{}, guardedLabelDecodeError()
 	}
 	var project struct {

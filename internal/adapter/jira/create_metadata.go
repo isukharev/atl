@@ -149,7 +149,7 @@ func (j *Jira) collectQualifiedCreateIssueTypes(ctx context.Context, project str
 			Values  []createIssueTypeDTO `json:"values"`
 		}
 		path := fmt.Sprintf("%s?startAt=%d&maxResults=%d", createMetaBase(project), cursor.requested(), createMetaPageSize)
-		if err := j.c.GetJSON(ctx, path, &page); err != nil {
+		if err := j.getStrictJiraEvidenceJSON(ctx, path, &page); err != nil {
 			return nil, err
 		}
 		if page.Total != nil && (*page.Total < 0 || *page.Total > createMetaMaxItems) {
@@ -237,7 +237,7 @@ func (j *Jira) collectQualifiedCreateFields(ctx context.Context, project, typeID
 			Values  []qualifiedCreateFieldDTO `json:"values"`
 		}
 		path := fmt.Sprintf("%s?startAt=%d&maxResults=%d", base, cursor.requested(), createMetaPageSize)
-		if err := j.c.GetJSON(ctx, path, &page); err != nil {
+		if err := j.getStrictJiraEvidenceJSON(ctx, path, &page); err != nil {
 			return nil, err
 		}
 		if page.StartAt == nil || !cursor.matches(*page.StartAt) {

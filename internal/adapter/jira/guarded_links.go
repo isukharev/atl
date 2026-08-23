@@ -14,6 +14,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/isukharev/atl/internal/domain"
+	"github.com/isukharev/atl/internal/strictjson"
 )
 
 const (
@@ -48,7 +49,7 @@ func (j *Jira) ReadStrictLinkTypes(ctx context.Context) (domain.JiraStrictLinkCa
 	var envelope struct {
 		Types json.RawMessage `json:"issueLinkTypes"`
 	}
-	if err := decodeOneJSON(data, &envelope); err != nil || !jsonArrayPresent(envelope.Types) {
+	if err := strictjson.Decode(data, &envelope); err != nil || !jsonArrayPresent(envelope.Types) {
 		return domain.JiraStrictLinkCatalog{}, guardedLinkDecodeError("link-type catalog")
 	}
 	var rows []strictLinkTypeDTO
@@ -125,7 +126,7 @@ func (j *Jira) ReadStrictLinkEndpoint(ctx context.Context, reference string) (do
 		return domain.JiraStrictLinkEndpoint{}, err
 	}
 	var response strictEndpointDTO
-	if err := decodeOneJSON(data, &response); err != nil || !guardedLinkID(response.ID) || !guardedLinkKey(response.Key) || !jsonArrayPresent(response.Fields.Links) {
+	if err := strictjson.Decode(data, &response); err != nil || !guardedLinkID(response.ID) || !guardedLinkKey(response.Key) || !jsonArrayPresent(response.Fields.Links) {
 		return domain.JiraStrictLinkEndpoint{}, guardedLinkDecodeError("endpoint snapshot")
 	}
 	var project struct {

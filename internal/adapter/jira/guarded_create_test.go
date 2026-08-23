@@ -106,6 +106,8 @@ func TestGuardedCreateAcknowledgementRefusalsPreserveOnlySafeID(t *testing.T) {
 		"malformed id":  `{"id":"01","key":"OPS-1"}`,
 		"malformed key": `{"id":"10","key":"OTHER-1"}`,
 		"trailing":      `{"id":"10"}{}`,
+		"duplicate id":  `{"id":"10","id":"11"}`,
+		"lossy unicode": `{"id":"10","key":"OPS-\ud800"}`,
 	}
 	for name, response := range responses {
 		t.Run(name, func(t *testing.T) {
@@ -122,6 +124,30 @@ func TestGuardedCreateAcknowledgementRefusalsPreserveOnlySafeID(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestGuardedCreateRejectsLossyReviewedPayloadAndReadback(t *testing.T) {
+	t.Run("reviewed payload", func(t *testing.T) {
+		var requests atomic.Int32
+		server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { requests.Add(1) }))
+		t.Cleanup(server.Close)
+		payload := []byte(`{"fields":{"project":{"key":"OTHER"},"project":{"key":"OPS"},"issuetype":{"id":"10"},"summary":"S"}}`)
+		_, err := New(server.URL, "token", "test").WriteGuardedCreate(t.Context(), domain.JiraGuardedCreateWrite{Payload: payload, ProjectID: "7", ProjectKey: "OPS"})
+		if !errors.Is(err, domain.ErrCheckFailed) || requests.Load() != 0 {
+			t.Fatalf("error=%v requests=%d", err, requests.Load())
+		}
+	})
+
+	t.Run("readback", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = io.WriteString(w, `{"id":"10","key":"OPS-1","fields":{"project":{"id":"7","key":"OPS"},"issuetype":{"id":"3"},"summary":"S","customfield_1":{"value":"\ud800"}}}`)
+		}))
+		t.Cleanup(server.Close)
+		_, err := New(server.URL, "token", "test").ReadGuardedCreate(t.Context(), domain.JiraGuardedCreateReadRequest{ID: "10", Fields: []string{"customfield_1"}})
+		if !errors.Is(err, domain.ErrCheckFailed) {
+			t.Fatalf("error=%v", err)
+		}
+	})
 }
 
 func TestGuardedCreateStrictReadbackPreservesTypedEvidence(t *testing.T) {

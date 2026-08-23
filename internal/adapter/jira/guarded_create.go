@@ -14,6 +14,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/isukharev/atl/internal/domain"
+	"github.com/isukharev/atl/internal/strictjson"
 )
 
 const (
@@ -103,7 +104,7 @@ func guardedCreateJSONKind(value any) string {
 // WriteGuardedCreate sends the immutable reviewed bytes once. It authorizes
 // the already-qualified project directly and performs no identity lookup.
 func (j *Jira) WriteGuardedCreate(ctx context.Context, write domain.JiraGuardedCreateWrite) (domain.JiraGuardedCreateAcknowledgement, error) {
-	if !guardedLinkID(write.ProjectID) || !guardedLinkProject(write.ProjectKey) || len(write.Payload) == 0 || len(write.Payload) > jiraGuardedCreateMaxPayloadBytes || !json.Valid(write.Payload) || !guardedCreatePayloadProject(write.Payload, write.ProjectKey) {
+	if !guardedLinkID(write.ProjectID) || !guardedLinkProject(write.ProjectKey) || len(write.Payload) == 0 || len(write.Payload) > jiraGuardedCreateMaxPayloadBytes || strictjson.Validate(write.Payload) != nil || !guardedCreatePayloadProject(write.Payload, write.ProjectKey) {
 		return domain.JiraGuardedCreateAcknowledgement{}, &guardedCreateNoAttemptError{cause: domain.ErrCheckFailed}
 	}
 	cleared, err := j.authorize(ctx, domain.WriteVerbSet{domain.WriteVerbCreate}, []domain.WriteTarget{{Service: "jira", Kind: "issue", Project: write.ProjectKey}})
@@ -118,7 +119,7 @@ func (j *Jira) WriteGuardedCreate(ctx context.Context, write domain.JiraGuardedC
 		ID  string `json:"id"`
 		Key string `json:"key"`
 	}
-	if err := decodeOneJSON(data, &response); err != nil {
+	if err := strictjson.Decode(data, &response); err != nil {
 		return domain.JiraGuardedCreateAcknowledgement{}, fmt.Errorf("%w: Jira create acknowledgement is malformed", domain.ErrCheckFailed)
 	}
 	ack := domain.JiraGuardedCreateAcknowledgement{}
@@ -141,13 +142,13 @@ func guardedCreatePayloadProject(payload []byte, project string) bool {
 	var envelope struct {
 		Fields map[string]json.RawMessage `json:"fields"`
 	}
-	if decodeOneJSON(payload, &envelope) != nil || envelope.Fields == nil {
+	if strictjson.Decode(payload, &envelope) != nil || envelope.Fields == nil {
 		return false
 	}
 	var identity struct {
 		Key string `json:"key"`
 	}
-	return decodeOneJSON(envelope.Fields["project"], &identity) == nil && identity.Key == project
+	return strictjson.Decode(envelope.Fields["project"], &identity) == nil && identity.Key == project
 }
 
 // ReadGuardedCreate performs the sole immutable-id readback. The final encoded
@@ -174,7 +175,7 @@ func (j *Jira) ReadGuardedCreate(ctx context.Context, request domain.JiraGuarded
 		Key    string                     `json:"key"`
 		Fields map[string]json.RawMessage `json:"fields"`
 	}
-	if err := decodeOneJSON(data, &response); err != nil || !guardedLinkID(response.ID) || !guardedLinkKey(response.Key) || response.Fields == nil {
+	if err := strictjson.Decode(data, &response); err != nil || !guardedLinkID(response.ID) || !guardedLinkKey(response.Key) || response.Fields == nil {
 		return domain.JiraGuardedCreateReadback{}, guardedCreateDecodeError()
 	}
 	project, issueType := struct {

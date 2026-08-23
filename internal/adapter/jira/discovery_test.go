@@ -126,6 +126,9 @@ func TestReadQualifiedCreateMetadataRejectsUnqualifiedAndDuplicateFields(t *test
 		{name: "explicit nonterminal short page", typePage: `{"startAt":0,"isLast":false,"values":[{"id":"10","name":"Task"}]}`, want: "read attempt budget exhausted"},
 		{name: "duplicate fields", typePage: `{"startAt":0,"total":1,"isLast":true,"values":[{"id":"10","name":"Task"}]}`, fieldPage: `{"startAt":0,"total":2,"isLast":true,"values":[{"fieldId":"summary","name":"Summary"},{"fieldId":"summary","name":"Summary"}]}`, want: "duplicate field id"},
 		{name: "null allowed values", typePage: `{"startAt":0,"total":1,"isLast":true,"values":[{"id":"10","name":"Task"}]}`, fieldPage: `{"startAt":0,"total":1,"isLast":true,"values":[{"fieldId":"summary","name":"Summary","allowedValues":null}]}`, want: "allowed-values metadata is not an array"},
+		{name: "duplicate type member", typePage: `{"startAt":0,"total":1,"isLast":true,"values":[{"id":"9","id":"10","name":"Task"}]}`, want: "malformed qualification evidence"},
+		{name: "lossy type name", typePage: `{"startAt":0,"total":1,"isLast":true,"values":[{"id":"10","name":"\ud800"}]}`, want: "malformed qualification evidence"},
+		{name: "duplicate field member", typePage: `{"startAt":0,"total":1,"isLast":true,"values":[{"id":"10","name":"Task"}]}`, fieldPage: `{"startAt":0,"total":1,"isLast":true,"values":[{"fieldId":"summary","fieldId":"description","name":"Summary"}]}`, want: "malformed qualification evidence"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -145,7 +148,11 @@ func TestReadQualifiedCreateMetadataRejectsUnqualifiedAndDuplicateFields(t *test
 				}
 				ctx = domain.WithReadBudget(ctx, budget)
 			}
-			_, err := newTestJira(server).ReadQualifiedCreateMetadata(ctx, "OPS", "Task")
+			selector := "Task"
+			if test.name == "lossy type name" {
+				selector = "�"
+			}
+			_, err := newTestJira(server).ReadQualifiedCreateMetadata(ctx, "OPS", selector)
 			if err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("error=%v, want %q", err, test.want)
 			}
