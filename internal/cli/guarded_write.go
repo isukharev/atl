@@ -66,6 +66,8 @@ func validateGuardedPreviewInvocation(cmd *cobra.Command, path string) (bool, er
 		return true, validateJiraGuardedLabelInvocation(cmd, false)
 	case "jira issue comment preview":
 		return true, validateJiraGuardedCommentInvocation(cmd, false)
+	case "jira issue field preview":
+		return true, validateJiraGuardedFieldInvocation(cmd, false)
 	default:
 		return false, nil
 	}

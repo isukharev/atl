@@ -1202,6 +1202,36 @@ func TestEvaluateRunChecksBindsContainedWorkspaceJSON(t *testing.T) {
 	}
 }
 
+func TestRunSpecProposalHashBindingCheckIsClosedAndPolicyBound(t *testing.T) {
+	spec := validRunSpec()
+	spec.AllowedATLCommands = nil
+	spec.AllowedCLICommands = guardedFieldBrokerPolicy().Rules
+	check := RunCheck{Name: "proposal", Kind: "json_equals_proposal_hash_binding", Pointer: "/proposal_hash", Expected: json.RawMessage(`{"binding":"jira_field"}`)}
+	spec.Checks = append(spec.Checks, check)
+	if err := spec.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	for name, mutate := range map[string]func(*RunSpec){
+		"unknown member": func(candidate *RunSpec) {
+			candidate.Checks[len(candidate.Checks)-1].Expected = json.RawMessage(`{"binding":"jira_field","hash":"x"}`)
+		},
+		"missing producer": func(candidate *RunSpec) { candidate.AllowedCLICommands[0].BindsProposalHash = "" },
+		"wrong binding": func(candidate *RunSpec) {
+			candidate.Checks[len(candidate.Checks)-1].Expected = json.RawMessage(`{"binding":"other"}`)
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			candidate := spec
+			candidate.Checks = append([]RunCheck(nil), spec.Checks...)
+			candidate.AllowedCLICommands = append([]CLICommandRule(nil), spec.AllowedCLICommands...)
+			mutate(&candidate)
+			if candidate.Validate() == nil {
+				t.Fatal("invalid dynamic binding check passed")
+			}
+		})
+	}
+}
+
 func TestEvaluateRunChecksBindsGeneratedWorkspaceFileSHA256(t *testing.T) {
 	workspace := t.TempDir()
 	artifact := filepath.Join(workspace, "generated", "report.bin")

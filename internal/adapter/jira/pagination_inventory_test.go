@@ -148,20 +148,25 @@ fields.go:coerceFields:range:1
 fields.go:reservedCreateField:range:1
 graph.go:ReadIssueRemoteLinks:range:1
 graph.go:validJiraRemoteLinkMetadata:range:1
-guarded_comments.go:guardedCommentUniqueJSONValue:for:1
-guarded_comments.go:guardedCommentUniqueJSONValue:for:2
 guarded_links.go:ReadStrictLinkEndpoint:range:1
 guarded_links.go:ReadStrictLinkTypes:range:1
 guarded_create.go:PrepareGuardedCreate:range:1
 guarded_create.go:PrepareGuardedCreate:range:2
 guarded_create.go:ReadGuardedCreate:range:1
 guarded_create.go:guardedCreateReadFields:range:1
+guarded_fields.go:PrepareGuardedFields:range:1
+guarded_fields.go:ReadGuardedFieldCatalog:range:1
+guarded_fields.go:ReadGuardedFieldCatalog:range:2
+guarded_fields.go:ReadGuardedFieldIssue:range:1
+guarded_fields.go:ReadGuardedFieldIssue:range:2
+guarded_fields.go:guardedFieldIDs:range:1
+guarded_fields.go:guardedFieldQualified:range:1
+guarded_fields.go:validateGuardedFieldWrite:range:1
 guarded_labels.go:WriteGuardedLabelDelta:range:1
 guarded_labels.go:WriteGuardedLabelDelta:range:2
 guarded_labels.go:guardedLabelOverlap:range:1
 guarded_labels.go:guardedLabelOverlap:range:2
 guarded_labels.go:guardedLabelSet:range:1
-guarded_labels.go:guardedLabelUnicodeEscapesValid:for:1
 guarded_labels.go:guardedLabelUpdated:range:1
 inverse_reference.go:ReadInverseReferenceSnapshot:range:1
 inverse_reference.go:ReadInverseReferenceSnapshot:range:2
@@ -233,6 +238,36 @@ func TestJiraProductionLoopInventoryIsClosed(t *testing.T) {
 			t.Fatalf("parse %s: %v", entry.Name(), err)
 		}
 		for key, reason := range collectJiraLoops(entry.Name(), file, pagination) {
+			got[key] = reason
+		}
+	}
+	if err := validateJiraLoopInventory(got, want); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSharedStrictJSONLoopInventoryIsClosed(t *testing.T) {
+	want := classifiedJiraLoops([]string{
+		"strictjson.go:Validate:for:1",
+		"strictjson.go:ValidUnicodeEscapes:for:1",
+		"strictjson.go:hexEscape:range:1",
+		"strictjson.go:ValidateNestingDepth:range:1",
+	}, map[string]bool{})
+	got := map[string]string{}
+	directory := filepath.Join("..", "..", "strictjson")
+	entries, err := os.ReadDir(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".go" || strings.HasSuffix(entry.Name(), "_test.go") {
+			continue
+		}
+		file, err := parser.ParseFile(token.NewFileSet(), filepath.Join(directory, entry.Name()), nil, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for key, reason := range collectJiraLoops(entry.Name(), file, map[string]bool{}) {
 			got[key] = reason
 		}
 	}

@@ -17,7 +17,6 @@ func TestGuardedWriteSingleAttemptPortInventory(t *testing.T) {
 		"jira_watchers.go:MutateWatcherGuarded:writer:AddIssueWatcher":       true,
 		"jira_watchers.go:MutateWatcherGuarded:writer:RemoveIssueWatcher":    true,
 		"jira_worklogs.go:AddWorklogGuarded:writer:AddIssueWorklog":          true,
-		"jira_field_set.go:SetFieldsGuarded:s.tr:SetFields":                  true,
 		"confluence_title.go:SetTitleGuarded:s.store:UpdatePage":             true,
 		"confluence_move.go:MoveGuarded:s.store:MovePage":                    true,
 

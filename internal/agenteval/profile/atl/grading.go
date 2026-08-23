@@ -35,6 +35,7 @@ var legacyGradingCatalog = []LegacyGradingDescriptor{
 	{Kind: "interface_invocations_min", EvidenceFamily: grading.CheckBudget},
 	{Kind: "json_array_min_items", EvidenceFamily: grading.CheckJSONSchema},
 	{Kind: "json_equals", EvidenceFamily: grading.CheckJSONValue},
+	{Kind: "json_equals_proposal_hash_binding", EvidenceFamily: grading.CheckJSONValue},
 	{Kind: "json_equals_workspace_json", EvidenceFamily: grading.CheckJSONValue},
 	{Kind: "json_present", EvidenceFamily: grading.CheckFileExists},
 	{Kind: "json_string_equals_optional_period", EvidenceFamily: grading.CheckActionSequence},

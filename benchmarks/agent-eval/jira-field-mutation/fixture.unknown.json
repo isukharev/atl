@@ -2,25 +2,21 @@
   "schema_version": 1,
   "jira_context": "/jira",
   "confluence_context": "/wiki",
+  "request_sequence": ["catalog", "issue_key", "catalog", "issue_key", "catalog", "issue_id", "write_id", "issue_id"],
   "routes": [
-    {
-      "method": "GET",
-      "path": "/jira/rest/api/2/field",
-      "status": 200,
-      "body": [{"id":"customfield_12000","name":"Delivery Narrative","custom":true,"schema":{"type":"string"}}]
-    },
-    {
-      "method": "GET",
-      "path": "/jira/rest/api/2/issue/PROJ-1",
-      "status": 200,
-      "body": {"id":"12001","key":"PROJ-1","fields":{"updated":"2026-07-15T09:30:00.000+0000","customfield_12000":"Previous synthetic narrative."}}
-    },
-    {
-      "method": "PUT",
-      "path": "/jira/rest/api/2/issue/PROJ-1",
-      "request_body": {"fields":{"customfield_12000":"Synthetic approved narrative.\n"}},
-      "status": 500,
-      "body": {"errorMessages":["synthetic ambiguous response"]}
-    }
+    {"name":"catalog","method":"GET","path":"/jira/rest/api/2/field","query_equals":{},"responses":[
+      {"status":200,"body":[{"id":"customfield_12000","name":"Delivery Narrative","custom":true,"schema":{"type":"string"}}]},
+      {"status":200,"body":[{"id":"customfield_12000","name":"Delivery Narrative","custom":true,"schema":{"type":"string"}}]},
+      {"status":200,"body":[{"id":"customfield_12000","name":"Delivery Narrative","custom":true,"schema":{"type":"string"}}]}
+    ]},
+    {"name":"issue_key","method":"GET","path":"/jira/rest/api/2/issue/PROJ-1","query_equals":{"fields":"customfield_12000,project,updated"},"responses":[
+      {"status":200,"body":{"id":"12001","key":"PROJ-1","fields":{"project":{"key":"PROJ"},"updated":"2026-07-15T09:30:00.000+0000","customfield_12000":"Previous synthetic narrative."}}},
+      {"status":200,"body":{"id":"12001","key":"PROJ-1","fields":{"project":{"key":"PROJ"},"updated":"2026-07-15T09:30:00.000+0000","customfield_12000":"Previous synthetic narrative."}}}
+    ]},
+    {"name":"issue_id","method":"GET","path":"/jira/rest/api/2/issue/12001","query_equals":{"fields":"customfield_12000,project,updated"},"responses":[
+      {"status":200,"body":{"id":"12001","key":"PROJ-1","fields":{"project":{"key":"PROJ"},"updated":"2026-07-15T09:30:00.000+0000","customfield_12000":"Previous synthetic narrative."}}},
+      {"status":200,"body":{"id":"12001","key":"PROJ-1","fields":{"project":{"key":"PROJ"},"updated":"2026-07-15T09:30:00.000+0000","customfield_12000":"Previous synthetic narrative."}}}
+    ]},
+    {"name":"write_id","method":"PUT","path":"/jira/rest/api/2/issue/12001","query_equals":{},"request_body":{"fields":{"customfield_12000":"Synthetic approved narrative.\n"}},"request_body_match":"exact","status":500,"body":{"errorMessages":["synthetic ambiguous response"]}}
   ]
 }

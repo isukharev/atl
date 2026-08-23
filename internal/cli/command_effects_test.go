@@ -353,10 +353,12 @@ func TestRemoteWriteLocalPossibleArtifactsMapToExactRegistrationLeaves(t *testin
 	}
 }
 
-func TestGuardedCreateEffectProfilesDisableStartupUpdateExactly(t *testing.T) {
+func TestGuardedMutationEffectProfilesDisableStartupUpdateExactly(t *testing.T) {
 	wants := map[string]string{
 		"jira issue create":         capabilitydef.EffectGuardedCreateApply,
 		"jira issue create preview": capabilitydef.EffectGuardedCreatePreview,
+		"jira issue field preview":  capabilitydef.EffectGuardedFieldPreview,
+		"jira issue field set":      capabilitydef.EffectGuardedFieldApply,
 	}
 	for commandPath, profileID := range wants {
 		catalog, err := buildCommandEffectCatalog(commandEffectSelection{Command: commandPath})
@@ -386,8 +388,8 @@ func TestReviewedEffectDimensionsKeepCredentialAndRequestBoundsHonest(t *testing
 		{command: "conf page section", remote: "read", local: "none", credential: "required", network: "fixed", process: "none", output: "data"},
 		{command: "jira board view", remote: "read", local: "none", credential: "required", network: "required_internal_cap", process: "none", output: "data"},
 		{command: "jira issue attachment get", remote: "read", local: "download", credential: "required", network: "unknown", process: "none", output: "data"},
-		{command: "jira issue field preview", remote: "read", local: "read", credential: "required", network: "unknown", process: "none", output: "data"},
-		{command: "jira issue field set", remote: "write", local: "read", credential: "required", network: "unknown", process: "none", output: "data"},
+		{command: "jira issue field preview", remote: "read", local: "read", credential: "required", network: "fixed", process: "none", output: "data"},
+		{command: "jira issue field set", remote: "write", local: "read", credential: "required", network: "fixed", process: "none", output: "data"},
 		{command: "jira issue get", remote: "read", local: "none", credential: "required", network: "unknown", process: "none", output: "data"},
 		{command: "jira issue graph", remote: "read", local: "none", credential: "required", network: "caller", process: "none", output: "data"},
 		{command: "jira issue reference search", remote: "read", local: "none", credential: "required", network: "caller", process: "none", output: "data"},

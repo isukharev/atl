@@ -73,15 +73,16 @@ type CommandBrokerConfig struct {
 }
 
 type CommandBroker struct {
-	config         CommandBrokerConfig
-	capability     string
-	ctx            context.Context
-	cancel         context.CancelFunc
-	done           chan struct{}
-	closeOnce      sync.Once
-	closeErr       error
-	counts         map[string]int
-	proposalHashes map[string]commandBrokerProposalBinding
+	config                 CommandBrokerConfig
+	capability             string
+	ctx                    context.Context
+	cancel                 context.CancelFunc
+	done                   chan struct{}
+	closeOnce              sync.Once
+	closeErr               error
+	counts                 map[string]int
+	proposalHashes         map[string]commandBrokerProposalBinding
+	producedProposalHashes map[string]string
 }
 
 type commandBrokerProposalBinding struct {
@@ -126,6 +127,7 @@ func StartCommandBroker(config CommandBrokerConfig) (*CommandBroker, error) {
 	broker := &CommandBroker{
 		config: config, capability: capability, ctx: ctx, cancel: cancel,
 		done: make(chan struct{}), counts: map[string]int{}, proposalHashes: map[string]commandBrokerProposalBinding{},
+		producedProposalHashes: map[string]string{},
 	}
 	go broker.serve()
 	return broker, nil
@@ -164,6 +166,17 @@ func (b *CommandBroker) invocationCounts() map[string]int {
 		counts[name] = count
 	}
 	return counts
+}
+
+// producedProposalHashSnapshot returns immutable, content-free grading evidence
+// after the broker has stopped. It is deliberately separate from the one-use
+// live admission map consumed before a selected binary starts.
+func (b *CommandBroker) producedProposalHashSnapshot() map[string]string {
+	values := make(map[string]string, len(b.producedProposalHashes))
+	for binding, hash := range b.producedProposalHashes {
+		values[binding] = hash
+	}
+	return values
 }
 
 func (b *CommandBroker) serve() {
@@ -254,6 +267,11 @@ func (b *CommandBroker) processOne(path, id string) CommandBrokerResponse {
 		// the non-replay-safe selected binary.
 		delete(b.proposalHashes, match.RequiresProposalHash)
 	}
+	if match.BindsProposalHash != "" {
+		if _, exists := b.producedProposalHashes[match.BindsProposalHash]; exists {
+			return response
+		}
+	}
 	b.counts[match.Name]++
 	executionArgs := request.Args
 	if request.ReadOnly && (len(executionArgs) == 0 || executionArgs[0] != "--read-only") {
@@ -284,6 +302,7 @@ func (b *CommandBroker) processOne(path, id string) CommandBrokerResponse {
 			return response
 		}
 		b.proposalHashes[match.BindsProposalHash] = commandBrokerProposalBinding{hash: proposalHash, producer: producer}
+		b.producedProposalHashes[match.BindsProposalHash] = proposalHash
 	}
 	response.Status = "executed"
 	response.Stdout = result.stdout
@@ -307,6 +326,12 @@ func commandBrokerProposalProducer(command []string, stdout []byte) (string, str
 			return "", "", fmt.Errorf("invalid guarded comment proposal")
 		}
 		return preview.ProposalHash, producer, nil
+	case "jira issue field preview":
+		preview, err := DecodeJiraGuardedFieldResult(bytes.NewReader(stdout))
+		if err != nil || preview.Mode != "dry-run" || preview.Status != "would_apply" {
+			return "", "", fmt.Errorf("invalid guarded field proposal")
+		}
+		return preview.ProposalHash, producer, nil
 	default:
 		return "", "", fmt.Errorf("unsupported proposal producer")
 	}
@@ -315,7 +340,8 @@ func commandBrokerProposalProducer(command []string, stdout []byte) (string, str
 func commandBrokerProposalConsumer(producer string, command []string) bool {
 	consumer := strings.Join(command, " ")
 	return producer == "jira issue create preview" && consumer == "jira issue create" ||
-		producer == "jira issue comment preview" && consumer == "jira issue comment add"
+		producer == "jira issue comment preview" && consumer == "jira issue comment add" ||
+		producer == "jira issue field preview" && consumer == "jira issue field set"
 }
 
 func CallCommandBroker(manifestPath string, args []string, probe bool) (CommandBrokerResponse, error) {

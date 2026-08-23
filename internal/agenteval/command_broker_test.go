@@ -223,6 +223,7 @@ func TestCommandBrokerProposalDecoderIsProducerSpecific(t *testing.T) {
 	const hash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	create := []byte(`{"schema_version":1,"operation":"jira_issue_create","backend_sha256":"` + hash + `","requested_project":"TEST","project":{"id":"1","key":"TEST","archived":false},"type_selector":{},"issue_type":{"id":"2","name":"Task","subtask":false},"summary":{},"description":{},"fields":{},"metadata_count":1,"metadata_sha256":"x","request_sha256":"x","request_bytes":1,"registration_requested":false,"bounds":{},"proposal_hash":"` + hash + `","mode":"preview","status":"would_apply","write_attempted":false,"readback_reconciled":false,"usage":{}}`)
 	comment := validJiraTriageCommentPreviewWire(t)
+	field := []byte(jiraGuardedFieldWireFixture())
 	for _, test := range []struct {
 		name    string
 		command []string
@@ -231,8 +232,10 @@ func TestCommandBrokerProposalDecoderIsProducerSpecific(t *testing.T) {
 	}{
 		{name: "create", command: []string{"jira", "issue", "create", "preview"}, wire: create, ok: true},
 		{name: "comment", command: []string{"jira", "issue", "comment", "preview"}, wire: comment, ok: true},
+		{name: "field", command: []string{"jira", "issue", "field", "preview"}, wire: field, ok: true},
 		{name: "create on comment", command: []string{"jira", "issue", "comment", "preview"}, wire: create},
 		{name: "comment on create", command: []string{"jira", "issue", "create", "preview"}, wire: comment},
+		{name: "field on create", command: []string{"jira", "issue", "create", "preview"}, wire: field},
 		{name: "unknown producer", command: []string{"preview"}, wire: create},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -243,7 +246,8 @@ func TestCommandBrokerProposalDecoderIsProducerSpecific(t *testing.T) {
 		})
 	}
 	if commandBrokerProposalConsumer("jira issue create preview", []string{"jira", "issue", "comment", "add"}) ||
-		commandBrokerProposalConsumer("jira issue comment preview", []string{"jira", "issue", "create"}) {
+		commandBrokerProposalConsumer("jira issue comment preview", []string{"jira", "issue", "create"}) ||
+		!commandBrokerProposalConsumer("jira issue field preview", []string{"jira", "issue", "field", "set"}) {
 		t.Fatal("cross-producer consumer admitted")
 	}
 }
@@ -314,6 +318,9 @@ func TestCommandBrokerRejectsProducerWireSwapBeforeBinding(t *testing.T) {
 			}
 			if len(broker.proposalHashes) != 0 {
 				t.Fatalf("producer wire swap created bindings: %+v", broker.proposalHashes)
+			}
+			if len(broker.producedProposalHashes) != 0 {
+				t.Fatalf("producer wire swap created grading evidence: %+v", broker.producedProposalHashes)
 			}
 			data, err := os.ReadFile(executions)
 			if err != nil || string(data) != strings.Join(test.producerCommand, " ")+"\n" {

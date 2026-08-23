@@ -155,10 +155,10 @@ func (c *Client) Do(ctx context.Context, method, path string, body []byte, heade
 }
 
 // DoWithBodyLimit is the bounded raw-body variant for narrowly reviewed
-// endpoints whose successful response is not JSON (for example a legacy
-// product identity page). It retains the normal auth, origin, retry, redirect,
-// trace-redaction, status, and aggregate read-budget policies. Callers must use
-// a positive limit no larger than the ordinary JSON cap.
+// caller-decoded responses, including bounded JSON and non-JSON endpoints. It
+// retains the normal auth, origin, retry, redirect, trace-redaction, status,
+// and aggregate read-budget policies. Callers must use a positive limit no
+// larger than the ordinary JSON cap.
 func (c *Client) DoWithBodyLimit(ctx context.Context, method, path string, body []byte, headers map[string]string, maxBytes int64) ([]byte, error) {
 	if err := validateNoReplayReadBudget(ctx); err != nil {
 		return nil, err

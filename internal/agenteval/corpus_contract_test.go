@@ -1565,8 +1565,8 @@ func TestRepositoryMutationOutcomeProviderParity(t *testing.T) {
 func TestRepositoryMutationOutcomeReportCannotOverrideObservedSuccess(t *testing.T) {
 	root := filepath.Join("..", "..", "benchmarks", "agent-eval", "jira-field-mutation")
 	spec := loadRepositoryRunSpec(t, filepath.Join(root, "run.apply.claude.json"))
-	final := []byte(`{"issue_key":"PROJ-1","field_id":"customfield_12000","expected_updated":"2026-07-15T09:30:00.000+0000","proposal_hash":"6aa69ce56ee417153cbaa0df68b82e9eb7530111e6878f5758111ce73b144a66","outcome":"would_apply","write_attempted":true,"replayed":false,"next_action":"complete"}`)
-	checks, err := evaluateRunChecks(spec.Checks, final, "", 2, 0, 0, 1, map[string]int{"atl:jira": 1}, 0, 0, map[string]int{"GET": 4, "PUT": 1}, true, nil)
+	final := []byte(fmt.Sprintf(`{"issue_key":"PROJ-1","field_id":"customfield_12000","expected_updated":"2026-07-15T09:30:00.000+0000","proposal_hash":%q,"outcome":"would_apply","write_attempted":true,"replayed":false,"next_action":"complete"}`, strings.Repeat("a", 64)))
+	checks, err := evaluateRunChecks(spec.Checks, final, "", 2, 0, 0, 1, map[string]int{"atl:jira": 1}, 0, 0, map[string]int{"GET": 7, "PUT": 1}, true, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1602,7 +1602,7 @@ func TestRepositoryMutationOutcomeReportCannotOverrideObservedSuccess(t *testing
 			InputTokens: 1, OutputTokens: 1, MainThreadInputTokens: 1, MainThreadOutputTokens: 1,
 			EstimatedCostMicroUSD: 1, DurationMillis: 1,
 		},
-		Coverage: coverage, HTTPMethods: map[string]int{"GET": 4, "PUT": 1}, Checks: checks,
+		Coverage: coverage, HTTPMethods: map[string]int{"GET": 7, "PUT": 1}, Checks: checks,
 	})
 	if err != nil {
 		t.Fatal(err)

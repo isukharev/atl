@@ -5,13 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"strings"
 	"unicode/utf8"
 
 	"github.com/isukharev/atl/internal/domain"
+	"github.com/isukharev/atl/internal/strictjson"
 )
 
 const (
@@ -120,11 +120,8 @@ func (j *Jira) WriteGuardedComment(ctx context.Context, write domain.JiraGuarded
 }
 
 func guardedCommentObject(data []byte) (map[string]json.RawMessage, bool) {
-	if !utf8.Valid(data) || !guardedLabelUnicodeEscapesValid(data) || !guardedCommentUniqueJSONMembers(data) {
-		return nil, false
-	}
 	var value map[string]json.RawMessage
-	if decodeOneJSON(data, &value) != nil || value == nil {
+	if strictjson.Decode(data, &value) != nil || value == nil {
 		return nil, false
 	}
 	return value, true
@@ -135,57 +132,6 @@ func guardedCommentRawObject(raw json.RawMessage, present bool) (map[string]json
 		return nil, false
 	}
 	return guardedCommentObject(raw)
-}
-
-func guardedCommentUniqueJSONMembers(data []byte) bool {
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.UseNumber()
-	if !guardedCommentUniqueJSONValue(decoder) {
-		return false
-	}
-	_, err := decoder.Token()
-	return err == io.EOF
-}
-
-func guardedCommentUniqueJSONValue(decoder *json.Decoder) bool {
-	token, err := decoder.Token()
-	if err != nil {
-		return false
-	}
-	delimiter, compound := token.(json.Delim)
-	if !compound {
-		return true
-	}
-	switch delimiter {
-	case '{':
-		seen := map[string]struct{}{}
-		for decoder.More() {
-			member, err := decoder.Token()
-			name, stringMember := member.(string)
-			if err != nil || !stringMember {
-				return false
-			}
-			if _, duplicate := seen[name]; duplicate {
-				return false
-			}
-			seen[name] = struct{}{}
-			if !guardedCommentUniqueJSONValue(decoder) {
-				return false
-			}
-		}
-		end, err := decoder.Token()
-		return err == nil && end == json.Delim('}')
-	case '[':
-		for decoder.More() {
-			if !guardedCommentUniqueJSONValue(decoder) {
-				return false
-			}
-		}
-		end, err := decoder.Token()
-		return err == nil && end == json.Delim(']')
-	default:
-		return false
-	}
 }
 
 func guardedCommentRequiredString(object map[string]json.RawMessage, name string) (string, bool) {

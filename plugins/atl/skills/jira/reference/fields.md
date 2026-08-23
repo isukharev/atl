@@ -117,17 +117,32 @@ env -u ATL_READ_ONLY atl jira issue field set PROJ-1 \
 `field preview` is a dedicated GET-only command and therefore remains available
 under the inherited read-only policy. `field set` is classified as mutating even
 without `--apply`; invoke it only for the exact approved apply command. A fresh
-preview is required whenever the file, issue, field allowlist, or remote state
-changes.
+preview is required whenever the backend, file, issue, field allowlist, or
+remote state changes. Schema-v3 proposal evidence binds the backend origin,
+immutable numeric issue id, canonical key/project, complete selected catalog
+and current values, prepared payload digest, and enforced bounds.
 
 `--from-md FIELD=PATH` always converts to a Jira-wiki **string**.
-`--from-file FIELD=PATH` keeps valid top-level JSON objects/arrays structured;
-all other bytes are an exact string. The files/stdin and normalized proposals
-are capped at 64 MiB in aggregate. Only Jira custom fields named in the exact
-`--allow-fields` list are accepted. A stale `updated` value blocks with exit 8;
-a changed input file or different issue key also blocks because apply requires
-the key-bound schema-v2 aggregate `proposal_hash`. An already-satisfied value
-does not write after both gates pass.
+`--from-file FIELD=PATH` rejects all invalid UTF-8 before classification, then
+keeps valid top-level JSON objects/arrays structured. JSON-looking scalars and
+only candidates from which no complete value can be decoded, such as incomplete
+syntax, are exact strings. A complete object/array with duplicate members, an
+unpaired surrogate escape, or non-whitespace trailing bytes is rejected. The
+strict parser ceiling is 10,000 containers; guarded values are capped at
+exactly 9,997 to leave three containers for the released result envelope, and
+that value bound is enforced even for an incomplete candidate. Files/stdin and normalized proposals are capped at 64 MiB in
+aggregate. Only Jira custom fields named in the exact `--allow-fields` list are
+accepted. `project`, `issuetype`, `summary`, `description`, `labels`, and
+`assignee` are always reserved. A stale `updated` value blocks with exit 8; a
+changed input file or different issue identity is detected after initial reads
+but before prewrite/write because apply requires the schema-v3 aggregate
+`proposal_hash`. An already-satisfied value does not write after both gates
+pass.
+
+Preview makes exactly two GETs. Apply requalifies immediately before one raw
+numeric-id PUT and performs one numeric-id readback after every actual dispatch.
+Never replay when `write_attempted:true`: only desired values plus a strictly
+advancing `updated` prove `applied`; an unproved success/ambiguity is `unknown`.
 
 ## Editing a large description / epic body as a file
 

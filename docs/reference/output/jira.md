@@ -1435,6 +1435,10 @@ of flags. The result is:
   "expected_updated": "2026-01-02T03:04:05.000+0000",
   "actual_updated": "2026-01-02T03:04:05.000+0000",
   "proposal_hash": "<hex>",
+  "catalog": [{"id":"customfield_10001","custom":true}],
+  "current": [{"field":"customfield_10001","present":true,"kind":"string","bytes":12,"sha256":"<hex>"}],
+  "prepared": {"bytes": 71, "sha256": "<hex>"},
+  "bounds": {"max_json_nesting_depth": 10000, "max_value_nesting_depth": 9997},
   "fields": [
     {
       "field": "customfield_10001",
@@ -1444,27 +1448,55 @@ of flags. The result is:
       "sha256": "<hex>",
       "value": "h2. Progress\n\nOn track."
     }
-  ]
+  ],
+  "write_attempted": false,
+  "reconciled": false,
+  "complete": true
 }
 ```
 
-The aggregate proposal hash uses schema v2 and binds the issue key plus the
-complete normalized field set, so a review for one issue cannot authorize the
-same values on another. The normalized values are intentionally present in JSON stdout for review and
+The aggregate proposal hash uses schema v3 and binds backend origin, immutable
+numeric issue id, canonical key/project, exact updated marker, complete selected
+catalog/current projections, normalized desired values, prepared request
+digest, and fixed bounds. The normalized values are intentionally present in JSON stdout for review and
 may be private. `-o text` omits them and prints hashes/sizes. Status is one of
 `would_apply`, `already_satisfied`, `applied`, `blocked`, `failed`, or `unknown`.
-After any PUT error atl performs one fresh reconciliation read. For a
+Apply performs complete catalog/key qualification, repeats qualification by
+immutable numeric id immediately before one raw single-attempt PUT, and always
+performs exactly one numeric-id readback after an actual PUT. For a
 definitive 4xx rejection, proposals already visible are `already_satisfied`
 (another actor may have produced the end state); absent/unreadable proposals
 are `failed`. An ambiguous transport/timeout/5xx outcome is `applied` when the
-proposals are visible and remains `unknown` otherwise (an
+proposals are visible with a strictly advancing updated marker and remains `unknown` otherwise (an
 immediate old read cannot prove an in-flight write will not commit). Successful
-reconciliation reads carry `"reconciled": true`. A stale apply still emits the
+readbacks carry `"reconciled": true`; incomplete qualification/readback carries
+`"complete": false`. `write_attempted:true` always forbids automatic replay. A stale apply still emits the
 `blocked` result and exits 8. Only `field set --apply` can write, and it requires both
 `--expected-updated` and `--expected-proposal-hash`. The latter binds sorted
-field ids, sources, normalized types, and values; a changed local input fails
-before backend metadata/read/write calls. All proposed fields are sent in one
-request.
+field ids, sources, normalized types, values, the fixed 10,000-level strict
+parser bound, and the 9,997-level structured-value bound that leaves three
+containers for the released result envelope. A changed local input is detected after the initial catalog and
+issue reads but before prewrite qualification or write. On a stale apply,
+`expected_updated` retains the caller-reviewed value while `actual_updated`
+reports the newly observed value; the hash binds actual state.
+
+The result truth table uses `A=write_attempted`, `R=reconciled`, and
+`C=complete`:
+
+| mode | status | A | R | C |
+|---|---|---:|---:|---:|
+| dry-run | `would_apply` / `already_satisfied` | false | false | true |
+| dry-run | `blocked` | false | false | false |
+| apply | `already_satisfied` | false or true | same as A | true |
+| apply | `blocked` | false | false | false or true |
+| apply | `applied` | true | true | true |
+| apply | `unknown` / `failed` | true | false or true | same as R |
+
+A typed adapter refusal before dispatch is migrated from `failed` to `blocked`, `A=false`,
+and exit 8 even when its retained cause is auth, configuration, forbidden, or
+usage. `unknown` remains an ambiguity-marker-only exit 1. A definitive failure
+retains its ordinary cause-derived exit, including exit 2 for HTTP 400. All
+proposed fields are sent in one request.
 
 `atl jira issue transition preview <KEY>` and the dry-run form of
 `atl jira issue transition <KEY>` emit one state-bound proposal. The result

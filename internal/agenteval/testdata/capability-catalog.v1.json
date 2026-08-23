@@ -640,7 +640,7 @@
       "cli_command": "jira issue field preview",
       "cli_only": true,
       "access": "read-only",
-      "effect_profile": "remote-read-with-local",
+      "effect_profile": "guarded-field-preview",
       "output_modes": [
         "json",
         "text"
@@ -661,7 +661,7 @@
       "cli_command": "jira issue field set",
       "cli_only": true,
       "access": "mutating",
-      "effect_profile": "remote-write-with-local",
+      "effect_profile": "guarded-field-apply",
       "output_modes": [
         "json",
         "text"

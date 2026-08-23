@@ -8,12 +8,12 @@ import (
 	"net/http"
 	"net/url"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
 
 	"github.com/isukharev/atl/internal/domain"
+	"github.com/isukharev/atl/internal/strictjson"
 )
 
 const (
@@ -58,7 +58,7 @@ func (j *Jira) ReadGuardedLabelSnapshot(ctx context.Context, reference string) (
 		return domain.JiraGuardedLabelSnapshot{}, err
 	}
 	var response guardedLabelSnapshotDTO
-	if !utf8.Valid(data) || !guardedLabelUnicodeEscapesValid(data) || decodeOneJSON(data, &response) != nil || !guardedLinkID(response.ID) || !guardedLinkKey(response.Key) {
+	if !utf8.Valid(data) || !strictjson.ValidUnicodeEscapes(data) || decodeOneJSON(data, &response) != nil || !guardedLinkID(response.ID) || !guardedLinkKey(response.Key) {
 		return domain.JiraGuardedLabelSnapshot{}, guardedLabelDecodeError()
 	}
 	var project struct {
@@ -156,56 +156,6 @@ func guardedLabelUpdated(value string) bool {
 		}
 	}
 	return false
-}
-
-// guardedLabelUnicodeEscapesValid rejects surrogate escapes that Go's JSON
-// decoder would otherwise replace with U+FFFD. General JSON syntax remains the
-// responsibility of decodeOneJSON.
-func guardedLabelUnicodeEscapesValid(data []byte) bool {
-	inString := false
-	for index := 0; index < len(data); index++ {
-		switch data[index] {
-		case '"':
-			inString = !inString
-		case '\\':
-			if !inString || index+1 >= len(data) {
-				continue
-			}
-			if data[index+1] != 'u' {
-				index++
-				continue
-			}
-			value, ok := guardedLabelHexEscape(data[index+2:])
-			if !ok {
-				continue
-			}
-			escapeEnd := index + 6
-			switch {
-			case value >= 0xdc00 && value <= 0xdfff:
-				return false
-			case value >= 0xd800 && value <= 0xdbff:
-				if escapeEnd+6 > len(data) || data[escapeEnd] != '\\' || data[escapeEnd+1] != 'u' {
-					return false
-				}
-				low, valid := guardedLabelHexEscape(data[escapeEnd+2:])
-				if !valid || low < 0xdc00 || low > 0xdfff {
-					return false
-				}
-				index = escapeEnd + 5
-			default:
-				index += 5
-			}
-		}
-	}
-	return true
-}
-
-func guardedLabelHexEscape(data []byte) (uint16, bool) {
-	if len(data) < 4 {
-		return 0, false
-	}
-	value, err := strconv.ParseUint(string(data[:4]), 16, 16)
-	return uint16(value), err == nil
 }
 
 func guardedLabelDecodeError() error {

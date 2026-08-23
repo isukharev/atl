@@ -10,7 +10,7 @@ import (
 
 func TestLegacyATLCheckCatalogIsClosedDeterministicAndImmutable(t *testing.T) {
 	catalog := profileatl.LegacyGradingCatalog()
-	if len(catalog) != 28 {
+	if len(catalog) != 29 {
 		t.Fatalf("catalog entries=%d", len(catalog))
 	}
 	kinds := grading.CheckKinds()

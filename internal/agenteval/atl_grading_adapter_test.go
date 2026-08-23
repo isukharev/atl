@@ -216,6 +216,36 @@ func TestATLGradingAdapterDefersWorkspaceJSONComparisonUntilEvaluation(t *testin
 	}
 }
 
+func TestATLGradingAdapterBindsProducedProposalHashAtEvaluation(t *testing.T) {
+	hash := strings.Repeat("a", 64)
+	check := RunCheck{Name: "dynamic-proposal", Kind: "json_equals_proposal_hash_binding", Pointer: "/proposal_hash",
+		Expected: json.RawMessage(`{"binding":"jira_field"}`)}
+	plan, err := newATLGradingPlan([]RunCheck{check}, "", strings.Repeat("d", 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	planCheck, found := atlPlanCheck(plan, check.Name)
+	if !found || planCheck.Kind != grading.CheckJSONValue {
+		t.Fatalf("dynamic proposal check=%+v found=%v", planCheck, found)
+	}
+	evaluation, err := evaluateATLChecksWithPlan(context.Background(), plan, []RunCheck{check}, atlGradingObservation{
+		final: []byte(`{"proposal_hash":"` + hash + `"}`), producedProposalHashes: map[string]string{"jira_field": hash}})
+	if err != nil || !evaluation.checks[check.Name] {
+		t.Fatalf("matching evaluation=%+v err=%v", evaluation, err)
+	}
+	for name, observation := range map[string]atlGradingObservation{
+		"missing":  {final: []byte(`{"proposal_hash":"` + hash + `"}`)},
+		"mismatch": {final: []byte(`{"proposal_hash":"` + strings.Repeat("b", 64) + `"}`), producedProposalHashes: map[string]string{"jira_field": hash}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			evaluation, err := evaluateATLChecksWithPlan(context.Background(), plan, []RunCheck{check}, observation)
+			if err != nil || evaluation.checks[check.Name] {
+				t.Fatalf("evaluation=%+v err=%v", evaluation, err)
+			}
+		})
+	}
+}
+
 func TestPrivatePanelGradingHashesLegacyValidRubricCriterionIDs(t *testing.T) {
 	digest := strings.Repeat("a", 64)
 	reviewers := []Reviewer{{ID: "reviewer-01", Kind: "codex", Model: "model"},

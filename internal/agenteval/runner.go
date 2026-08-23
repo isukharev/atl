@@ -879,6 +879,10 @@ func runHeadlessOnce(parent context.Context, contract resolvedRunContract, bindi
 	if execution.closeTranscriptErr != nil || execution.closeStderrErr != nil {
 		return Result{}, fmt.Errorf("close agent output: %v %v", execution.closeTranscriptErr, execution.closeStderrErr)
 	}
+	producedProposalHashes := map[string]string(nil)
+	if resources.commandBroker != nil {
+		producedProposalHashes = resources.commandBroker.producedProposalHashSnapshot()
+	}
 	trajectory, err := captureHeadlessTrajectory(headlessTrajectoryCaptureInput{
 		contract:          contract,
 		transcriptPath:    transcriptPath,
@@ -916,6 +920,7 @@ func runHeadlessOnce(parent context.Context, contract resolvedRunContract, bindi
 		agentAdapterAttemptID:   bindings.attemptSession.plan.AttemptID,
 		agentObservationSHA256:  &agentObservationSHA256,
 		gradingPlan:             bindings.gradingPlan, gradingReceiptSHA256: &gradingReceiptSHA256,
+		producedProposalHashes: producedProposalHashes,
 	})
 	processReceipt, err = bindHeadlessOutcomeReceipts(processReceipt, agentObservationSHA256, gradingReceiptSHA256, err)
 	if err != nil {
