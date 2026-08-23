@@ -311,7 +311,7 @@ func (s *JiraService) RunJiraPlan(ctx context.Context, document *JiraPlanDocumen
 				result.Rows[j].Status, result.Rows[j].Reason, result.Rows[j].Complete = "skipped", "aggregate_barrier", false
 			}
 			jiraPlanFinalize(result, parent)
-			return result, jiraPlanFailure()
+			return result, jiraPlanAggregateFailure(result)
 		}
 		if jiraPlanRowBackend(&prepared[i]) != result.BackendSHA256 {
 			result.Rows[i].Status, result.Rows[i].Reason, result.Rows[i].Complete = "blocked", "qualification_failed", true
@@ -325,7 +325,7 @@ func (s *JiraService) RunJiraPlan(ctx context.Context, document *JiraPlanDocumen
 				result.Rows[j].Status, result.Rows[j].Reason, result.Rows[j].Complete = "skipped", "aggregate_barrier", false
 			}
 			jiraPlanFinalize(result, parent)
-			return result, jiraPlanFailure()
+			return result, jiraPlanAggregateFailure(result)
 		}
 	}
 
@@ -348,13 +348,13 @@ func (s *JiraService) RunJiraPlan(ctx context.Context, document *JiraPlanDocumen
 					}
 				}
 				jiraPlanFinalize(result, parent)
-				return result, jiraPlanFailure()
+				return result, jiraPlanAggregateFailure(result)
 			}
 		}
 	}
 	proposalHash, err := jiraPlanProposalHash(result, opts, prepared)
 	if err != nil {
-		return nil, jiraPlanFailure()
+		return nil, jiraPlanAggregateFailure(nil)
 	}
 	result.ProposalHash = proposalHash
 	if opts.Mode == "apply" && opts.ExpectedProposalHash != proposalHash {
@@ -362,7 +362,7 @@ func (s *JiraService) RunJiraPlan(ctx context.Context, document *JiraPlanDocumen
 			result.Rows[i].Status, result.Rows[i].Reason, result.Rows[i].Complete = "blocked", "proposal_changed", true
 		}
 		jiraPlanFinalize(result, parent)
-		return result, jiraPlanFailure()
+		return result, jiraPlanAggregateFailure(result)
 	}
 
 	for i := range rows {
@@ -384,7 +384,7 @@ func (s *JiraService) RunJiraPlan(ctx context.Context, document *JiraPlanDocumen
 	if jiraPlanSuccessfulStatus(result.Status) {
 		return result, nil
 	}
-	return result, jiraPlanFailure()
+	return result, jiraPlanAggregateFailure(result)
 }
 
 func normalizeJiraPlanRunOpts(opts JiraPlanRunOpts, rows []jiraPlanDocumentRow) (JiraPlanRunOpts, JiraPlanFamilyCounts, error) {
@@ -717,6 +717,20 @@ func jiraPlanSuccessfulStatus(status string) bool {
 }
 func jiraPlanFailure() error {
 	return fmt.Errorf("%w: guarded Jira plan did not complete successfully", domain.ErrCheckFailed)
+}
+
+type jiraPlanAggregateError struct{ ambiguous bool }
+
+func (*jiraPlanAggregateError) Error() string {
+	return "check failed: guarded Jira plan did not complete successfully"
+}
+func (*jiraPlanAggregateError) Is(target error) bool {
+	return target == domain.ErrCheckFailed
+}
+func (e *jiraPlanAggregateError) DiagnosticAmbiguousWrite() bool { return e != nil && e.ambiguous }
+
+func jiraPlanAggregateFailure(result *JiraPlanResult) error {
+	return &jiraPlanAggregateError{ambiguous: result != nil && result.Status == "outcome_unknown"}
 }
 func jiraPlanRowBackend(prepared *jiraPlanPreparedRow) string {
 	switch {

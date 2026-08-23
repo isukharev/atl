@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/isukharev/atl/internal/app"
+	"github.com/isukharev/atl/internal/diagnostic"
 	"github.com/isukharev/atl/internal/domain"
 )
 
@@ -143,6 +144,77 @@ func TestJiraPlanApplyEmitsClosedResultBeforeHashMismatchError(t *testing.T) {
 	var result app.JiraPlanResult
 	if code != exitCheckFailed || json.Unmarshal([]byte(out), &result) != nil || result.Status != "blocked" || result.Rows[0].Reason != "proposal_changed" || writes != 0 {
 		t.Fatalf("exit=%d output=%q result=%+v writes=%d", code, out, result, writes)
+	}
+}
+
+func TestJiraPlanAmbiguousResultUsesNoReplayRecovery(t *testing.T) {
+	writes := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPut {
+			writes++
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		_, _ = io.WriteString(w, `{"id":"10","key":"OPS-1","fields":{"project":{"key":"OPS"},"labels":[],"updated":"2026-08-22T10:00:00Z"}}`)
+	}))
+	t.Cleanup(server.Close)
+	path := jiraPlanCLIFile(t)
+	previewOut, code := runCLI(t, jiraEnv(server), "jira", "issue", "plan", "preview", "--csv", path, "--allow-ops", "label_add")
+	var preview app.JiraPlanResult
+	if code != exitOK || json.Unmarshal([]byte(previewOut), &preview) != nil {
+		t.Fatalf("preview exit=%d output=%q", code, previewOut)
+	}
+	out, _, err := executeCLIRaw(t, jiraEnv(server), "jira", "issue", "plan", "apply", "--csv", path, "--allow-ops", "label_add", "--confirm", "APPLY", "--expected-proposal-hash", preview.ProposalHash)
+	var result app.JiraPlanResult
+	recovery := diagnostic.Recover(err, diagnostic.OperationWrite)
+	if codeFor(err) != exitCheckFailed || json.Unmarshal([]byte(out), &result) != nil || result.Status != "outcome_unknown" || writes != 1 ||
+		recovery.Action != diagnostic.RecoveryReconcileWriteOutcome || recovery.RetrySafe {
+		t.Fatalf("exit=%d output=%q result=%+v writes=%d recovery=%+v err=%v", codeFor(err), out, result, writes, recovery, err)
+	}
+}
+
+func TestJiraPlanBrokenStdoutUsesExactDispatchTruth(t *testing.T) {
+	for _, test := range []struct {
+		name         string
+		applyVisible bool
+	}{
+		{name: "applied", applyVisible: true},
+		{name: "ambiguous"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			put, writes := false, 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method == http.MethodPut {
+					put, writes = true, writes+1
+					w.WriteHeader(http.StatusNoContent)
+					return
+				}
+				labels, updated := `[]`, "2026-08-22T10:00:00Z"
+				if put && test.applyVisible {
+					labels, updated = `["new"]`, "2026-08-22T10:00:01Z"
+				}
+				_, _ = io.WriteString(w, `{"id":"10","key":"OPS-1","fields":{"project":{"key":"OPS"},"labels":`+labels+`,"updated":"`+updated+`"}}`)
+			}))
+			t.Cleanup(server.Close)
+			path := jiraPlanCLIFile(t)
+			previewOut, code := runCLI(t, jiraEnv(server), "jira", "issue", "plan", "preview", "--csv", path, "--allow-ops", "label_add")
+			var preview app.JiraPlanResult
+			if code != exitOK || json.Unmarshal([]byte(previewOut), &preview) != nil {
+				t.Fatalf("preview exit=%d output=%q", code, previewOut)
+			}
+			cause := errors.New("stdout unavailable")
+			err := runCLIWithFailingStdoutEnv(t, jiraEnv(server), cause, "jira", "issue", "plan", "apply", "--csv", path, "--allow-ops", "label_add", "--confirm", "APPLY", "--expected-proposal-hash", preview.ProposalHash)
+			if !errors.Is(err, domain.ErrCheckFailed) || !errors.Is(err, cause) || codeFor(err) != exitCheckFailed || !strings.Contains(err.Error(), "do not replay") || writes != 1 {
+				t.Fatalf("error=%v exit=%d writes=%d", err, codeFor(err), writes)
+			}
+		})
+	}
+
+	cause := errors.New("preview stdout unavailable")
+	err := runCLIWithFailingStdoutEnv(t, jiraEnv(jsonServer(t, http.StatusOK, `{"id":"10","key":"OPS-1","fields":{"project":{"key":"OPS"},"labels":[],"updated":"2026-08-22T10:00:00Z"}}`)), cause,
+		"jira", "issue", "plan", "preview", "--csv", jiraPlanCLIFile(t), "--allow-ops", "label_add")
+	if !errors.Is(err, cause) || errors.Is(err, domain.ErrCheckFailed) || codeFor(err) != exitGeneric || strings.Contains(err.Error(), "do not replay") {
+		t.Fatalf("no-attempt output error=%v exit=%d", err, codeFor(err))
 	}
 }
 
