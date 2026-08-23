@@ -3,6 +3,7 @@ package jira
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -85,6 +86,45 @@ func TestStrictGuardedLinkDecoderRejectsIncompleteAndDuplicateEvidence(t *testin
 			_, err := New(server.URL, "token", "test").ReadStrictLinkEndpoint(domain.WithSingleAttempt(context.Background()), "APP-1")
 			if err == nil {
 				t.Fatalf("response unexpectedly qualified: %s", response)
+			}
+		})
+	}
+}
+
+func TestStrictGuardedLinkDecoderRejectsLossyJSONEvidence(t *testing.T) {
+	tests := map[string]struct {
+		path     string
+		response string
+		read     func(*Jira) error
+	}{
+		"duplicate catalog member": {
+			path:     "/rest/api/2/issueLinkType",
+			response: `{"issueLinkTypes":[{"id":"7","id":"8","name":"Blocks","inward":"is blocked by","outward":"blocks"}]}`,
+			read: func(adapter *Jira) error {
+				_, err := adapter.ReadStrictLinkTypes(domain.WithSingleAttempt(t.Context()))
+				return err
+			},
+		},
+		"unpaired surrogate in endpoint inventory": {
+			path:     "/rest/api/2/issue/APP-1",
+			response: `{"id":"10","key":"APP-1","fields":{"project":{"key":"APP"},"issuelinks":[{"id":"90","type":{"id":"7","name":"\ud800","inward":"is blocked by","outward":"blocks"},"inwardIssue":{"id":"20","key":"OPS-2"}}],"updated":"2026-08-23T10:00:00Z"}}`,
+			read: func(adapter *Jira) error {
+				_, err := adapter.ReadStrictLinkEndpoint(domain.WithSingleAttempt(t.Context()), "APP-1")
+				return err
+			},
+		},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != test.path {
+					t.Fatalf("path=%q want=%q", r.URL.Path, test.path)
+				}
+				_, _ = io.WriteString(w, test.response)
+			}))
+			t.Cleanup(server.Close)
+			if err := test.read(New(server.URL, "token", "test")); !errors.Is(err, domain.ErrCheckFailed) {
+				t.Fatalf("error=%v", err)
 			}
 		})
 	}

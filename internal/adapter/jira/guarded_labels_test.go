@@ -89,6 +89,7 @@ func TestGuardedLabelStrictDecoderRejectsIncompleteMalformedAndUnboundedEvidence
 		"invalid UTF-8 label": "{\"id\":\"10\",\"key\":\"OPS-1\",\"fields\":{\"project\":{\"key\":\"OPS\"},\"labels\":[\"\xff\"],\"updated\":\"2026-08-22T10:00:00Z\"}}",
 		"lone high surrogate": strings.Replace(valid, `"labels":[]`, `"labels":["\ud800"]`, 1),
 		"lone low surrogate":  strings.Replace(valid, `"labels":[]`, `"labels":["\udc00"]`, 1),
+		"duplicate member":    strings.Replace(valid, `"labels":[]`, `"labels":[],"labels":[]`, 1),
 		"duplicate label":     `{"id":"10","key":"OPS-1","fields":{"project":{"key":"OPS"},"labels":["x","x"],"updated":"2026-08-22T10:00:00Z"}}`,
 		"oversized label":     strings.Replace(valid, `"labels":[]`, `"labels":["`+strings.Repeat("x", 256)+`"]`, 1),
 		"4097 labels":         string(large),
