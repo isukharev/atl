@@ -177,9 +177,10 @@ func TestJiraPlanBrokenStdoutUsesExactDispatchTruth(t *testing.T) {
 	for _, test := range []struct {
 		name         string
 		applyVisible bool
+		ambiguous    bool
 	}{
 		{name: "applied", applyVisible: true},
-		{name: "ambiguous"},
+		{name: "ambiguous", ambiguous: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			put, writes := false, 0
@@ -204,8 +205,11 @@ func TestJiraPlanBrokenStdoutUsesExactDispatchTruth(t *testing.T) {
 			}
 			cause := errors.New("stdout unavailable")
 			err := runCLIWithFailingStdoutEnv(t, jiraEnv(server), cause, "jira", "issue", "plan", "apply", "--csv", path, "--allow-ops", "label_add", "--confirm", "APPLY", "--expected-proposal-hash", preview.ProposalHash)
-			if !errors.Is(err, domain.ErrCheckFailed) || !errors.Is(err, cause) || codeFor(err) != exitCheckFailed || !strings.Contains(err.Error(), "do not replay") || writes != 1 {
-				t.Fatalf("error=%v exit=%d writes=%d", err, codeFor(err), writes)
+			var marker interface{ DiagnosticAmbiguousWrite() bool }
+			recovery := diagnostic.Recover(err, diagnostic.OperationWrite)
+			if !errors.Is(err, domain.ErrCheckFailed) || !errors.Is(err, cause) || codeFor(err) != exitCheckFailed || !strings.Contains(err.Error(), "do not replay") || writes != 1 ||
+				(errors.As(err, &marker) && marker.DiagnosticAmbiguousWrite()) != test.ambiguous || test.ambiguous && (recovery.Action != diagnostic.RecoveryReconcileWriteOutcome || recovery.RetrySafe) {
+				t.Fatalf("error=%v exit=%d writes=%d ambiguity=%v recovery=%+v", err, codeFor(err), writes, marker != nil && marker.DiagnosticAmbiguousWrite(), recovery)
 			}
 		})
 	}
