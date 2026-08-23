@@ -11,6 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Replaced legacy Jira CSV plan execution with schema-v2 read-only
+  `jira issue plan preview` and hash-confirmed execution-only `plan apply`.
+  Plans are opened once, globally qualified and policy-checked before any
+  writer, share formula-bound parent budgets, use guarded prepared cores, stop
+  on ambiguity, and emit content-minimized closed results.
+
 - Changed `jira issue labels` to preview by default and added the independently
   read-only `labels preview` child. Label add/remove proposals now bind complete
   strict label evidence, immutable issue/project identity and fixed workflow

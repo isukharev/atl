@@ -71,11 +71,12 @@ JQL to imitate this high-level local filtering.
 ## Guarded bulk links and plans
 
 Use `jira issue link suggest --csv ...` before bulk link work. Plan CSV requires
-schema `version=1`, `expected_updated` on every row, narrow operation/field/link
-allowlists, and one row per source issue. It is fail-fast and dry-run unless
-both `--apply` and `--confirm APPLY` are present; `--continue-on-error` still
-returns exit 8 for blocked/failed rows. Split dependent mutations so an earlier
-write cannot invalidate a later freshness gate.
+schema v2 and narrow operation/field/link allowlists. First run the dedicated
+read-only `jira issue plan preview`, then repeat the exact file and allowlists
+with execution-only `plan apply --confirm APPLY --expected-proposal-hash ...`.
+No writer runs until the global qualification, policy, and hash barrier passes.
+`--continue-on-error` applies only to conclusive failures after that barrier;
+ambiguity always stops and must not be replayed.
 
 ## Attachments and images
 

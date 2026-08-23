@@ -354,6 +354,9 @@ func (s *JiraService) buildGuardedLabelSnapshot(ctx context.Context, port domain
 	if err != nil {
 		return nil, err
 	}
+	if requestedKey == "" {
+		requestedKey = read.evidence.Key
+	}
 	current := append([]string(nil), read.evidence.Labels...)
 	desired, effectiveAdd, effectiveRemove := guardedLabelDesired(current, opts.Add, opts.Remove)
 	result := newJiraGuardedLabelResult(requestedKey, opts)
@@ -375,7 +378,7 @@ func (s *JiraService) readGuardedLabelEvidence(ctx context.Context, port domain.
 	if err != nil {
 		return nil, err
 	}
-	if !evidence.Complete || !canonicalPositiveNumericString(evidence.ID) || evidence.Key != requestedKey ||
+	if !evidence.Complete || !canonicalPositiveNumericString(evidence.ID) || requestedKey != "" && evidence.Key != requestedKey ||
 		!domain.ValidJiraIssueKey(evidence.Key) || !domain.ValidJiraIssueKey(evidence.Project+"-1") || !strings.HasPrefix(evidence.Key, evidence.Project+"-") ||
 		(expectedID != "" && evidence.ID != expectedID) || len(evidence.Labels) > jiraGuardedLabelMaxCurrent ||
 		evidence.Labels == nil || !sort.StringsAreSorted(evidence.Labels) || !validGuardedEvidenceLabels(evidence.Labels) {

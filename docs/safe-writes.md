@@ -371,6 +371,30 @@ immediately before one immutable-id/type-id POST or exact-link DELETE. Accept
 only `applied`, `recovered`, or add-only `already_satisfied`; retain terminal
 `outcome_unknown` for investigation and never replay it automatically.
 
+## Jira: guarded CSV plans
+
+Use the dedicated read-only leaf to qualify the whole schema-v2 plan and retain
+its aggregate hash:
+
+```sh
+ATL_READ_ONLY=1 atl jira issue plan preview --csv plan.csv \
+  --allow-ops label_add,comment
+env -u ATL_READ_ONLY atl jira issue plan apply --csv plan.csv \
+  --allow-ops label_add,comment --confirm APPLY \
+  --expected-proposal-hash '<reviewed hash>'
+```
+
+The exact CSV header is
+`schema_version,operation,source,target,type,field,value`; every row has version
+2. Apply never writes until all rows have qualified, every canonical policy
+request has passed deny-only preflight, and the complete aggregate hash matches.
+The hash binds normalized allowlists, all resolved link selector IDs/roles,
+qualified source freshness, row proposals, canonical target order, and exact
+parent-budget formulas. `--continue-on-error` begins only after that barrier.
+Any ambiguous dispatch stops the plan with `outcome_unknown`; do not replay it.
+The result deliberately omits the path, raw values, timestamps, actors,
+inventories, response bodies, and backend error text.
+
 ## Jira: permanent issue deletion
 
 Jira Data Center has no issue trash. The whole deletion leaf is

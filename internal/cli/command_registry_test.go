@@ -107,6 +107,7 @@ jira issue history
 jira issue link list
 jira issue link suggest
 jira issue plan apply
+jira issue plan preview
 jira issue refs
 jira issue reference search
 jira issue search
@@ -284,8 +285,8 @@ func TestCommandRegistryPreservesReviewedOutputModes(t *testing.T) {
 	}
 	walk(root)
 
-	if leafCount != 181 || textCount != 151 || idCount != 35 {
-		t.Fatalf("leaves/text/id=%d/%d/%d want=181/151/35", leafCount, textCount, idCount)
+	if leafCount != 182 || textCount != 152 || idCount != 35 {
+		t.Fatalf("leaves/text/id=%d/%d/%d want=182/152/35", leafCount, textCount, idCount)
 	}
 	for path := range reviewedTextOutputCommandPaths {
 		if !seen[path] {

@@ -121,7 +121,8 @@ not display/short URLs, and no page body or backlink query is made.
 | `jira issue link delete preview <LINK-ID>` | GET-only exact-link deletion proposal | required `--from`, `--to`, `--type` |
 | `jira issue link delete <LINK-ID>` | Preview/apply exact-link deletion | required `--from`, `--to`, `--type`; apply with reviewed hash |
 | `jira issue link suggest` | Read-only missing-link candidates from CSV | `--csv` |
-| `jira issue plan apply` | Dry-run/apply guarded CSV operation plan | `--csv`, `--allow-ops`, `--allow-fields`, `--allow-link-types`, `--continue-on-error`, `--apply`, `--confirm APPLY` |
+| `jira issue plan preview` | Read-only whole-plan schema-v2 qualification | `--csv`, exact `--allow-ops`; `--allow-fields` for fields and `--allow-link-types` for links |
+| `jira issue plan apply` | Execute only after the global qualification/policy/hash barrier | repeat preview flags, `--confirm APPLY`, reviewed `--expected-proposal-hash`; optional `--continue-on-error` after the barrier |
 | `jira issue link-epic <KEY>` | Set the configured or auto-resolved Epic Link | `--epic EPIC-KEY`; optional global `render.jira.epic_field` selector |
 | `jira issue attachment list <KEY>` | List attachments | `-o id` |
 | `jira issue attachment get <KEY>` | Download an attachment | `--id ID-or-filename`, `--into DIR` |

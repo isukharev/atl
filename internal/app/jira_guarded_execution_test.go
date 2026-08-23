@@ -77,7 +77,7 @@ func TestPreparedGuardedCoreCallAndSafetyInventory(t *testing.T) {
 		"setFieldsGuardedPreparedCore":  "SetFieldsGuarded",
 	}
 	constructors := map[string]map[string]bool{
-		"newJiraGuardedExecution": {"GuardedLink": true, "GuardedLabels": true, "AddCommentGuarded": true, "SetFieldsGuarded": true},
+		"newJiraGuardedExecution": {"GuardedLink": true, "GuardedLabels": true, "AddCommentGuarded": true, "SetFieldsGuarded": true, "qualifyJiraPlanRow": true},
 	}
 	banned := map[string]bool{
 		"NewReadBudget": true, "NewChildReadBudget": true, "WithTimeout": true,
@@ -99,6 +99,11 @@ func TestPreparedGuardedCoreCallAndSafetyInventory(t *testing.T) {
 		}
 		for _, violation := range preparedGuardedReferenceViolations(parsed, cores, constructors, banned) {
 			t.Errorf("%s: %s", path, violation)
+		}
+		if strings.HasPrefix(filepath.Base(path), "jira_plan_") {
+			for _, violation := range jiraPlanSafetyReferenceViolations(parsed, cores) {
+				t.Errorf("%s: %s", path, violation)
+			}
 		}
 		for _, declaration := range parsed.Decls {
 			function, ok := declaration.(*ast.FuncDecl)
@@ -151,8 +156,8 @@ func TestPreparedGuardedCoreCallAndSafetyInventory(t *testing.T) {
 	}
 	for core, wrapper := range cores {
 		got := callers[core]
-		if len(got) != 1 || got[0] != wrapper {
-			t.Errorf("%s callers=%v want [%s]", core, got, wrapper)
+		if len(got) != 2 || got[0] != wrapper || got[1] != "executeJiraPlanRow" {
+			t.Errorf("%s callers=%v want [%s executeJiraPlanRow]", core, got, wrapper)
 		}
 	}
 	for constructor, allowed := range constructors {
@@ -170,6 +175,83 @@ func TestPreparedGuardedCoreCallAndSafetyInventory(t *testing.T) {
 			}
 		}
 	}
+}
+
+func jiraPlanSafetyReferenceViolations(parsed *ast.File, cores map[string]string) []string {
+	allowedCalls := map[string]map[string]bool{
+		"NewReadBudget":                 {"RunJiraPlan": true},
+		"newJiraGuardedExecution":       {"qualifyJiraPlanRow": true},
+		"guardedLinkPreparedCore":       {"executeJiraPlanRow": true},
+		"guardedLabelsPreparedCore":     {"executeJiraPlanRow": true},
+		"addCommentGuardedPreparedCore": {"executeJiraPlanRow": true},
+		"setFieldsGuardedPreparedCore":  {"executeJiraPlanRow": true},
+	}
+	banned := map[string]bool{
+		"Comment": true, "Update": true, "Link": true, "UpdateLabels": true,
+		"GuardedLink": true, "GuardedLabels": true, "AddCommentGuarded": true, "SetFieldsGuarded": true,
+		"NewChildReadBudget": true, "WithTimeout": true, "WithDeadline": true,
+	}
+	for core := range cores {
+		banned[core] = true
+	}
+	for name := range allowedCalls {
+		banned[name] = true
+	}
+	var violations []string
+	for _, declaration := range parsed.Decls {
+		owner := "package scope"
+		root := ast.Node(declaration)
+		if function, ok := declaration.(*ast.FuncDecl); ok {
+			if function.Body == nil {
+				continue
+			}
+			owner = function.Name.Name
+			root = function.Body
+		}
+		direct := map[ast.Node]bool{}
+		ast.Inspect(root, func(node ast.Node) bool {
+			if call, ok := node.(*ast.CallExpr); ok {
+				direct[call.Fun] = true
+				if selector, selectorOK := call.Fun.(*ast.SelectorExpr); selectorOK {
+					direct[selector.Sel] = true
+				}
+			}
+			return true
+		})
+		nested := map[ast.Node]bool{}
+		ast.Inspect(root, func(node ast.Node) bool {
+			literal, ok := node.(*ast.FuncLit)
+			if !ok {
+				return true
+			}
+			ast.Inspect(literal, func(inner ast.Node) bool {
+				if inner != nil {
+					nested[inner] = true
+				}
+				return true
+			})
+			return false
+		})
+		ast.Inspect(root, func(node ast.Node) bool {
+			name := ""
+			switch value := node.(type) {
+			case *ast.SelectorExpr:
+				name = value.Sel.Name
+			case *ast.Ident:
+				name = value.Name
+			default:
+				return true
+			}
+			if !banned[name] {
+				return true
+			}
+			if nested[node] || !direct[node] || !allowedCalls[name][owner] {
+				violations = append(violations, owner+": unsafe plan reference: "+name)
+			}
+			return true
+		})
+	}
+	return violations
 }
 
 func preparedGuardedReferenceViolations(parsed *ast.File, cores map[string]string, constructors map[string]map[string]bool, banned map[string]bool) []string {
@@ -230,6 +312,7 @@ func preparedGuardedReferenceViolations(parsed *ast.File, cores map[string]strin
 		case *ast.FuncDecl:
 			if value.Body != nil {
 				_, inCore := cores[value.Name.Name]
+				inCore = inCore || value.Name.Name == "executeJiraPlanRow" || value.Name.Name == "qualifyJiraPlanRow"
 				inspect(value.Name.Name, value.Body, inCore, false)
 			}
 		}
@@ -267,5 +350,30 @@ func GuardedLink() { control := newJiraGuardedExecution; _ = control }`},
 				t.Fatal("unsafe reference unexpectedly passed inventory")
 			}
 		})
+	}
+}
+
+func TestJiraPlanSafetyInventoryRejectsLegacyWrappersAliasesAndNestedControls(t *testing.T) {
+	cores := map[string]string{"guardedLinkPreparedCore": "GuardedLink"}
+	for _, source := range []string{
+		`package app; func executeJiraPlanRow() { legacy := (*JiraService).UpdateLabels; _ = legacy }`,
+		`package app; func executeJiraPlanRow(port interface{ Comment() }) { port.Comment() }`,
+		`package app; func executeJiraPlanRow(port interface{ Update() }) { update := port.Update; update() }`,
+		`package app; func executeJiraPlanRow(s *JiraService) { s.GuardedLink(nil, JiraGuardedLinkOpts{}) }`,
+		`package app; var guarded = (*JiraService).GuardedLabels`,
+		`package app; func helper() { _ = domain.NewReadBudget }`,
+		`package app; func helper() { context.WithDeadline(nil, time.Time{}) }`,
+		`package app; func helper(s *JiraService) { s.guardedLinkPreparedCore(nil, nil, JiraGuardedLinkOpts{}, nil) }`,
+		`package app; func RunJiraPlan() { nested := func() { _, _ = domain.NewReadBudget(1, 1) }; nested() }`,
+		`package app; func executeJiraPlanRow(s *JiraService) { nested := func() { s.guardedLinkPreparedCore(nil, nil, JiraGuardedLinkOpts{}, nil) }; nested() }`,
+		`package app; func qualifyJiraPlanRow() { nested := func() { _, _ = newJiraGuardedExecution(nil, nil, 1, 1, 1) }; nested() }`,
+	} {
+		parsed, err := parser.ParseFile(token.NewFileSet(), "jira_plan_fixture.go", source, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if violations := jiraPlanSafetyReferenceViolations(parsed, cores); len(violations) == 0 {
+			t.Fatalf("unsafe plan reference passed: %s", source)
+		}
 	}
 }

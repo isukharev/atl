@@ -46,6 +46,9 @@ type invocationRuntime struct {
 	outputFormat                                          string
 	verbose, readOnly, readOnlyPolicy, commandPolicyWrite bool
 	processPolicy                                         *processPolicy
+	commandPolicyPreflight                                bool
+	jiraPlanDocument                                      *app.JiraPlanDocument
+	jiraPlanCommand                                       string
 }
 
 type invocationRuntimeContextKey struct{}
@@ -189,7 +192,10 @@ func newRoot() *cobra.Command {
 	root.PersistentPreRunE = func(cmd *cobra.Command, args []string) (retErr error) {
 		defer func() { retErr = closeCorpusBuildCLIError(cmd, retErr) }()
 		cmd.SetContext(context.WithValue(cmd.Context(), invocationRuntimeContextKey{}, runtime))
+		runtime.jiraPlanDocument = nil
+		runtime.jiraPlanCommand = ""
 		runtime.commandPolicyWrite = false
+		runtime.commandPolicyPreflight = false
 		runtime.readOnlyPolicy = false
 		if topologyErr != nil {
 			return &accessPolicyInvariantError{Command: topologyErr.Error()}
@@ -225,6 +231,9 @@ func newRoot() *cobra.Command {
 		if err := validateMutationInvocation(cmd); err != nil {
 			return err
 		}
+		if err := prepareJiraPlanInvocation(cmd); err != nil {
+			return err
+		}
 		path := commandRegistryPath(cmd.Root(), cmd)
 		if registration, ok := commandRegistry.nodes[path]; ok {
 			if err := runtime.processPolicy.requireActiveFor(cmd, registration); err != nil {
@@ -234,6 +243,7 @@ func newRoot() *cobra.Command {
 				return err
 			}
 			runtime.commandPolicyWrite = len(policyPreflightVerbs(cmd, registration.policyVerbs)) != 0
+			runtime.commandPolicyPreflight = registration.traits&commandMutating == 0 && registration.policyIdentity != policyIdentityNone
 		}
 		policyEnabled, err := resolveReadOnlyPolicy(cmd, runtime.readOnly)
 		if err != nil {

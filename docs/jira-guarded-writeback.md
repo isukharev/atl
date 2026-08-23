@@ -2,7 +2,7 @@
 
 # Guarded Jira writeback
 
-Status: implemented for `atl jira issue plan apply` CSV schema version 1,
+Status: implemented for `atl jira issue plan preview` / `apply` CSV schema v2,
 single-issue `atl jira issue field preview` / `field set` file-backed updates,
 and direct guarded `jira issue comment preview` / `comment add`.
 
@@ -76,13 +76,12 @@ format below.
 
 ### 2. Review
 
-The reviewed plan is the only apply input. It is a CSV document with an
-explicit schema version and a closed operation set. Every row repeats
-`version=1` and the review-time Jira `updated` value:
+The reviewed plan is the only apply input. It is an RFC 4180 CSV document with
+one exact header, a closed operation set, and 1–100 rows within a 16 MiB file:
 
 ```csv
-version,op,source,target,type,field,value,rationale,expected_updated
-1,link,PROJ-1,PROJ-2,Blocks,,,reviewed dependency,2026-01-02T03:04:05.000+0000
+schema_version,operation,source,target,type,field,value
+2,link,PROJ-1,PROJ-2,Blocks,,
 ```
 
 Allowed operation types:
@@ -93,13 +92,26 @@ Allowed operation types:
 - `comment`
 - `field`
 
-`field` requires a caller-provided allowlist. Unknown fields are rejected
-before any network write.
+Every row has exactly seven cells and version `2`. V1 and header aliases are
+rejected. `expected_updated` is intentionally absent: fresh qualified evidence
+and the aggregate proposal hash replace a caller timestamp. Links require a
+different target and one unique allowed type/role selector. A label row carries
+one trimmed 1–255 byte label. Comments retain native Jira wiki bytes within the
+existing 1 MiB limit. Field values are strict JSON strings, objects, or arrays,
+capped at 8 MiB before decoding; duplicate members, trailing input, invalid
+UTF-8, reserved fields, and over-depth values fail locally.
+
+`--allow-ops` remains an exact local defense and defaults to `link`.
+`--allow-fields` is required for field rows; `--allow-link-types` is required
+for link rows. Normalized allowlists and every resolved link selector ID/role
+are aggregate-hash inputs. Nonempty field/link selectors without a row in that
+family are rejected without a metadata read.
 
 ### 3. Preview
 
-Preview is mandatory and is the default behavior. It performs fresh Jira reads
-and prints a deterministic per-operation report:
+Preview uses the dedicated read-only `jira issue plan preview` leaf. It
+performs fresh bounded Jira reads and prints a deterministic per-operation
+report:
 
 - no-op operations already satisfied;
 - operations that would be applied;
@@ -111,8 +123,11 @@ failures.
 
 ### 4. Apply
 
-Apply requires an explicit confirmation flag such as `--apply`. It must re-run
-the same fresh-read validation as preview immediately before each write.
+Apply is a separate execution-only leaf and requires
+`--confirm APPLY --expected-proposal-hash <reviewed hash>`. It re-runs the same
+qualification as preview and performs no write until every row qualifies,
+every canonical authorization passes deny-only preflight, the complete
+aggregate hash exists, and the expected hash matches.
 
 Required guards:
 
@@ -121,16 +136,13 @@ Required guards:
 - reject field ids not in the `--allow-field` set;
 - reject link types not returned by Jira metadata unless explicitly allowlisted
   with `--allow-link-types`;
-- reject stale issues when `expected_updated` does not match the fresh remote
-  value;
-- reject multiple mutating rows for the same source issue in schema version 1,
-  because the first write would invalidate the next row's reviewed timestamp;
 - treat already-satisfied operations as no-ops;
 - stop or continue on per-operation failure according to an explicit
   `--continue-on-error` flag, defaulting to stop.
 
-Apply output includes every operation with `applied`, `already_satisfied`,
-`skipped`, `blocked`, or `failed` status (`would_apply` in preview).
+`--continue-on-error` applies only to conclusive execution failures after the
+global barrier. An ambiguous outcome always stops. Apply output includes every
+intended row with a closed status, including fail-fast `skipped` rows.
 
 ## Idempotency
 
@@ -140,10 +152,8 @@ Every operation needs an idempotency check:
   exist, mark `noop`.
 - `label_add`: only add labels not already present.
 - `label_remove`: only remove labels currently present.
-- `comment`: CSV plan execution retains its legacy timestamp-guarded behavior.
-  The optional guarded-comment port reserves an app-only `exact_body_present`
-  policy for a future CSV integration, but CSV does not use that seam yet. The
-  direct comment CLI uses `append_always`, so identical text is a new event.
+- `comment`: use the guarded `exact_body_present` policy, so an existing exact
+  body is satisfied; the direct comment CLI remains `append_always`.
 - `field`: compare normalized current and desired values; skip unchanged
   fields.
 
@@ -164,22 +174,31 @@ complete readback alone sets `reconciled:true`.
 
 ## Failure Behavior
 
-The default apply mode is fail-fast:
+The command owns one overflow-checked parent budget. For link/label/comment/
+field counts L/A/C/F, preview admits `3L+1A+102C+2F` requests and
+`16MiB*(L+A+C)+80MiB*F` response bytes; apply admits
+`9L+4A+306C+6F` and `16MiB*(L+A+C)+225MiB*F`. Hard caps are 1024/256 MiB for
+preview and 2048/512 MiB for apply. Each prepared row retains its original
+PR-A child deadline through qualification and execution.
 
-1. validate the full plan schema;
-2. validate metadata allowlists;
-3. for each operation, fresh-read target issue(s);
-4. stop at the first stale, forbidden, not-found, or rejected operation.
+The default apply mode is fail-fast after the global barrier:
+
+1. validate the full plan and local admission;
+2. qualify every row and canonical policy target;
+3. construct and match the complete aggregate hash;
+4. stop at the first conclusive execution failure.
 
 With `--continue-on-error`, the command may continue independent operations, but
 must still return non-zero if any operation failed or was stale.
 
 ## Audit Trail
 
-The JSON stdout result is the audit trail. It may contain issue keys and
-operation outcomes, but transport errors are reduced to safe reason categories;
-PATs and backend hostnames are never copied into row messages. Persisting that
-stdout to a file is the caller's responsibility; there is no `--audit` flag.
+The schema-v2 JSON stdout result is content-minimized: it contains issue/field
+identity, digests, counts, lengths, canonical authorization, budgets, usage,
+closed statuses, and closed reasons. It never contains the local CSV path, raw
+label/comment/field values, timestamps, actor names, remote inventories,
+response bodies, transport errors, PATs, or backend hostnames. Persisting stdout
+is the caller's responsibility; there is no `--audit` flag.
 
 ## Testing Requirements
 
@@ -187,8 +206,10 @@ The implementation has regression tests for:
 
 - schema rejection and unsupported operation rejection;
 - allowlist enforcement for fields and link types;
-- stale `expected_updated` rejection;
-- idempotent no-op link/label/field operations;
+- exact 16 MiB, 100-row, and 8 MiB field-cell boundaries;
+- immutable single-open document and defensive policy projection;
+- aggregate budgets, global hash/write barrier, and original row deadlines;
+- idempotent no-op link/label/comment/field operations;
 - fail-fast versus `--continue-on-error`;
 - no writes during preview;
 - no PAT or backend hostname in preview/audit output.
@@ -201,6 +222,9 @@ The implementation has regression tests for:
 
 ## Implemented Gate
 
-The command is dry-run by default. Writes require both `--apply` and `--confirm
-APPLY`; a blocked or failed result emits the audit report and exits 8, including
-when `--continue-on-error` is used.
+Preview is an explicitly read-only command and apply is always mutating.
+Malformed apply confirmation/hash and an active read-only refusal happen before
+the file open. One opaque app document is then opened once before content
+policy, configuration, self-update, credentials, or Jira; policy and execution
+use that identical pointer. Both leaves skip self-update. Once app returns a
+result, the CLI emits it even when the closed outcome exits 8.

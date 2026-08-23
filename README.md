@@ -178,12 +178,11 @@ env -u ATL_READ_ONLY atl conf push \
 After review, run the command without `--dry-run`. Confluence version conflict
 exits `5`; use `conf reconcile preview`, never auto-force. Hash-bound writes use
 emitted gates, one attempt, and reconciliation; never replay
-`write_attempted:true`. Large Jira fields use GET-only
-`jira issue field preview`; schema v3 binds backend/identity and parser/value
-depths 10,000/9,997 (three-container envelope). Invalid UTF-8 fails before
-classification. Typed adapter no-attempt migrates `failed`→`blocked` (exit 8). See
-the [safe-write guide](docs/safe-writes.md). Confluence trash accepts only a
-canonical positive numeric `--id`; aliases and noncanonical forms fail locally.
+`write_attempted:true`. Large fields use GET-only `jira issue field preview`.
+For multi-issue CSV, review schema-v2 `jira issue plan preview`, then use
+hash-confirmed execution-only `plan apply`; its global barrier precedes every
+writer. See the [safe-write guide](docs/safe-writes.md). Confluence trash
+accepts only a canonical numeric `--id`.
 
 ## Coding agents
 

@@ -103,12 +103,20 @@ func (p *processPolicy) requireActiveFor(cmd *cobra.Command, registration comman
 }
 
 func (p *processPolicy) authorizerFor(service, rawURL string) (domain.WriteAuthorizer, error) {
+	return p.authorizerForMode(service, rawURL, true)
+}
+
+func (p *processPolicy) preflightAuthorizerFor(service, rawURL string) (domain.WriteAuthorizer, error) {
+	return p.authorizerForMode(service, rawURL, false)
+}
+
+func (p *processPolicy) authorizerForMode(service, rawURL string, requirePolicy bool) (domain.WriteAuthorizer, error) {
 	resolved, err := p.resolve()
 	if err != nil {
 		return nil, classifyProcessPolicyLoadError(err)
 	}
 	if len(resolved.Layers) == 0 {
-		if p.required {
+		if p.required && requirePolicy {
 			return nil, contentpolicy.NewSourceDenial(
 				contentpolicy.ReasonPolicyRequiredAbsent,
 				"content policy is required for governed writes but no policy is active",
@@ -137,7 +145,7 @@ func (p *processPolicy) authorizerFor(service, rawURL string) (domain.WriteAutho
 		default:
 			return nil, fmt.Errorf("%w: unsupported policy backend %q", domain.ErrConfig, service)
 		}
-		if want == "" && !p.required {
+		if want == "" && (!p.required || !requirePolicy) {
 			continue
 		}
 		if want == "" || want != digest {
@@ -161,8 +169,11 @@ func classifyProcessPolicyLoadError(err error) error {
 }
 
 func policyAuthorizerFor(runtime *invocationRuntime, service, rawURL string) (domain.WriteAuthorizer, error) {
-	if runtime.processPolicy == nil || !runtime.commandPolicyWrite {
+	if runtime.processPolicy == nil || !runtime.commandPolicyWrite && !runtime.commandPolicyPreflight {
 		return nil, nil
+	}
+	if runtime.commandPolicyPreflight && !runtime.commandPolicyWrite {
+		return runtime.processPolicy.preflightAuthorizerFor(service, rawURL)
 	}
 	return runtime.processPolicy.authorizerFor(service, rawURL)
 }

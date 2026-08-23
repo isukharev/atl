@@ -49,6 +49,7 @@ const (
 	EffectRemoteReadWithLocal  = "remote-read-with-local"
 	EffectGuardedCreatePreview = "guarded-create-preview"
 	EffectGuardedFieldPreview  = "guarded-field-preview"
+	EffectGuardedPlanPreview   = "guarded-plan-preview"
 	EffectRemoteReadLocal      = "remote-read-local"
 	EffectRemoteDownload       = "remote-download"
 	EffectRemoteOpen           = "remote-open"
@@ -58,6 +59,7 @@ const (
 	EffectRemoteWriteLocal     = "remote-write-local"
 	EffectGuardedCreateApply   = "guarded-create-apply"
 	EffectGuardedFieldApply    = "guarded-field-apply"
+	EffectGuardedPlanApply     = "guarded-plan-apply"
 	EffectCorpusBuild          = "corpus-build"
 	EffectStdioServer          = "stdio-server"
 )
@@ -74,6 +76,8 @@ var effectProfiles = []EffectProfile{
 	{ID: EffectGuardedCreatePreview, Summary: "preview an exact guarded Jira create with optional local qualification and no startup update", RemoteEffect: "read", LocalEffect: "read", CredentialAccess: "required", NetworkBound: "fixed", ProcessEffect: "none", ReplayClass: "replay_safe", OutputKind: "data", LocalArtifact: "none", Configuration: "read", SelfUpdate: "disabled"},
 	{ID: EffectGuardedFieldApply, Summary: "apply one exact guarded Jira custom-field update from local inputs with no startup update", RemoteEffect: "write", LocalEffect: "read", CredentialAccess: "required", NetworkBound: "fixed", ProcessEffect: "none", ReplayClass: "non_replay_safe", OutputKind: "data", LocalArtifact: "none", Configuration: "read", SelfUpdate: "disabled"},
 	{ID: EffectGuardedFieldPreview, Summary: "preview one exact guarded Jira custom-field update from local inputs with no startup update", RemoteEffect: "read", LocalEffect: "read", CredentialAccess: "required", NetworkBound: "fixed", ProcessEffect: "none", ReplayClass: "replay_safe", OutputKind: "data", LocalArtifact: "none", Configuration: "read", SelfUpdate: "disabled"},
+	{ID: EffectGuardedPlanApply, Summary: "apply one hash-bound bounded guarded Jira CSV proposal with no startup update", RemoteEffect: "write", LocalEffect: "read", CredentialAccess: "required", NetworkBound: "caller", ProcessEffect: "none", ReplayClass: "non_replay_safe", OutputKind: "data", LocalArtifact: "required", Configuration: "read", SelfUpdate: "disabled"},
+	{ID: EffectGuardedPlanPreview, Summary: "qualify one bounded guarded Jira CSV proposal with no startup update", RemoteEffect: "read", LocalEffect: "read", CredentialAccess: "required", NetworkBound: "caller", ProcessEffect: "none", ReplayClass: "replay_safe", OutputKind: "data", LocalArtifact: "required", Configuration: "read", SelfUpdate: "disabled"},
 	{ID: EffectLocalArtifact, Summary: "read and write a caller-selected local artifact", RemoteEffect: "none", LocalEffect: "write", CredentialAccess: "none", NetworkBound: "none", ProcessEffect: "none", ReplayClass: "non_replay_safe", OutputKind: "data", LocalArtifact: "required", Configuration: "none", SelfUpdate: "disabled"},
 	{ID: EffectLocalArtifactConfig, Summary: "read and write a caller-selected local artifact after inspecting configuration", RemoteEffect: "none", LocalEffect: "write", CredentialAccess: "none", NetworkBound: "none", ProcessEffect: "none", ReplayClass: "non_replay_safe", OutputKind: "data", LocalArtifact: "required", Configuration: "read", SelfUpdate: "disabled"},
 	{ID: EffectLocalProse, Summary: "read bounded local state and emit human-oriented guidance", RemoteEffect: "none", LocalEffect: "read", CredentialAccess: "none", NetworkBound: "none", ProcessEffect: "none", ReplayClass: "replay_safe", OutputKind: "prose", LocalArtifact: "none", Configuration: "none", SelfUpdate: "disabled"},

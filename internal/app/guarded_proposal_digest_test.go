@@ -64,6 +64,7 @@ func TestGuardedProposalHashDigestInventory(t *testing.T) {
 		"guardedLabelProposalHash":               {file: "jira_labels_guarded.go", argument: "encoded"},
 		"jiraFieldProposalHash":                  {file: "jira_field_set.go", argument: "encoded"},
 		"jiraIssueDeleteProposalHash":            {file: "jira_issue_delete.go", argument: "canonical"},
+		"jiraPlanProposalHash":                   {file: "jira_plan_guarded.go", argument: "encoded"},
 		"jiraTransitionProposalHash":             {file: "jira_transition_guarded.go", argument: "encoded"},
 		"jiraWatcherProposalHash":                {file: "jira_watchers.go", argument: "canonical"},
 		"jiraWorklogProposalHash":                {file: "jira_worklogs.go", argument: "canonical"},

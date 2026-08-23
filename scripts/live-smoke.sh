@@ -95,18 +95,11 @@ PY
   jq -e '.count >= 0 and (.issues | type == "array")' "$tmp/issue-refs-jql.json" >/dev/null
   ok "jira issue refs"
 
-  printf 'source,target,type,rationale\n%s,%s,Relates,live smoke read-only candidate\n' "$first_key" "$first_key" > "$tmp/link-plan.csv"
-  "$ATL_BIN" jira issue link suggest --csv "$tmp/link-plan.csv" > "$tmp/link-suggest.json"
-  jq -e '.planned_count == 1 and (.candidates | type == "array") and (.count | type == "number")' "$tmp/link-suggest.json" >/dev/null
-  ok "jira link suggest"
-
-  "$ATL_BIN" jira issue get "$first_key" --fields updated > "$tmp/issue-updated.json"
-  expected_updated="$(jq -er '.fields.updated | strings | select(length > 0)' "$tmp/issue-updated.json")"
-  printf 'version,op,source,target,type,rationale,expected_updated\n1,link,%s,%s,Relates,live smoke dry-run candidate,%s\n' \
-    "$first_key" "$first_key" "$expected_updated" > "$tmp/apply-plan.csv"
-  "$ATL_BIN" jira issue plan apply --csv "$tmp/apply-plan.csv" > "$tmp/plan-apply.json"
-  jq -e '.mode == "dry-run" and .count == 1 and .results[0].status != "applied"' "$tmp/plan-apply.json" >/dev/null
-  ok "jira plan apply dry-run"
+  printf 'schema_version,operation,source,target,type,field,value\n2,label_add,%s,,,,atl-live-smoke-preview\n' \
+    "$first_key" > "$tmp/preview-plan.csv"
+  "$ATL_BIN" jira issue plan preview --csv "$tmp/preview-plan.csv" --allow-ops label_add > "$tmp/plan-preview.json"
+  jq -e '.schema_version == 2 and .mode == "preview" and .row_count == 1 and (.rows[0].status == "would_apply" or .rows[0].status == "already_satisfied") and .rows[0].write_attempted == false' "$tmp/plan-preview.json" >/dev/null
+  ok "jira plan preview"
 
   if [[ -n "${ATL_TEST_JIRA_EPIC_FIELD:-}" ]]; then
     "$ATL_BIN" jira issue tree --jql "$jira_jql" --epic-field "$ATL_TEST_JIRA_EPIC_FIELD" --limit "$limit" > "$tmp/issue-tree.json"

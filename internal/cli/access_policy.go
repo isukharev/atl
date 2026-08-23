@@ -98,6 +98,7 @@ const (
 	mutationGuardJiraGuardedLabels
 	mutationGuardJiraGuardedComment
 	mutationGuardJiraGuardedField
+	mutationGuardJiraPlan
 )
 
 type mutationGuardSpec struct {
@@ -309,7 +310,8 @@ R remote-read json jira issue link delete preview
 R remote-read json,text,id jira issue link list
 R remote-read-with-local json,text jira issue link suggest
 M remote-write remote-direct update jira-two-issue-args - json jira issue link-epic
-M remote-write-with-local plan update jira-plan apply,confirm command generic json,text jira issue plan apply
+M guarded-plan-apply dedicated-apply update,comment jira-plan confirm,expected-proposal-hash pre-config jira-plan json,text jira issue plan apply
+R guarded-plan-preview json,text jira-plan jira issue plan preview
 R remote-read json,text jira issue refs
 R remote-read-caller-bounded json,text jira issue reference search
 R remote-read-fixed json,text,id jira issue search
@@ -396,6 +398,12 @@ func parseCommandRegistry(value string) (commandRegistryState, error) {
 				return commandRegistryState{}, fmt.Errorf("registry line %d has invalid output modes %q", lineNumber+1, fields[2])
 			}
 			pathFields = fields[3:]
+			if len(fields) >= 5 {
+				if identity, identityOK := parsePolicyIdentity(fields[3]); identityOK && identity != policyIdentityNone {
+					registration.policyIdentity = identity
+					pathFields = fields[4:]
+				}
+			}
 		case len(fields) >= 8 && fields[0] == "M":
 			registration.traits = commandLeaf | commandMutating
 			registration.effectProfile = fields[1]
@@ -714,6 +722,8 @@ func validateMutationGuardFamily(cmd *cobra.Command, family mutationGuardFamily,
 		return validateJiraGuardedCommentInvocation(cmd, applyRequested)
 	case mutationGuardJiraGuardedField:
 		return validateJiraGuardedFieldInvocation(cmd, applyRequested)
+	case mutationGuardJiraPlan:
+		return validateJiraPlanApplyInvocation(cmd)
 	default:
 		return &accessPolicyInvariantError{Command: fmt.Sprintf("%s has invalid mutation guard family", cmd.CommandPath())}
 	}
@@ -874,7 +884,8 @@ func enforceContentPolicyPreflight(cmd *cobra.Command, args []string, registrati
 		return err
 	}
 	if registration.policyIdentity == policyIdentityJiraPlan {
-		requests, err := app.JiraPlanPolicyRequests(policyFlagValue(cmd, "csv"))
+		runtime := invocationRuntimeFor(cmd)
+		requests, err := app.JiraPlanDocumentPolicyRequests(runtime.jiraPlanDocument, runtime.jiraPlanCommand)
 		if err != nil {
 			return err
 		}

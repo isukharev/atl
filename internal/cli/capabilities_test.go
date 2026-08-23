@@ -20,8 +20,8 @@ func TestCapabilityCatalogDefinitionsAreValidAndUnique(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if catalog.SchemaVersion != capabilityCatalogSchemaVersion || catalog.Selection.Count != 60 {
-		t.Fatalf("catalog metadata=%+v definitions want=60", catalog)
+	if catalog.SchemaVersion != capabilityCatalogSchemaVersion || catalog.Selection.Count != 61 {
+		t.Fatalf("catalog metadata=%+v definitions want=61", catalog)
 	}
 	if catalog.Routing.Match != "exact" || !strings.Contains(catalog.Routing.ReferenceLoad, "do not search") {
 		t.Fatalf("routing contract=%+v", catalog.Routing)
@@ -50,8 +50,8 @@ func TestCapabilityCatalogDefinitionsAreValidAndUnique(t *testing.T) {
 func TestCapabilityDefinitionsResolveAllCobraRoutes(t *testing.T) {
 	root := newRoot()
 	definitions := capabilitydef.Definitions()
-	if len(definitions) != 60 {
-		t.Fatalf("definitions=%d want=60", len(definitions))
+	if len(definitions) != 61 {
+		t.Fatalf("definitions=%d want=61", len(definitions))
 	}
 	for _, definition := range definitions {
 		command, remaining, err := root.Find(strings.Fields(definition.CLICommand))
@@ -131,8 +131,8 @@ func TestCapabilityCatalogPreservesLegacyProjectionAndAddsTransportRouting(t *te
 			mappedMutating++
 		}
 	}
-	if mapped != 33 || cliOnly != 27 {
-		t.Fatalf("mapped=%d cli_only=%d want=33/27", mapped, cliOnly)
+	if mapped != 33 || cliOnly != 28 {
+		t.Fatalf("mapped=%d cli_only=%d want=33/28", mapped, cliOnly)
 	}
 	if mappedMutating != 0 {
 		t.Fatalf("mapped mutating capabilities=%d want=0", mappedMutating)
@@ -154,7 +154,7 @@ func TestCapabilityTaskRoutesStaySmallAndOrdered(t *testing.T) {
 		{"jira/batch-analysis", []string{"jira.batch.issue.export"}},
 		{"jira/structure-planning", []string{"jira.structure.rows", "jira.structure.values", "jira.structure.issue.export"}},
 		{"jira/mirror", []string{"jira.mirror.snapshot"}},
-		{"jira/edit", []string{"jira.issue.fields.edit", "jira.issue.field.preview", "jira.issue.field.set", "jira.issue.worklog.list", "jira.issue.worklog.add", "jira.issue.plan.apply"}},
+		{"jira/edit", []string{"jira.issue.fields.edit", "jira.issue.field.preview", "jira.issue.field.set", "jira.issue.worklog.list", "jira.issue.worklog.add", "jira.issue.plan.preview", "jira.issue.plan.apply"}},
 		{"confluence/evidence", []string{"confluence.page.resolve", "confluence.page.meta", "confluence.page.outline", "confluence.page.section", "confluence.page.sections", "confluence.page.view", "confluence.attachment.list"}},
 		{"confluence/comments", []string{"confluence.comment.list", "confluence.comment.thread", "confluence.comment.preview", "confluence.comment.add", "confluence.comment.mutation.preview", "confluence.comment.mutation.apply"}},
 		{"confluence/table-analytics", []string{"confluence.table.summary", "confluence.table.extract"}},
@@ -178,7 +178,7 @@ func TestCapabilityTaskRoutesStaySmallAndOrdered(t *testing.T) {
 				t.Fatalf("ids=%v want=%v", ids, tt.ids)
 			}
 			maximum := 6
-			if tt.task == "jira/portfolio" || tt.task == "confluence/evidence" {
+			if tt.task == "jira/portfolio" || tt.task == "confluence/evidence" || tt.task == "jira/edit" {
 				maximum = 7
 			}
 			if len(ids) > maximum {
