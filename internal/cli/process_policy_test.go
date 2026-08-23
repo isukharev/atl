@@ -247,7 +247,6 @@ func TestEveryRemoteJiraMutatorUsesTheProcessPolicyBeforeBackendAccess(t *testin
 		{"jira", "issue", "link", "add", "DOC-1", "--to", "OPS-1", "--type", "Blocks"},
 		{"jira", "issue", "link", "delete", "1", "--from", "DOC-1", "--to", "OPS-1", "--type", "Blocks"},
 		{"jira", "issue", "link-epic", "DOC-1"},
-		{"jira", "issue", "plan", "apply"},
 		{"jira", "issue", "transition", "DOC-1"},
 		{"jira", "issue", "update", "DOC-1"},
 		{"jira", "issue", "watchers", "add", "DOC-1"},
@@ -257,8 +256,8 @@ func TestEveryRemoteJiraMutatorUsesTheProcessPolicyBeforeBackendAccess(t *testin
 		{"jira", "sprint", "add", "1", "DOC-1"},
 		{"jira", "sprint", "remove", "DOC-1"},
 	}
-	if len(commands) != 21 {
-		t.Fatalf("remote Jira mutator oracle=%d want=21", len(commands))
+	if len(commands) != 20 {
+		t.Fatalf("remote Jira mutator oracle=%d want=20 (guarded plan has a document-aware policy test)", len(commands))
 	}
 	for _, args := range commands {
 		name := strings.Join(args[1:], "_")

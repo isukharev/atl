@@ -26,6 +26,9 @@ func (s *JiraService) buildGuardedCommentSnapshot(ctx context.Context, port doma
 	if err != nil {
 		return nil, err
 	}
+	if requestedKey == "" {
+		requestedKey = issue.Key
+	}
 	inventory, err := port.ListJiraCommentsQualified(ctx, issue.ID, domain.JiraCommentReadOptions{
 		MaxPages: domain.JiraCommentReadMaxPages, MaxItems: domain.JiraCommentReadMaxItems, MaxBytes: jiraGuardedCommentMaxInventoryBytes,
 	})
@@ -82,7 +85,7 @@ func readGuardedCommentIssue(ctx context.Context, port domain.JiraGuardedComment
 	if err != nil {
 		return domain.JiraGuardedCommentIssue{}, time.Time{}, err
 	}
-	if !issue.Complete || !canonicalPositiveNumericString(issue.ID) || issue.Key != requestedKey ||
+	if !issue.Complete || !canonicalPositiveNumericString(issue.ID) || requestedKey != "" && issue.Key != requestedKey ||
 		!domain.ValidJiraIssueKey(issue.Key) || !domain.ValidJiraIssueKey(issue.Project+"-1") ||
 		!strings.HasPrefix(issue.Key, issue.Project+"-") || expectedID != "" && issue.ID != expectedID {
 		return domain.JiraGuardedCommentIssue{}, time.Time{}, fmt.Errorf("%w: Jira returned missing, moved, or malformed comment issue evidence", domain.ErrCheckFailed)

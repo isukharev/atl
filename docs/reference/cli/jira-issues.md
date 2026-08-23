@@ -23,7 +23,7 @@ Issue reads, fields, creation, guarded edits, transitions, relationships, attach
 - [`atl jira issue comment {preview,add,list,delete}`](#atl-jira-issue-comment-previewaddlistdelete)
 - [`atl jira issue link {add,list,delete,suggest}`](#atl-jira-issue-link-addlistdeletesuggest)
 - [`atl jira issue link-epic`](#atl-jira-issue-link-epic)
-- [`atl jira issue plan apply`](#atl-jira-issue-plan-apply)
+- [`atl jira issue plan preview` / `apply`](#atl-jira-issue-plan-preview--apply)
 - [`atl jira issue attachment {list,get,upload}`](#atl-jira-issue-attachment-listgetupload)
 - [`atl jira issue images`](#atl-jira-issue-images)
 - [`atl jira issue history`](#atl-jira-issue-history)
@@ -713,55 +713,58 @@ Flags:
 | `PROJ-42` | child issue key (positional, required) |
 | `--epic` | epic issue key (required) |
 
-## `atl jira issue plan apply`
+<a id="atl-jira-issue-plan-apply"></a>
 
-Preview or apply a guarded CSV operation plan. The default mode is **dry-run**:
-the command re-reads current Jira state, reports `would_apply`,
-`already_satisfied`, `blocked`, `failed`, or fail-fast `skipped` rows, and
-performs no writes. A blocked/failed plan still emits its JSON audit result but
-exits 8. Write mode requires both `--apply` and `--confirm APPLY`.
+## `atl jira issue plan preview` / `apply`
 
-```bash
-atl jira issue plan apply --csv plan.csv
-atl jira issue plan apply --csv plan.csv --allow-ops link,label_add --apply --confirm APPLY
-atl jira issue plan apply --csv plan.csv --continue-on-error # still exits 8 if any row fails
+Preview or execute one guarded schema-v2 CSV plan. `preview` is an independent
+read-only leaf. `apply` is execution-only and requires the exact aggregate hash
+from a fresh preview:
+
+```sh
+atl jira issue plan preview --csv plan.csv \
+  --allow-ops link,label_add --allow-link-types Blocks
+env -u ATL_READ_ONLY atl jira issue plan apply --csv plan.csv \
+  --allow-ops link,label_add --allow-link-types Blocks \
+  --confirm APPLY --expected-proposal-hash '<reviewed hash>'
 ```
 
-CSV columns:
+The only accepted header is byte-for-byte:
 
-| column | description |
-|---|---|
-| `version` | required plan schema version; currently `1` |
-| `op` | `link`, `label_add`, `label_remove`, `comment`, or `field` |
-| `source` | issue key to read/write |
-| `target` | target issue key for `link` |
-| `type` | Jira link type for `link` |
-| `field` | field id/name for `field` |
-| `value` | label(s), comment body, or field value |
-| `rationale` | optional audit note |
-| `expected_updated` | required Jira `updated` value captured during review; a mismatch blocks the row |
+```csv
+schema_version,operation,source,target,type,field,value
+```
 
-Flags:
+Every row has seven cells and `schema_version` exactly `2`; schema v1 is
+rejected, not migrated. The file is RFC 4180 CSV, at most 16 MiB, and contains
+1–100 nonblank rows. Source and target become uppercase canonical Jira keys.
 
-| flag | description |
-|---|---|
-| `--csv` | operation plan CSV (required) |
-| `--allow-ops` | comma-separated allowed operations (default `link`) |
-| `--allow-fields` | comma-separated field ids/names allowed for `field` operations |
-| `--allow-link-types` | explicit link-type exceptions when a type is absent from live Jira metadata |
-| `--continue-on-error` | continue independent rows after failures; final exit remains 8 |
-| `--apply` | perform writes instead of dry-run |
-| `--confirm` | must be exactly `APPLY` when `--apply` is set |
+| operation | source | target | type | field | value |
+|---|---|---|---|---|---|
+| `link` | required | different key | unique allowed selector | blank | blank |
+| `label_add` | required | blank | blank | blank | one 1–255 byte label |
+| `label_remove` | required | blank | blank | blank | one 1–255 byte label |
+| `comment` | required | blank | blank | blank | native Jira wiki, at most 1 MiB |
+| `field` | required | blank | blank | guarded field id | strict JSON string/object/array, at most 8 MiB |
 
-The complete plan schema and live link-type metadata are validated before
-writes. Execution is fail-fast by default; remaining rows are reported as
-`skipped`. Every non-noop row re-reads the source issue and compares
-`expected_updated` immediately before its write. Schema version 1 permits only
-one mutating row per source issue; split dependent changes into separately
-reviewed plans. Structured `field` values use semantic JSON comparison: object
-key order and server-added object properties do not cause repeat updates, while
-arrays retain reviewed order. Invalid JSON-looking text remains a string, as in
-ordinary `--field` handling.
+`--allow-ops` accepts only exact operation names and defaults to `link`.
+`--allow-fields` is required for field rows. `--allow-link-types` is required
+for link rows and every selector must resolve uniquely by name/inward/outward
+plus role. Distinct selector spellings that resolve to the same type ID and role
+are rejected. An allowlist for a family with no corresponding row is rejected.
+Normalized allowlists and all resolved link IDs/roles are proposal-bound.
+
+Preview qualifies every row before the aggregate authorization/hash barrier.
+Apply performs no write until all rows qualify, all canonical requests pass
+deny-only preflight, the aggregate hash exists, and the supplied hash matches.
+Requested keys remain in the `requested` projection; policy and adapter
+authorization use the freshly qualified current canonical keys and projects if
+Jira resolved a moved key.
+`--continue-on-error` is apply-only and starts after that global barrier;
+ambiguity always stops. Both leaves share one parent request/response budget
+computed from the exact formulas in the result. The result omits the local
+path, raw comment/field/label values, remote snapshots, timestamps, actors, and
+backend errors. See [Jira output contracts](../output/jira.md#guarded-jira-csv-plans).
 
 ## `atl jira issue attachment {list,get,upload}`
 

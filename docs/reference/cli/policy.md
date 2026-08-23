@@ -128,9 +128,12 @@ ids; URLs and search-derived references cannot ground an allow.
 `conf plan apply` checks the whole durable plan before configuration or
 network, then rechecks each target at the adapter. A later authoritative denial
 aborts with the existing partial-progress report; the operation is not
-transactional. `jira issue plan apply --csv` marks conclusively denied rows
-`blocked`; unresolved offline rows continue to the authoritative adapter gate.
-Push commands likewise stop on the first target denied by the adapter.
+transactional. Schema-v2 `jira issue plan apply --csv` performs raw requested-
+key denial before configuration/Jira, then requires every qualified canonical
+request to pass deny-only app preflight before its aggregate hash barrier. The
+adapter remains the sole authoritative last-hop check. Any denial before that
+barrier means zero plan writes. Push commands likewise stop on the first target
+denied by the adapter.
 
 Policy refusal is exit 8 with `kind:"content_policy"`,
 `remediation:"request_human_approval"`, `policy:"content"`, a structured

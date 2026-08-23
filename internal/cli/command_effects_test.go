@@ -21,7 +21,7 @@ func TestCommandEffectCatalogClassifiesEveryExecutableLeaf(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if catalog.SchemaVersion != commandEffectCatalogSchemaVersion || catalog.Enforcement != "informational" || catalog.Selection.Count != 181 {
+	if catalog.SchemaVersion != commandEffectCatalogSchemaVersion || catalog.Enforcement != "informational" || catalog.Selection.Count != 182 {
 		t.Fatalf("catalog metadata=%+v", catalog)
 	}
 	profiles := capabilitydef.EffectProfiles()
@@ -395,7 +395,8 @@ func TestReviewedEffectDimensionsKeepCredentialAndRequestBoundsHonest(t *testing
 		{command: "jira issue reference search", remote: "read", local: "none", credential: "required", network: "caller", process: "none", output: "data"},
 		{command: "jira issue search", remote: "read", local: "none", credential: "required", network: "fixed", process: "none", output: "data"},
 		{command: "jira issue assign", remote: "write", local: "none", credential: "required", network: "unknown", process: "none", output: "data"},
-		{command: "jira issue plan apply", remote: "write", local: "read", credential: "required", network: "unknown", process: "none", output: "data"},
+		{command: "jira issue plan preview", remote: "read", local: "read", credential: "required", network: "caller", process: "none", output: "data"},
+		{command: "jira issue plan apply", remote: "write", local: "read", credential: "required", network: "caller", process: "none", output: "data"},
 		{command: "jira reconcile stage", remote: "none", local: "write", credential: "none", network: "none", process: "none", output: "data"},
 		{command: "mcp serve", remote: "read", local: "read", credential: "possible", network: "unknown", process: "none", output: "protocol"},
 	}

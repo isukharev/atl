@@ -14,8 +14,10 @@ func TestLiveSmokeUsesCurrentGuardedAndRenderContracts(t *testing.T) {
 	}
 	script := string(body)
 	for _, want := range []string{
-		"version,op,source,target,type,rationale,expected_updated",
-		".fields.updated",
+		"schema_version,operation,source,target,type,field,value",
+		"jira issue plan preview",
+		"--allow-ops label_add",
+		`.schema_version == 2 and .mode == "preview"`,
 		"protected color span missing from markdown",
 		`<span style="color:`,
 		"ATL_TEST_JIRA_STRUCTURE_FOLDER_ROW",
@@ -36,5 +38,10 @@ func TestLiveSmokeUsesCurrentGuardedAndRenderContracts(t *testing.T) {
 	}
 	if strings.Contains(script, `\u27e6color:`) {
 		t.Fatal("live smoke still expects legacy color markers")
+	}
+	if strings.Contains(script, "jira issue plan apply") || strings.Contains(script, "jira issue link suggest") ||
+		strings.Contains(script, "version,op,source,target,type,rationale,expected_updated") ||
+		regexp.MustCompile(`printf[^\n]*%s,%s`).MatchString(script) {
+		t.Fatal("live smoke still uses the legacy/self-link Jira plan contract")
 	}
 }

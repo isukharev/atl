@@ -195,13 +195,11 @@ env -u ATL_READ_ONLY atl conf push \
 После review запустите команду без `--dry-run`. Version conflict Confluence
 завершается с кодом `5`: используйте `conf reconcile preview`, не auto-force.
 Hash-bound записи используют выведенные gates, одну попытку и reconciliation;
-`write_attempted:true` запрещает replay. Большие Jira fields начинайте с
-GET-only `jira issue field preview`; schema v3 связывает backend/identity и
-depths parser/value 10 000/9 997 (envelope из трёх containers). Invalid UTF-8
-отклоняется до classification. Typed adapter no-attempt мигрирует
-`failed`→`blocked` (exit 8). См.
-[руководство](docs/safe-writes.md). Confluence trash принимает
-только канонический положительный `--id`; иные формы отклоняются локально.
+`write_attempted:true` запрещает replay. Большие fields начинайте с GET-only
+`jira issue field preview`. Для multi-issue CSV сначала выполните schema-v2
+`jira issue plan preview`, затем hash-confirmed execution-only `plan apply`;
+единый barrier предшествует всем writers. См. [руководство](docs/safe-writes.md).
+Confluence trash принимает только канонический numeric `--id`.
 
 ## Кодинг-агенты
 

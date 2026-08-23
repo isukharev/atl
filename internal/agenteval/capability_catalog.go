@@ -14,7 +14,7 @@ import (
 
 const (
 	CapabilityCatalogSchemaVersion = 1
-	CapabilityCatalogItemCount     = 60
+	CapabilityCatalogItemCount     = 61
 	maxCapabilityCatalogBytes      = 1 << 20
 )
 

@@ -418,6 +418,9 @@ func (s *JiraService) buildGuardedFieldSnapshot(ctx context.Context, port domain
 	if err != nil {
 		return nil, err
 	}
+	if requestedKey == "" {
+		requestedKey = issueRead.issue.Key
+	}
 	prepared, err := port.PrepareGuardedFields(domain.JiraGuardedFieldPreparationRequest{Values: cloneGuardedFieldValues(values), Qualified: append([]domain.JiraGuardedFieldCatalogEntry(nil), catalog.Fields...)})
 	if err != nil {
 		return nil, err
@@ -452,7 +455,7 @@ func (s *JiraService) readGuardedFieldIssue(ctx context.Context, port domain.Jir
 		return nil, err
 	}
 	if !issue.Complete || !canonicalPositiveNumericString(issue.ID) || len(issue.ID) > domain.JiraGuardedFieldMaxImmutableIDBytes ||
-		issue.Key != requestedKey || !domain.ValidJiraIssueKey(issue.Key) || !domain.ValidJiraIssueKey(issue.Project+"-1") ||
+		requestedKey != "" && issue.Key != requestedKey || !domain.ValidJiraIssueKey(issue.Key) || !domain.ValidJiraIssueKey(issue.Project+"-1") ||
 		!strings.HasPrefix(issue.Key, issue.Project+"-") || expectedID != "" && issue.ID != expectedID || len(issue.Fields) != len(selected) {
 		return nil, fmt.Errorf("%w: Jira returned missing, moved, or malformed guarded field identity", domain.ErrCheckFailed)
 	}

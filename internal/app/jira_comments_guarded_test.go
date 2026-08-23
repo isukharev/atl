@@ -5,8 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -141,28 +139,6 @@ func previewBudgetedGuardedComment(t *testing.T) *JiraCommentAddResult {
 		t.Fatalf("budgeted preview=%+v err=%v", result, err)
 	}
 	return result
-}
-
-type guardedCommentPlanCompatibilityTracker struct {
-	*planTracker
-	strictCalls int
-}
-
-func (s *guardedCommentPlanCompatibilityTracker) ReadGuardedCommentIssue(context.Context, string) (domain.JiraGuardedCommentIssue, error) {
-	s.strictCalls++
-	return domain.JiraGuardedCommentIssue{}, errors.New("unexpected strict issue read")
-}
-func (s *guardedCommentPlanCompatibilityTracker) ReadGuardedCommentActor(context.Context) (domain.JiraGuardedCommentActor, error) {
-	s.strictCalls++
-	return domain.JiraGuardedCommentActor{}, errors.New("unexpected strict actor read")
-}
-func (s *guardedCommentPlanCompatibilityTracker) ListJiraCommentsQualified(context.Context, string, domain.JiraCommentReadOptions) (domain.JiraCommentInventory, error) {
-	s.strictCalls++
-	return domain.JiraCommentInventory{}, errors.New("unexpected strict inventory read")
-}
-func (s *guardedCommentPlanCompatibilityTracker) WriteGuardedComment(context.Context, domain.JiraGuardedCommentWrite) (domain.JiraGuardedCommentAcknowledgement, error) {
-	s.strictCalls++
-	return domain.JiraGuardedCommentAcknowledgement{}, errors.New("unexpected strict write")
 }
 
 func (s *jiraGuardedCommentStub) ReadGuardedCommentActor(context.Context) (domain.JiraGuardedCommentActor, error) {
@@ -525,10 +501,10 @@ func TestJiraGuardedCommentPrewriteDriftAndMissingStrictPortBlockWithoutPOST(t *
 		})
 	}
 
-	legacy := &planTracker{}
+	legacy := &struct{ domain.Tracker }{}
 	result, err := (&JiraService{tr: legacy, baseURL: "https://jira.example.test"}).AddCommentGuarded(t.Context(), "PROJ-1", JiraCommentAddOpts{Body: []byte("body")})
-	if !errors.Is(err, domain.ErrCheckFailed) || result.Status != "blocked" || result.Complete || legacy.commentCalls != 0 {
-		t.Fatalf("fallback result=%+v err=%v legacy_writes=%d", result, err, legacy.commentCalls)
+	if !errors.Is(err, domain.ErrCheckFailed) || result.Status != "blocked" || result.Complete {
+		t.Fatalf("fallback result=%+v err=%v", result, err)
 	}
 }
 
@@ -714,27 +690,5 @@ func TestGuardedCommentTimestampQualificationIsStrict(t *testing.T) {
 		if _, err := qualifyGuardedCommentInventory(inventory); !errors.Is(err, domain.ErrCheckFailed) {
 			t.Fatalf("invalid timestamps %q/%q err=%v", timestamps[0], timestamps[1], err)
 		}
-	}
-}
-
-func TestGuardedCommentPortDoesNotChangeCSVPlanBehaviorOrBytes(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "plan.csv")
-	if err := os.WriteFile(path, []byte("version,op,source,value,expected_updated\n1,comment,PROJ-1,hello,2026-01-01\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	tracker := &guardedCommentPlanCompatibilityTracker{planTracker: &planTracker{issues: map[string]domain.Issue{
-		"PROJ-1": {Key: "PROJ-1", Fields: map[string]any{"updated": "2026-01-01"}},
-	}}}
-	result, err := (&JiraService{tr: tracker}).ApplyPlan(t.Context(), JiraPlanApplyOpts{
-		CSVPath: path, Apply: true, Confirm: planApplyConfirm, AllowOps: []string{"comment"},
-	})
-	if err != nil || tracker.strictCalls != 0 || tracker.commentCalls != 1 || tracker.commentKey != "PROJ-1" || tracker.commentBody != "hello" {
-		t.Fatalf("result=%+v err=%v strict=%d legacy=%d/%q/%q", result, err, tracker.strictCalls, tracker.commentCalls, tracker.commentKey, tracker.commentBody)
-	}
-	wire, err := json.Marshal(result)
-	quotedPath, _ := json.Marshal(path)
-	want := `{"version":1,"path":` + string(quotedPath) + `,"mode":"apply","count":1,"results":[{"row":2,"op":"comment","source":"PROJ-1","value":"hello","expected_updated":"2026-01-01","status":"applied"}]}`
-	if err != nil || string(wire) != want {
-		t.Fatalf("CSV result bytes=%s err=%v want=%s", wire, err, want)
 	}
 }

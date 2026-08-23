@@ -18,6 +18,7 @@ Jira mirrors, issue evidence and mutations, exports, graphs, references, and rep
 - [Jira export comparison, reports, and field catalogs](#jira-export-comparison-reports-and-field-catalogs)
 - [Jira graphs and references](#jira-graphs-and-references)
 - [Attachments, guarded mutations, and worklogs](#attachments-guarded-mutations-and-worklogs)
+- [Guarded Jira CSV plans](#guarded-jira-csv-plans)
 - [Jira epic digest](#jira-epic-digest)
 <!-- reference-navigation:end -->
 
@@ -1385,41 +1386,86 @@ link candidates from a reviewed CSV plan:
 Rows whose outward link already exists on the source issue are omitted from
 `candidates`. The command performs no Jira writes.
 
-`atl jira issue plan apply --csv plan.csv` returns a guarded dry-run/apply
-report:
+## Guarded Jira CSV plans
+
+`jira issue plan preview` and `jira issue plan apply` emit schema-v2 results.
+Top-level members have the fixed order shown here; optional backend,
+authorization, and proposal fields appear only after their evidence exists:
 
 ```json
 {
-  "version": 1,
-  "path": "plan.csv",
-  "mode": "dry-run",
-  "count": 1,
-  "results": [
-    {
-      "row": 2,
-      "op": "link",
-      "source": "PROJ-1",
-      "target": "PROJ-2",
-      "type": "Blocks",
-      "rationale": "reviewed dependency",
-      "expected_updated": "2026-01-02T03:04:05.000+0000",
-      "status": "would_apply"
-    }
-  ]
+  "schema_version": 2,
+  "operation": "jira_issue_plan",
+  "mode": "preview",
+  "status": "would_apply",
+  "complete": true,
+  "row_count": 1,
+  "backend_sha256": "sha256:<digest>",
+  "document": {"normalized_sha256": "<digest>"},
+  "family_counts": {"link": 0, "label": 1, "comment": 0, "field": 0},
+  "status_counts": {"would_apply": 1, "already_satisfied": 0, "applied": 0, "recovered": 0, "blocked": 0, "not_applied": 0, "skipped": 0, "outcome_unknown": 0},
+  "bounds": {
+    "max_document_bytes": 16777216,
+    "max_rows": 100,
+    "max_field_cell_bytes": 8388608,
+    "formulas": {
+      "preview_requests": "3L+1A+102C+2F",
+      "apply_requests": "9L+4A+306C+6F",
+      "preview_response_bytes": "16777216*(L+A+C)+83886080*F",
+      "apply_response_bytes": "16777216*(L+A+C)+235929600*F"
+    },
+    "hard_caps": {"preview_requests": 1024, "apply_requests": 2048, "preview_response_bytes": 268435456, "apply_response_bytes": 536870912},
+    "admitted": {"preview_requests": 1, "apply_requests": 4, "preview_response_bytes": 16777216, "apply_response_bytes": 16777216}
+  },
+  "parent_budget": {"max_requests": 1, "max_response_bytes": 16777216},
+  "authorization": {"request_count": 1, "sha256": "<digest>"},
+  "proposal_hash": "<digest>",
+  "usage": {"requests": 1, "response_bytes": 512},
+  "rows": [{
+    "row": 2,
+    "family": "label",
+    "requested": {"source_key": "EXAMPLE-1"},
+    "effect": {"action": "add", "count": 1, "bytes": 8, "sha256": "<digest>"},
+    "qualified": {"source_id": "10001", "project": "EXAMPLE", "updated_sha256": "<digest>"},
+    "authorization": {"verbs": ["update"], "targets": [{"service": "jira", "kind": "issue", "key": "EXAMPLE-1", "project": "EXAMPLE"}]},
+    "proposal_hash": "<digest>",
+    "status": "would_apply",
+    "complete": true,
+    "write_attempted": false,
+    "reconciled": false,
+    "usage": {"requests": 1, "response_bytes": 512}
+  }]
 }
 ```
 
-Status values are `would_apply`, `already_satisfied`, `applied`, `blocked`,
-`failed`, and fail-fast `skipped`. The command defaults to dry-run. Write mode
-requires `--apply --confirm APPLY`; `field` operations also require the field
-to be included in `--allow-fields`. Every CSV row carries `version=1` and a
-review-time `expected_updated` value. Blocked/failed runs still emit the full
-audit result on stdout and return exit 8. Default execution stops after the
-first runtime failure; `--continue-on-error` processes independent rows but
-does not turn the final exit into success. Schema version 1 rejects multiple
-rows for the same source issue, preventing one successful write from making a
-later row self-stale. Failed-row messages use safe reason categories rather than
-raw transport errors, so backend URLs are not copied into the stdout audit.
+The four row families are closed rather than a generic union. Requested shapes
+are `source_key` plus `target_key` for links or `field_id` for fields. Link
+effects are `action,selector_bytes,selector_sha256,resolved_type_id,resolved_role`;
+label effects are `action,count,bytes,sha256`; comment effects are
+`satisfaction_policy,body_bytes,body_sha256` with policy
+`exact_body_present`; field effects are
+`source,kind,bytes,sha256,prepared_bytes,prepared_sha256`. Link qualification
+uses `source_id,target_id,source_project,target_project,source_updated_sha256`.
+Other families use `source_id,project,updated_sha256`, followed by the
+comment baseline/actor or field catalog members. `baseline_count` is emitted
+even when it is zero. Authorization targets deliberately omit numeric IDs.
+
+Arrays are never null. Rows always contain `row,family,requested,effect,status,
+complete,write_attempted,reconciled,usage`; qualification, authorization, and
+proposal members are omitted until established. Row statuses are
+`would_apply`, `already_satisfied`, `applied`, `recovered`, `blocked`,
+`not_applied`, `skipped`, or `outcome_unknown`. Reasons, when present, are
+closed to `qualification_failed`, `policy_denied`, `proposal_changed`,
+`deadline_expired`, `write_rejected`, `aggregate_barrier`,
+`prior_row_failed`, and `ambiguous_outcome`.
+
+Aggregate status precedence is unknown, preview blocked/would-apply/satisfied,
+then apply applied/partially-applied/not-applied/satisfied/blocked. `complete`
+is false for any skipped or unknown row. The path, raw values, timestamps,
+actors, inventories, response bodies, and backend error text are never emitted.
+Text mode is one content-free `plan` line followed by physical-row-order `row`
+lines containing only status, completion, dispatch/reconciliation booleans,
+hash, and aggregate usage.
 
 `atl jira issue field preview <KEY>` and the dry-run form of
 `atl jira issue field set <KEY>` share one deterministic single-issue proposal
