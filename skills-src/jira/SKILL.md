@@ -284,6 +284,23 @@ display name or id. Use its ready `summary` for custom/system/unclassified,
 identifier-quality, and value-type counts instead of recounting the field
 array. Never use `*all` as discovery.
 
+When the task supplies a small known set of canonical issue keys and exact
+field selectors, prefer the JSON-only qualified matrix instead of a broad
+export or repeated single-field reads:
+
+```bash
+atl jira issue field batch \
+  --key ABC-123 --key ABC-124 \
+  --field 'Delivery Notes' --field Impact
+```
+
+Require top-level `complete:true` and `reconciled:true`. Preserve requested key
+and field order. `missing_or_inaccessible` is not proof of issue absence, and
+cell `state` distinguishes `absent`, `null`, `empty`, and `value`. Treat a
+clipped cell as incomplete: it makes top-level `complete:false` while the
+matrix can remain `reconciled:true`. Expand only that exact cell when
+necessary. This route has no MCP equivalent.
+
 For a known epic and task-supplied period, run one
 `jira epic digest --projection compact` with the selected evidence-field name.
 Inspect every `complete`, `partial_reason`, warning, staleness reason, and

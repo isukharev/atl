@@ -196,7 +196,10 @@ env -u ATL_READ_ONLY atl conf push \
 завершается с кодом `5`: используйте `conf reconcile preview`, не auto-force.
 Hash-bound записи используют выведенные gates, одну попытку и reconciliation;
 `write_attempted:true` запрещает replay. Большие fields начинайте с GET-only
-`jira issue field preview`. Для multi-issue CSV сначала выполните schema-v2
+`jira issue field preview`.
+Для компактного анализа небольшого известного набора issues используйте
+JSON-only `jira issue field batch` с повторяемыми `--key` и `--field`.
+Для multi-issue CSV сначала выполните schema-v2
 `jira issue plan preview`, затем hash-confirmed execution-only `plan apply`;
 единый barrier предшествует всем writers. См. [руководство](docs/safe-writes.md).
 Confluence trash принимает только канонический numeric `--id`.

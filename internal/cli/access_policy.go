@@ -294,6 +294,7 @@ M remote-write preview-apply delete jira-issue-arg apply,confirm,expected-propos
 M remote-write-with-local preview-apply update,move? jira-issue-arg apply,expected-proposal-hash pre-config jira-description-edit json,text jira issue edit
 R remote-read-with-local json,text jira issue edit preview
 R remote-read json,text jira issue field get
+R remote-read-capped json jira issue field batch
 R guarded-field-preview json,text jira issue field preview
 M guarded-field-apply preview-apply update jira-issue-arg apply,expected-proposal-hash,expected-updated pre-config jira-guarded-field json,text jira issue field set
 R remote-read json,text jira issue fields

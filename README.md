@@ -179,6 +179,8 @@ After review, run the command without `--dry-run`. Confluence version conflict
 exits `5`; use `conf reconcile preview`, never auto-force. Hash-bound writes use
 emitted gates, one attempt, and reconciliation; never replay
 `write_attempted:true`. Large fields use GET-only `jira issue field preview`.
+For small known keys, use JSON-only `jira issue field batch` with repeated
+selectors.
 For multi-issue CSV, review schema-v2 `jira issue plan preview`, then use
 hash-confirmed execution-only `plan apply`; its global barrier precedes every
 writer. See the [safe-write guide](docs/safe-writes.md). Confluence trash
