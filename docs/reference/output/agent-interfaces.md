@@ -71,6 +71,11 @@ material. Opening an absent credential store by itself is not `required`.
 For `jira/structure-planning`, the ordered catalog exposes hierarchy rows,
 explicit Structure values with `completeness:"per-row"`, and transient issue
 export as separate capabilities.
+For `jira/batch-analysis`, qualified `jira issue field batch` is the primary
+route and transient export is the broader expansion. The `jira/create` and
+`jira/link` classes keep read-only discovery/preview separate from hash-bound
+mutations. The stable plan capability ids now belong to `jira/batch-edit`, so
+exact `jira/edit` filters retain only field and worklog routes.
 For `jira/edit`, `jira.issue.worklog.list` exposes the complete baseline and
 `jira.issue.worklog.add` routes to the guarded preview/apply command with
 `evidence:"hash-bound"` and `completeness:"reconciled"`; catalog entries do

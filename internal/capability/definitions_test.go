@@ -9,8 +9,8 @@ import (
 
 func TestDefinitionsReturnsDefensiveCopy(t *testing.T) {
 	first := Definitions()
-	if len(first) != 61 {
-		t.Fatalf("definitions=%d want=61", len(first))
+	if len(first) != 69 {
+		t.Fatalf("definitions=%d want=69", len(first))
 	}
 	want := first[0]
 	first[0] = Definition{ID: "changed"}
@@ -27,7 +27,7 @@ func TestDefinitionsCanonicalMetadataDigestIsStable(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := sha256.Sum256(encoded)
-	const want = "4099464666446050337f11d1907f81b95e79d3970b77872114ce6addd80cc723"
+	const want = "5c15e676be9a6c9223e43973699c8b3f0a064de3c9d81d749d347f10e0d81adf"
 	if hex.EncodeToString(got[:]) != want {
 		t.Fatalf("definition metadata digest=%x", got)
 	}
@@ -51,11 +51,45 @@ func TestDefinitionsTransportMappings(t *testing.T) {
 			mappedMutating++
 		}
 	}
-	if mapped != 33 || cliOnly != 28 {
-		t.Fatalf("mapped=%d cli_only=%d want=33/28", mapped, cliOnly)
+	if mapped != 33 || cliOnly != 36 {
+		t.Fatalf("mapped=%d cli_only=%d want=33/36", mapped, cliOnly)
 	}
 	if mappedMutating != 0 {
 		t.Fatalf("mapped mutating definitions=%d want=0", mappedMutating)
+	}
+}
+
+func TestJiraQualifiedWorkflowRoutesHaveExactMetadata(t *testing.T) {
+	want := []Definition{
+		{ID: "jira.batch.issue.fields", TaskClass: "jira/batch-analysis", Service: "jira", Role: "primary", Priority: 10, CLICommand: "jira issue field batch", Evidence: "qualified", Completeness: "reconciled", Skill: "jira", Reference: "reference/batch-read.md"},
+		{ID: "jira.batch.issue.export", TaskClass: "jira/batch-analysis", Service: "jira", Role: "expand", Priority: 20, CLICommand: "jira export", Evidence: "snapshot", Completeness: "explicit", Skill: "jira", Reference: "reference/batch-read.md"},
+		{ID: "jira.issue.create-metadata", TaskClass: "jira/create", Service: "jira", Role: "discover", Priority: 10, CLICommand: "jira issue create-metadata", Evidence: "qualified", Completeness: "explicit", Skill: "jira", Reference: "reference/fields.md"},
+		{ID: "jira.issue.create.preview", TaskClass: "jira/create", Service: "jira", Role: "preview", Priority: 20, CLICommand: "jira issue create preview", Evidence: "hash-bound", Completeness: "explicit", Skill: "jira", Reference: "reference/fields.md"},
+		{ID: "jira.issue.create", TaskClass: "jira/create", Service: "jira", Role: "write", Priority: 30, CLICommand: "jira issue create", Evidence: "hash-bound", Completeness: "reconciled", Skill: "jira", Reference: "reference/fields.md"},
+		{ID: "jira.issue.link.add.preview", TaskClass: "jira/link", Service: "jira", Role: "preview", Priority: 10, CLICommand: "jira issue link add preview", Evidence: "hash-bound", Completeness: "explicit", Skill: "jira", Reference: "reference/editing.md"},
+		{ID: "jira.issue.link.add", TaskClass: "jira/link", Service: "jira", Role: "write", Priority: 20, CLICommand: "jira issue link add", Evidence: "hash-bound", Completeness: "reconciled", Skill: "jira", Reference: "reference/editing.md"},
+		{ID: "jira.issue.link.delete.preview", TaskClass: "jira/link", Service: "jira", Role: "preview", Priority: 30, CLICommand: "jira issue link delete preview", Evidence: "hash-bound", Completeness: "explicit", Skill: "jira", Reference: "reference/editing.md"},
+		{ID: "jira.issue.link.delete", TaskClass: "jira/link", Service: "jira", Role: "write", Priority: 40, CLICommand: "jira issue link delete", Evidence: "hash-bound", Completeness: "reconciled", Skill: "jira", Reference: "reference/editing.md"},
+		{ID: "jira.issue.plan.preview", TaskClass: "jira/batch-edit", Service: "jira", Role: "review", Priority: 10, CLICommand: "jira issue plan preview", Evidence: "hash-bound", Completeness: "per-row", Skill: "jira", Reference: "reference/extended-capabilities.md"},
+		{ID: "jira.issue.plan.apply", TaskClass: "jira/batch-edit", Service: "jira", Role: "write", Priority: 20, CLICommand: "jira issue plan apply", Evidence: "hash-bound", Completeness: "per-row", Skill: "jira", Reference: "reference/extended-capabilities.md"},
+	}
+	byID := make(map[string]Definition)
+	for _, definition := range Definitions() {
+		byID[definition.ID] = definition
+	}
+	for _, expected := range want {
+		got, ok := byID[expected.ID]
+		if !ok {
+			t.Errorf("missing capability %q", expected.ID)
+			continue
+		}
+		got.Summary = ""
+		if got != expected {
+			t.Errorf("%s=%+v want=%+v", expected.ID, got, expected)
+		}
+		if got.MCPTool != "" || got.MCPScope != "" {
+			t.Errorf("%s unexpectedly maps to MCP", expected.ID)
+		}
 	}
 }
 

@@ -121,7 +121,8 @@ push.
   review normalized duration/start/author plus the complete worklog-id baseline
   hash, then apply once. An ambiguous response gets one reconciliation read;
   unknown is possibly committed and never reusable.
-- Links: use the independent `link add|delete preview` child under read-only
+- Links: select `atl capabilities --task jira/link -o text`, then use the
+  independent `link add|delete preview` child under read-only
   policy, review both endpoints, exact type metadata, reciprocal candidates,
   and proposal hash, then repeat once on the parent with `--apply` and the hash.
   Delete also repeats exact `--from`, `--to`, and `--type`. Both endpoint

@@ -20,13 +20,15 @@ func TestCapabilityCatalogDefinitionsAreValidAndUnique(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if catalog.SchemaVersion != capabilityCatalogSchemaVersion || catalog.Selection.Count != 61 {
-		t.Fatalf("catalog metadata=%+v definitions want=61", catalog)
+	if catalog.SchemaVersion != capabilityCatalogSchemaVersion || catalog.Selection.Count != 69 {
+		t.Fatalf("catalog metadata=%+v definitions want=69", catalog)
 	}
 	if catalog.Routing.Match != "exact" || !strings.Contains(catalog.Routing.ReferenceLoad, "do not search") {
 		t.Fatalf("routing contract=%+v", catalog.Routing)
 	}
 	seen := map[string]bool{}
+	mcpTools := map[string]bool{}
+	readOnly, mutating := 0, 0
 	for _, item := range catalog.Capabilities {
 		if seen[item.ID] {
 			t.Fatalf("duplicate capability id %q", item.ID)
@@ -34,6 +36,14 @@ func TestCapabilityCatalogDefinitionsAreValidAndUnique(t *testing.T) {
 		seen[item.ID] = true
 		if item.Access != "read-only" && item.Access != "mutating" {
 			t.Fatalf("%s access=%q", item.ID, item.Access)
+		}
+		if item.Access == "read-only" {
+			readOnly++
+		} else {
+			mutating++
+		}
+		if item.MCPTool != "" {
+			mcpTools[item.MCPTool] = true
 		}
 		if _, ok := capabilitydef.EffectProfileByID(item.EffectProfile); !ok {
 			t.Fatalf("%s effect_profile=%q", item.ID, item.EffectProfile)
@@ -45,13 +55,16 @@ func TestCapabilityCatalogDefinitionsAreValidAndUnique(t *testing.T) {
 			t.Fatalf("%s skill route=%q/%q", item.ID, item.Skill, item.Reference)
 		}
 	}
+	if readOnly != 60 || mutating != 9 || len(mcpTools) != 24 {
+		t.Fatalf("access=%d/%d unique_mcp_tools=%d want=60/9/24", readOnly, mutating, len(mcpTools))
+	}
 }
 
 func TestCapabilityDefinitionsResolveAllCobraRoutes(t *testing.T) {
 	root := newRoot()
 	definitions := capabilitydef.Definitions()
-	if len(definitions) != 61 {
-		t.Fatalf("definitions=%d want=61", len(definitions))
+	if len(definitions) != 69 {
+		t.Fatalf("definitions=%d want=69", len(definitions))
 	}
 	for _, definition := range definitions {
 		command, remaining, err := root.Find(strings.Fields(definition.CLICommand))
@@ -131,8 +144,8 @@ func TestCapabilityCatalogPreservesLegacyProjectionAndAddsTransportRouting(t *te
 			mappedMutating++
 		}
 	}
-	if mapped != 33 || cliOnly != 28 {
-		t.Fatalf("mapped=%d cli_only=%d want=33/28", mapped, cliOnly)
+	if mapped != 33 || cliOnly != 36 {
+		t.Fatalf("mapped=%d cli_only=%d want=33/36", mapped, cliOnly)
 	}
 	if mappedMutating != 0 {
 		t.Fatalf("mapped mutating capabilities=%d want=0", mappedMutating)
@@ -151,10 +164,13 @@ func TestCapabilityTaskRoutesStaySmallAndOrdered(t *testing.T) {
 		{"jira/inverse-reference", []string{"jira.issue.reference.search"}},
 		{"jira/portfolio", []string{"jira.board.list", "jira.board.view", "jira.structure.get", "jira.structure.folders", "jira.structure.view", "jira.portfolio.epic.digest", "jira.portfolio.confluence.section"}},
 		{"jira/board-portfolio", []string{"jira.board-portfolio.fields", "jira.board-portfolio.view", "jira.board-portfolio.epic.digest"}},
-		{"jira/batch-analysis", []string{"jira.batch.issue.export"}},
+		{"jira/batch-analysis", []string{"jira.batch.issue.fields", "jira.batch.issue.export"}},
+		{"jira/batch-edit", []string{"jira.issue.plan.preview", "jira.issue.plan.apply"}},
 		{"jira/structure-planning", []string{"jira.structure.rows", "jira.structure.values", "jira.structure.issue.export"}},
 		{"jira/mirror", []string{"jira.mirror.snapshot"}},
-		{"jira/edit", []string{"jira.issue.fields.edit", "jira.issue.field.preview", "jira.issue.field.set", "jira.issue.worklog.list", "jira.issue.worklog.add", "jira.issue.plan.preview", "jira.issue.plan.apply"}},
+		{"jira/create", []string{"jira.issue.create-metadata", "jira.issue.create.preview", "jira.issue.create"}},
+		{"jira/edit", []string{"jira.issue.fields.edit", "jira.issue.field.preview", "jira.issue.field.set", "jira.issue.worklog.list", "jira.issue.worklog.add"}},
+		{"jira/link", []string{"jira.issue.link.add.preview", "jira.issue.link.add", "jira.issue.link.delete.preview", "jira.issue.link.delete"}},
 		{"confluence/evidence", []string{"confluence.page.resolve", "confluence.page.meta", "confluence.page.outline", "confluence.page.section", "confluence.page.sections", "confluence.page.view", "confluence.attachment.list"}},
 		{"confluence/comments", []string{"confluence.comment.list", "confluence.comment.thread", "confluence.comment.preview", "confluence.comment.add", "confluence.comment.mutation.preview", "confluence.comment.mutation.apply"}},
 		{"confluence/table-analytics", []string{"confluence.table.summary", "confluence.table.extract"}},
@@ -178,7 +194,7 @@ func TestCapabilityTaskRoutesStaySmallAndOrdered(t *testing.T) {
 				t.Fatalf("ids=%v want=%v", ids, tt.ids)
 			}
 			maximum := 6
-			if tt.task == "jira/portfolio" || tt.task == "confluence/evidence" || tt.task == "jira/edit" {
+			if tt.task == "jira/portfolio" || tt.task == "confluence/evidence" {
 				maximum = 7
 			}
 			if len(ids) > maximum {
@@ -230,6 +246,53 @@ func TestCapabilityRoutesPointToTheirFocusedWorkflow(t *testing.T) {
 	}
 	if len(knowledge.Capabilities) == 0 || knowledge.Capabilities[0].Skill != "search-knowledge" || knowledge.Capabilities[0].Reference != "SKILL.md" {
 		t.Fatalf("knowledge discovery route=%+v", knowledge.Capabilities)
+	}
+}
+
+func TestJiraQualifiedWorkflowEffectsAndMutatingFilters(t *testing.T) {
+	root := newRoot()
+	want := map[string]struct {
+		access string
+		effect string
+	}{
+		"jira.batch.issue.fields":        {"read-only", "remote-read-capped"},
+		"jira.issue.create-metadata":     {"read-only", "remote-read"},
+		"jira.issue.create.preview":      {"read-only", "guarded-create-preview"},
+		"jira.issue.create":              {"mutating", "guarded-create-apply"},
+		"jira.issue.link.add.preview":    {"read-only", "remote-read"},
+		"jira.issue.link.add":            {"mutating", "remote-write"},
+		"jira.issue.link.delete.preview": {"read-only", "remote-read"},
+		"jira.issue.link.delete":         {"mutating", "remote-write"},
+		"jira.issue.plan.preview":        {"read-only", "guarded-plan-preview"},
+		"jira.issue.plan.apply":          {"mutating", "guarded-plan-apply"},
+	}
+	for id, expected := range want {
+		catalog, err := buildCapabilityCatalog(root, capabilitySelection{ID: id})
+		if err != nil || len(catalog.Capabilities) != 1 {
+			t.Fatalf("%s selection=%+v err=%v", id, catalog, err)
+		}
+		got := catalog.Capabilities[0]
+		if got.Access != expected.access || got.EffectProfile != expected.effect {
+			t.Errorf("%s access/effect=%s/%s want=%s/%s", id, got.Access, got.EffectProfile, expected.access, expected.effect)
+		}
+	}
+
+	for task, ids := range map[string][]string{
+		"jira/create":     {"jira.issue.create"},
+		"jira/link":       {"jira.issue.link.add", "jira.issue.link.delete"},
+		"jira/batch-edit": {"jira.issue.plan.apply"},
+	} {
+		catalog, err := buildCapabilityCatalog(root, capabilitySelection{Task: task, Access: "mutating"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := make([]string, len(catalog.Capabilities))
+		for i := range catalog.Capabilities {
+			got[i] = catalog.Capabilities[i].ID
+		}
+		if !reflect.DeepEqual(got, ids) {
+			t.Errorf("%s mutating=%v want=%v", task, got, ids)
+		}
 	}
 }
 
@@ -287,7 +350,7 @@ func TestCapabilitiesCommandIsOfflineAndSupportsAllOutputModes(t *testing.T) {
 	}
 
 	out, code = runCLI(t, env, "capabilities", "--task", "jira/edit", "--access", "mutating", "-o", "id")
-	if code != exitOK || out != "jira.issue.field.set\njira.issue.worklog.add\njira.issue.plan.apply\n" {
+	if code != exitOK || out != "jira.issue.field.set\njira.issue.worklog.add\n" {
 		t.Fatalf("id exit=%d output=%q", code, out)
 	}
 	if requests != 0 {

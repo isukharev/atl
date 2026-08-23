@@ -44,29 +44,26 @@ read-only policy until one exact write proposal has been reviewed.
 | See the core guarantees without credentials | [Reproducible demos](docs/demos/README.md) |
 | Diagnose setup, access, or conflict errors | [Troubleshooting](docs/troubleshooting.md) |
 
-The [documentation index](docs/README.md) leads to workflows. Use the
-[command](docs/reference/cli/README.md) or
-[output](docs/reference/output/README.md) reference for exact flags and wire fields.
+[Documentation](docs/README.md), [command](docs/reference/cli/README.md), and
+[output](docs/reference/output/README.md) references define flags and wire fields.
 
 ## Install
 
-Linux/macOS binaries support amd64 and arm64.
+Linux/macOS: amd64 and arm64.
 
 ```sh
 curl -fsSL https://github.com/isukharev/atl/releases/latest/download/install.sh | sh
 ```
 
-The installer verifies SHA-256; releases publish checksums, signatures,
-and SLSA provenance:
+The installer verifies SHA-256; releases publish checksums, signatures, and SLSA provenance:
 
 ```sh
 brew install isukharev/tap/atl
 ```
 
-Use [GitHub Releases](https://github.com/isukharev/atl/releases) for direct
-downloads and `make install` for a source build with repository identity.
-Windows and Atlassian Cloud are unsupported; review the
-[compatibility matrix](docs/compatibility.md).
+[GitHub Releases](https://github.com/isukharev/atl/releases) provides downloads;
+`make install` builds from source. Windows and Atlassian Cloud are unsupported;
+see [compatibility](docs/compatibility.md).
 
 ## Five-minute first read
 
@@ -193,6 +190,9 @@ Plugins include typed read-only MCP and immutable, process-private
 restart.
 
 `atl capabilities --effects` reports offline upper bounds, not authorization.
+Use exact `jira/batch-analysis`, `jira/create`, `jira/link`, or
+`jira/batch-edit` classes for qualified read/preview before broader export or
+guarded write.
 
 Claude Code:
 

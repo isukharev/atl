@@ -30,8 +30,11 @@ atl capabilities --task confluence/edit -o text
 atl capabilities --task jira/portfolio -o id
 atl capabilities --task jira/board-portfolio -o text
 atl capabilities --task jira/batch-analysis -o text
+atl capabilities --task jira/batch-edit -o text
+atl capabilities --task jira/create -o text
 atl capabilities --task jira/structure-planning -o text
 atl capabilities --task jira/edit -o text
+atl capabilities --task jira/link -o text
 atl capabilities --task jira/mirror -o text
 atl capabilities --task confluence/attachment-discovery -o text
 atl capabilities --task confluence/table-analytics -o text
@@ -46,9 +49,10 @@ Supported task classes are `confluence/attachment-discovery`,
 `confluence/comments`, `confluence/edit`,
 `confluence/evidence`, `confluence/mirror`, `confluence/space-hierarchy`,
 `confluence/table-analytics`,
-`jira/batch-analysis`, `jira/board-portfolio`, `jira/edit`, `jira/evidence`,
+`jira/batch-analysis`, `jira/batch-edit`, `jira/board-portfolio`, `jira/create`,
+`jira/edit`, `jira/evidence`,
 `jira/graph-evidence`, `jira/inverse-reference`, `jira/mirror`, `jira/portfolio`, `jira/setup`,
-`jira/structure-planning`, and `knowledge/search`. Exact `--service` and `--access
+`jira/link`, `jira/structure-planning`, and `knowledge/search`. Exact `--service` and `--access
 read-only|mutating` filters can narrow the result. An unknown task or capability
 id exits 4; an invalid service/access value exits 2. No fuzzy classification is
 performed.
@@ -68,11 +72,14 @@ the comparison.
   "confluence/space-hierarchy",
   "confluence/table-analytics",
   "jira/batch-analysis",
+  "jira/batch-edit",
   "jira/board-portfolio",
+  "jira/create",
   "jira/edit",
   "jira/evidence",
   "jira/graph-evidence",
   "jira/inverse-reference",
+  "jira/link",
   "jira/mirror",
   "jira/portfolio",
   "jira/setup",
@@ -94,6 +101,12 @@ bounded expansion.
 explicit per-row Structure value matrix, and transient issue export. The value
 operation remains read-only even though the Structure API carries that query
 payload over HTTP POST.
+
+`jira/batch-analysis` starts with the qualified compact field matrix and uses
+transient issue export only as a broader expansion. `jira/create` and
+`jira/link` expose their discovery or preview step before the hash-bound write.
+`jira/batch-edit` owns the stable plan preview/apply capability ids; they are no
+longer returned by an exact `jira/edit` filter.
 
 `jira/portfolio` includes `jira structure get` as the qualification step for an
 exact Structure id before folder discovery or a bounded view. On the typed MCP

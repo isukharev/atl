@@ -133,7 +133,7 @@
     },
     {
       "path": "jira/SKILL.md",
-      "sha256": "07253dcdb29797e259c9cbad13d8e1b7141739c821cd6624b63d2192eff7f1e5"
+      "sha256": "0008178a1ad7389025fe77bb6912fb579037f3564e309dbee86777cc166a23e2"
     },
     {
       "path": "jira/agents/openai.yaml",
@@ -141,7 +141,7 @@
     },
     {
       "path": "jira/reference/batch-read.md",
-      "sha256": "d8275ae0a224928bc1a2f01d701dc68434f0948e8d46b9b2406fcecae1dcc00b"
+      "sha256": "cc939712f08516bcea3b986377fb051eb3217421a9bfc6aa39918a501e944358"
     },
     {
       "path": "jira/reference/commands.md",
@@ -149,7 +149,7 @@
     },
     {
       "path": "jira/reference/editing.md",
-      "sha256": "c2e294169566cfc77f9d6a07e6c40ff2d6bebd9eeef81972169c941127d71c22"
+      "sha256": "f04791074be575e2e60abe609ec6032741da0ed413a967e898b45398b8409d82"
     },
     {
       "path": "jira/reference/errors.md",
@@ -161,11 +161,11 @@
     },
     {
       "path": "jira/reference/extended-capabilities.md",
-      "sha256": "7f4b2ed793e7b1b129b15d8d8b0549075aeb236285cff329f0dfda8478064279"
+      "sha256": "ad1cdef20b9bb3a3bebe1f23645ae263607cda5359ded081797af649e7c07df1"
     },
     {
       "path": "jira/reference/fields.md",
-      "sha256": "6fed99e3053d40e7752514e747d983855c43d958b5ff7fe81fee47b8cb5ef72d"
+      "sha256": "d2a4fe63b0d4237c9d4357f54c19af18f910eaa797f685824f1e5d3f2ec180b9"
     },
     {
       "path": "jira/reference/jql.md",
