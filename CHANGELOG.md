@@ -9,42 +9,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-08-23
+
 ### Added
 
+- Added review-bound Jira writes for targeted native-wiki description edits,
+  issue creation, labels, and links. Their preview/apply workflows bind
+  qualified backend evidence and immutable identities to an exact proposal
+  hash, perform at most one write attempt, and reconcile through bounded
+  readback without automatic replay. Guarded create can optionally register the
+  proved issue in a local mirror only after successful readback.
 - Added JSON-only `jira issue field batch` for a qualified ordered matrix of up
   to 25 canonical issue keys and eight exact fields. It distinguishes absent,
   null, empty, and populated cells, preserves per-cell clipping evidence,
   reconciles missing or inaccessible keys without an existence claim, composes
   fixed request/response/deadline bounds, and buffers the bounded result before
   stdout.
-
 - Replaced legacy Jira CSV plan execution with schema-v2 read-only
   `jira issue plan preview` and hash-confirmed execution-only `plan apply`.
   Plans are opened once, globally qualified and policy-checked before any
   writer, share formula-bound parent budgets, use guarded prepared cores, stop
   on ambiguity, and emit content-minimized closed results.
-
-- Changed `jira issue labels` to preview by default and added the independently
-  read-only `labels preview` child. Label add/remove proposals now bind complete
-  strict label evidence, immutable issue/project identity and fixed workflow
-  bounds; apply performs one numeric-id PUT and accepts success only after exact
-  advancing readback, with terminal no-replay ambiguous outcomes.
-
-- Changed `jira issue create` to preview by default with exact proposal-hash
-  apply, immutable-ID readback proof, closed ambiguous outcomes, and optional
-  post-proof mirror registration. Added the read-only `create preview` child.
-
-- Added hash-guarded Jira link add/delete proposals with independent read-only
-  preview leaves, strict reciprocal/type evidence, immutable-id writes, bounded
-  no-replay reconciliation, and two-endpoint `kind:link` authorization. Existing
-  issue-only policy grants no longer authorize these guarded link mutations.
-- Added guarded targeted Jira description edits: a GET-only
-  `jira issue edit preview` leaf and preview-by-default parent now bind native
-  wiki byte evidence to a reviewed proposal hash, revalidate by immutable id,
-  send at most one description-only PUT, and fail closed on ambiguous readback.
-- Jira issue create now rejects generic fields that normalize to dedicated
-  project, issue-type, summary, or description inputs before metadata or any
-  request, with the adapter enforcing the same boundary independently.
 - Added `atl jira issue create-metadata` for bounded, completeness-qualified
   create-field schema, default presence, allowed-value cardinality, and
   omittability without exposing defaults, option values, or autocomplete URLs;
@@ -57,6 +42,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `jira/batch-analysis` route and export is its expansion. The stable plan
   capability ids moved from `jira/edit` to `jira/batch-edit`; exact task-filter
   output and the schema-v1 full-catalog digest therefore change intentionally.
+- `jira issue create`, `issue edit`, `issue labels`, and guarded links now
+  require preview followed by an exact reviewed hash for mutation. Guarded link
+  authorization now targets both endpoints as
+  `kind:link`; existing issue-only grants do not authorize those writes.
+- Guarded Jira workflows now compose one parent request/response budget and one
+  absolute deadline across qualification, pre-write revalidation, the single
+  write attempt, and closeout.
+- Guarded comment evidence now binds immutable issue/project identity, the
+  exact native Jira-wiki body, authenticated actor identity, and every qualified
+  comment record. Guarded custom-field writes use strict JSON, complete catalog
+  qualification, schema-v3 immutable-id binding, a numeric-id PUT, and mandatory
+  readback proof; pre-dispatch adapter refusals report `blocked` with exit 8.
+
+### Fixed
+
+- Guarded create, link, label, and qualified create-metadata reads now reject
+  duplicate JSON members, invalid Unicode evidence, trailing data, and other
+  lossy normalization before evidence can influence a proposal or outcome.
+- Guarded Jira plan failures preserve terminal ambiguity and
+  `reconcile_write_outcome` guidance, including when stdout also fails after a
+  dispatched write; conclusive failures retain their existing classification.
+- Evaluator process capture now reports the bytes accepted by bounded writers
+  on first overflow, and its MCP stderr overflow oracle is deterministic rather
+  than scheduler-dependent.
+- Jira create rejects generic fields that normalize to dedicated project,
+  issue-type, summary, or description inputs before metadata or network access,
+  with the adapter independently enforcing the same boundary.
+
+### Upgrade notes
+
+- Jira plan CSV schema v1 is no longer accepted or migrated. Use the exact
+  schema-v2 header
+  `schema_version,operation,source,target,type,field,value`, run `plan preview`,
+  then pass its hash to
+  `plan apply --confirm APPLY --expected-proposal-hash <hash>`.
+- Scripts that expected create, edit, label, or link commands to write
+  immediately must adopt preview, review, and hash-confirmed apply. Generate
+  fresh v0.9.0 proposals for every guarded workflow; older proposal hashes are
+  not reusable.
+- Consumers that pin exact capability-catalog bytes, task filters, or catalog
+  digests must refresh them. No configuration, durable mirror, or MCP tool
+  schema migration is required.
 
 ## [0.8.0] - 2026-08-20
 
@@ -483,16 +510,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added reviewed Jira comment append. `jira issue comment preview` is a
   separately classified GET-only command, while `comment add` now previews by
   default and requires `--apply` plus the exact proposal hash to write. The
-  proposal binds immutable issue/project identity and revision, the exact
-  validated native Jira-wiki bytes, stable authenticated actor identity, every
-  qualified comment record, and fixed request/byte/deadline bounds. Strict raw
-  decoding rejects missing, mistyped, invalid UTF-8, or unpaired-surrogate
-  evidence without string coercion. Apply reconstructs the proposal immediately
-  before one numeric-id POST, then proves `applied` or `recovered` through an
-  exact advancing readback without replay; all other outcomes are closed and
-  fail safe. JSON and text are content-minimized to hashes/counts. Existing
-  duplicate text remains a new append event. Legacy list/delete, transition
-  comments, CSV plans, and the broad Tracker surface are unchanged.
+  proposal binds the target, validated native wiki body, authenticated Data
+  Center identity, and a complete unique-id comment baseline. Apply revalidates
+  that baseline immediately before at most one POST and reconciles successful
+  or ambiguous outcomes through one complete readback without replay. Existing
+  duplicate text is not treated as idempotent. JSON can carry the reviewed body;
+  text output is value-free. List and delete behavior are unchanged.
 
 - Added one schema-v1 structured recovery object to CLI JSON and MCP failures.
   It preserves all existing exit codes, kinds, remediations, messages, and text
@@ -1479,17 +1502,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   loopback-only backends, reviewed command prefixes, an explicit write/method
   budget, exact HTTP method counts, clean guard/mock oracles, and fixtures can
   verify the semantic JSON request body.
-- Strengthened guarded Jira custom-field writes with strict JSON decoding,
-  complete custom-field catalog qualification, schema-v3 backend/immutable-id
-  proposal binding, immediate pre-write requalification, a raw single-attempt
-  numeric-id PUT, and mandatory one-readback outcome proof. The public field
-  evaluator now uses producer-specific strict preview decoding and a dynamic
-  broker-observed hash binding instead of a literal corpus hash. Structured raw
-  input has an explicit 10,000-level parser bound, a result-envelope-safe
-  9,997-level structured-value bound, and content-free strict failures;
-  evaluator PUT fixtures now bind exact prepared bytes rather than semantic
-  JSON. A typed adapter refusal before dispatch now migrates from `failed` to
-  `blocked` with exit 8.
 
 - Added an offline durable Confluence mirror-review benchmark covering semantic,
   byte-only, unchanged, and baseline-mismatch states. Its deterministic route
@@ -2963,7 +2975,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- link references -->
 
-[Unreleased]: https://github.com/isukharev/atl/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/isukharev/atl/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/isukharev/atl/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/isukharev/atl/compare/v0.7.1...v0.8.0
 [0.7.1]: https://github.com/isukharev/atl/compare/v0.6.0...v0.7.1
 [0.6.0]: https://github.com/isukharev/atl/compare/v0.5.1...v0.6.0

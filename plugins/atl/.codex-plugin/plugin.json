@@ -1,6 +1,6 @@
 {
   "name": "atl",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "description": "Read, mirror, edit, validate, and push Confluence pages and Jira issues with atl",
   "author": {
     "name": "Ivan Sukharev",
