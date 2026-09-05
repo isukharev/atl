@@ -22,9 +22,9 @@ func TestGuardedWriteSingleAttemptPortInventory(t *testing.T) {
 
 		// These bulk/mirror owners share port methods with the guarded paths,
 		// but their lifecycle semantics are deliberately outside this slice.
-		"confluence.go:pushOne:s.store:UpdatePage":                false,
-		"confluence_plan.go:runConfluencePlan:s.store:UpdatePage": false,
-		"jira_sync.go:jiraPushOne:s.tr:SetFields":                 false,
+		"confluence_push_confirmation.go:updateConfluencePush:s.store:UpdatePage": false,
+		"confluence_plan.go:runConfluencePlan:s.store:UpdatePage":                 false,
+		"jira_sync.go:jiraPushOne:s.tr:SetFields":                                 false,
 	}
 	methods := map[string]bool{
 		"AddContentLabels": true, "RemoveContentLabel": true,
