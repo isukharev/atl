@@ -607,6 +607,14 @@ same partial refresh is advisory: local body/base/state bytes are preserved and
 the item reports a re-pull warning. `BodyPresent=true` with zero body bytes is a
 valid explicitly empty page.
 
+Post-push refresh also requires the exact confirmed page ID, version, and
+native body. Any mismatch, including a newer concurrent version, preserves
+local candidate/base/state bytes and sets `warning` while keeping the
+confirmed `pushed:true` result. An invalid update acknowledgement never emits
+`pushed:true` with `new_version:0`: one bounded exact readback may prove success;
+otherwise the command exits `8`, preserves local files, and reports
+`reconcile_write_outcome` with `retry_safe:false` in structured recovery.
+
 Missing local page targets for Confluence render/apply/push use
 `ErrNotFound`/exit `4`; syntactically invalid target types continue to use
 `ErrUsage`/exit `2`. Transport failures expose a fixed coarse category

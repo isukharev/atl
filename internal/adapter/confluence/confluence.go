@@ -6,6 +6,7 @@ package confluence
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/url"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/isukharev/atl/internal/domain"
 	"github.com/isukharev/atl/internal/httpx"
+	"github.com/isukharev/atl/internal/strictjson"
 )
 
 // Confluence is the DocStore adapter.
@@ -476,10 +478,18 @@ func (cf *Confluence) UpdatePage(ctx context.Context, id string, expectVersion i
 			"storage": map[string]any{"value": string(body), "representation": "storage"},
 		},
 	}
-	var out content
-	err = cf.c.SendJSON(domain.WithWriteClearance(writeContext), "PUT", "/rest/api/content/"+url.PathEscape(id), payload, &out)
+	var raw json.RawMessage
+	err = cf.c.SendJSON(domain.WithWriteClearance(writeContext), "PUT", "/rest/api/content/"+url.PathEscape(id), payload, &raw)
 	if err != nil {
+		var syntax *json.SyntaxError
+		if errors.As(err, &syntax) {
+			return 0, &domain.PageUpdateUnconfirmedError{ExpectedVersion: next}
+		}
 		return 0, err
+	}
+	var out content
+	if strictjson.Decode(raw, &out) != nil || next <= 0 || out.Version.Number != next || (out.ID != "" && out.ID != id) {
+		return 0, &domain.PageUpdateUnconfirmedError{ExpectedVersion: next}
 	}
 	return out.Version.Number, nil
 }

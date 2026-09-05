@@ -121,7 +121,7 @@
     },
     {
       "path": "confluence/reference/push.md",
-      "sha256": "efd0d48899496abf13bd6f93f07da20fb4c9f314b95785efe654b17898a8db3b"
+      "sha256": "ba9b4e1115c018f5f05f402fcbe65b2c49a6d04f4dad0d4ba4a491d1a66be1d8"
     },
     {
       "path": "confluence/reference/sync.md",
@@ -161,7 +161,7 @@
     },
     {
       "path": "jira/reference/extended-capabilities.md",
-      "sha256": "ad1cdef20b9bb3a3bebe1f23645ae263607cda5359ded081797af649e7c07df1"
+      "sha256": "166883b80f2fbd244cc5217b9b6d269ea0ba84bb1112eafe526d4dac7cc46b37"
     },
     {
       "path": "jira/reference/fields.md",

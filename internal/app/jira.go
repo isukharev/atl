@@ -324,12 +324,16 @@ func (s *JiraService) Images(ctx context.Context, key, dir string) ([]string, er
 	if err != nil {
 		return nil, err
 	}
+	names, err := jiraImageOutputNames(atts)
+	if err != nil {
+		return nil, err
+	}
 	if dir == "" {
 		dir = filepath.Join("mirror-jira", key+".assets")
 	}
 	var paths []string
-	for _, a := range atts {
-		if !strings.HasPrefix(a.MediaType, "image/") {
+	for i, a := range atts {
+		if names[i] == "" {
 			continue
 		}
 		// ListAttachments already resolved both the server filename and the
@@ -337,7 +341,6 @@ func (s *JiraService) Images(ctx context.Context, key, dir string) ([]string, er
 		// of resolving the attachment by id again, which would repeat the issue
 		// metadata request once per image. Compatible transports may omit the
 		// direct path, so retain the attachment-id operation as a narrow fallback.
-		name := a.Title
 		var (
 			rc  io.ReadCloser
 			err error
@@ -345,24 +348,16 @@ func (s *JiraService) Images(ctx context.Context, key, dir string) ([]string, er
 		if a.DownPath != "" {
 			rc, err = s.tr.StreamAttachment(ctx, a.DownPath)
 		} else if a.ID != "" {
-			var fallbackName string
-			rc, fallbackName, err = s.tr.DownloadAttachment(ctx, key, a.ID)
-			if fallbackName != "" {
-				name = fallbackName
-			}
+			rc, _, err = s.tr.DownloadAttachment(ctx, key, a.ID)
 		} else {
 			continue
 		}
 		if err != nil {
 			continue
 		}
-		// name is a server-supplied attachment filename: reduce to a safe base
-		// name and confine the write to dir so it cannot escape via "../".
-		safeName, ok := safepath.Base(name)
-		if !ok {
-			rc.Close()
-			continue
-		}
+		// The whole inventory's identity-qualified names were checked before
+		// downloading or replacing any file, including the ID fallback path.
+		safeName := names[i]
 		if err := safepath.MkdirAllWithin(dir, dir, 0o755); err != nil {
 			rc.Close()
 			return paths, err

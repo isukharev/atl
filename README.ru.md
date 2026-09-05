@@ -154,6 +154,10 @@ body по allowlist. Точные флаги описаны в
 Для большого attachment inventory используйте
 [`jira attachment-bodies`](docs/reference/cli/jira-mirrors.md#atl-jira-attachment-bodies).
 
+Для одной задачи `jira issue images KEY` сохраняет изображения под стабильными
+именами `<attachment-id>-<filename>`; используйте возвращённые пути. Общая
+HTTP-политика ограничивает цепочки redirect и простой при чтении тел ответов.
+
 Файл `.csf` содержит точный native body Confluence. Соседний `.md` — производное
 представление для чтения и поддерживаемых staging-правок. После изменения
 Markdown:
@@ -203,6 +207,12 @@ JSON-only `jira issue field batch` с повторяемыми `--key` и `--fie
 `jira issue plan preview`, затем hash-confirmed execution-only `plan apply`;
 единый barrier предшествует всем writers. См. [руководство](docs/safe-writes.md).
 Confluence trash принимает только канонический numeric `--id`.
+
+Confluence push сохраняет локальный кандидат, если контрольное чтение не
+совпадает с подтверждёнными страницей, версией и телом. Неполное подтверждение
+записи проверяется одним ограниченным чтением; неразрешённый исход даёт exit `8`
+и не должен приводить к повторной записи. Перед refresh сохранённых правок
+проверьте удалённое состояние и выполните reconciliation.
 
 ## Кодинг-агенты
 

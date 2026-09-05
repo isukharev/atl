@@ -28,6 +28,8 @@ func (*unclearedWriteError) DiagnosticWriteClearanceFailure() bool { return true
 
 var errUnclearedWrite error = &unclearedWriteError{}
 
+var errRedirectLimit = errors.New("redirect limit exceeded")
+
 // APIError carries the HTTP status and body and unwraps to a domain sentinel so
 // the CLI can map it to an exit code.
 type APIError struct {

@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Confluence push now validates update acknowledgements and reconciles an
+  unconfirmed acknowledgement through one bounded read without replaying PUT.
+  Post-push refresh preserves local candidate/base/state bytes when the read
+  does not match the confirmed page identity, version, and native body.
+- Shared HTTP reads stop at ten requests in a redirect chain without retrying
+  that refusal. Error response bodies on download paths now use the same idle
+  deadline as successful downloads and release their scheduler reservation.
+- Jira image downloads use stable attachment-ID-prefixed inventory filenames,
+  preserving distinct attachments with equal or sanitization-colliding names.
+  Ambiguous image identities are rejected before downloads or output writes.
+
 ## [0.9.0] - 2026-08-23
 
 ### Added

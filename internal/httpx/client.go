@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -23,6 +24,7 @@ import (
 const (
 	defaultTimeout = 60 * time.Second
 	userAgent      = "atl-cli"
+	maxRedirects   = 10
 )
 
 // Client is a per-backend HTTP client (one for Confluence, one for Jira).
@@ -116,6 +118,9 @@ func newWithScheduler(base, token, version string, scheduler *Scheduler, transpo
 		// without issuing the redirected request.
 		if len(via) > 0 && domain.SingleAttempt(via[0].Context()) {
 			return http.ErrUseLastResponse
+		}
+		if len(via) >= maxRedirects {
+			return errRedirectLimit
 		}
 		return nil
 	}
@@ -298,7 +303,7 @@ func (c *Client) do(ctx context.Context, method, path string, body []byte, heade
 			safeErr := transportError(method, req.URL, err)
 			// A committed-but-lost write can double-execute or turn success into a
 			// misleading conflict/not-found; only replay-safe reads retry here.
-			if !replaySafe(method) {
+			if !replaySafe(method) || errors.Is(err, errRedirectLimit) {
 				return nil, safeErr
 			}
 			lastErr = safeErr

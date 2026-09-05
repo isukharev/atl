@@ -2,6 +2,7 @@ package httpx
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -52,6 +53,9 @@ func (c *Client) GetStream(ctx context.Context, path string) (io.ReadCloser, err
 				return nil, budgetErr
 			}
 			lastErr = transportError(http.MethodGet, req.URL, err)
+			if errors.Is(err, errRedirectLimit) {
+				return nil, lastErr
+			}
 			continue // GET is idempotent → retry
 		}
 		c.tracef("← %d %s\n", resp.StatusCode, traceResponsePath(ctx, req.URL.Path))
@@ -59,7 +63,7 @@ func (c *Client) GetStream(ctx context.Context, path string) (io.ReadCloser, err
 			return newDownloadStream(ctx, resp.Body, cancel), nil
 		}
 		result := c.classifyAttempt(http.MethodGet, resp)
-		data, readErr := readResponseBody(ctx, resp.Body, jsonBodyCap)
+		data, readErr := readIdleResponseBody(ctx, resp.Body, jsonBodyCap, downloadIdleTimeout, cancel)
 		_ = resp.Body.Close()
 		cancel()
 		if readErr != nil {

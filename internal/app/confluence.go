@@ -498,7 +498,7 @@ func (s *ConfluenceService) pushOne(ctx context.Context, m *mirror.Mirror, path 
 	if lc.Synced != nil {
 		expect = lc.Synced.Version
 	}
-	newVer, err := s.store.UpdatePage(ctx, lc.Meta.ID, expect, lc.Meta.Title, body, o.Force)
+	newVer, err := s.updateConfluencePush(ctx, lc.Meta.ID, expect, lc.Meta.Title, body, o.Force)
 	if err != nil {
 		if errors.Is(err, domain.ErrVersionConflict) {
 			item.Skipped = "version-conflict"
@@ -523,8 +523,8 @@ func (s *ConfluenceService) pushOne(ctx context.Context, m *mirror.Mirror, path 
 		item.Warning = "pushed but local refresh failed (re-pull recommended): " + gerr.Error()
 		return item, nil
 	}
-	if berr := requireConfluenceNativeBody(page, lc.Meta.ID, "post-push refresh"); berr != nil {
-		item.Warning = "pushed but local refresh returned a partial body projection; local files were preserved (re-pull recommended)"
+	if warning := confluencePushRefreshWarning(page, lc.Meta.ID, newVer, body); warning != "" {
+		item.Warning = warning
 		return item, nil
 	}
 	item.Warning = appendWarning(item.Warning, s.refreshConfluenceMirror(ctx, m, lc, path, page, refreshRS, "pushed"))

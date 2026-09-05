@@ -138,6 +138,10 @@ Complete Jira mirrors: [Jira
 mirrors](docs/reference/cli/jira-mirrors.md#atl-jira-pull). Attachments:
 [`jira attachment-bodies`](docs/reference/cli/jira-mirrors.md#atl-jira-attachment-bodies).
 
+For one issue, `jira issue images KEY` saves images under stable
+`<attachment-id>-<filename>` names; use its returned paths. Download redirect
+chains and stalled response bodies are bounded by the shared HTTP policy.
+
 `.csf` is the native body; `.md` is its derived staging view. After editing
 Markdown:
 
@@ -178,6 +182,10 @@ emitted gates, one attempt, and reconciliation; never replay
 `write_attempted:true`. Large fields use GET-only `jira issue field preview`.
 For small known keys, use JSON-only `jira issue field batch` with repeated
 selectors.
+Confluence push preserves your local candidate if its post-write readback does
+not match the confirmed page/version/body. An unconfirmed acknowledgement is
+reconciled by one bounded read; an unresolved outcome exits `8` and must not be
+replayed. Inspect remote state and reconcile before refreshing preserved edits.
 For multi-issue CSV, review schema-v2 `jira issue plan preview`, then use
 hash-confirmed execution-only `plan apply`; its global barrier precedes every
 writer. See the [safe-write guide](docs/safe-writes.md). Confluence trash

@@ -1059,6 +1059,21 @@ snapshot, before backend configuration. An active mirror mutation keeps its
 existing error precedence. Repair the file and re-run validation rather than
 retrying the unchanged push.
 
+The update acknowledgement must confirm the exact sent version. If it cannot
+be qualified, push makes one single-attempt read of the exact page, bounded by
+15 seconds and 64 MiB (or a stricter caller budget). Only the expected version,
+title, and exact native body prove recovery. An unresolved acknowledgement
+exits `8` with `reconcile_write_outcome`; never replay the PUT automatically.
+After a confirmed write, refresh must match the page ID, confirmed version,
+and exact native body. Older, newer, mismatched, or partial readback preserves
+the local candidate/base/state and emits a warning; the confirmed write still
+succeeded. Inspect remote state and reconcile before refreshing local edits.
+
+Download reads share a ten-request maximum per redirect chain; reaching that
+limit is not retried. More restrictive caller budgets still apply. Both
+successful and error download bodies have a 60-second idle deadline, reset by
+read progress, so a stalled error response cannot hold a transfer indefinitely.
+
 Flags:
 
 | flag | description |

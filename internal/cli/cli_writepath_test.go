@@ -348,7 +348,7 @@ func TestConfPush_HappyGateArithmetic(t *testing.T) {
 	// PUT replies with the post-push content (version synced+1). After the PUT,
 	// pushOne re-fetches via GET; cs.page still reports v7 — to keep the refresh
 	// clean and the result deterministic, bump cs.page to the new version now.
-	cs.page = pageJSON("12345", "Design Doc", synced+1, sampleCSF)
+	cs.page = pageJSON("12345", "Design Doc", synced+1, editedCSF)
 	cs.writes = []cannedResp{{status: http.StatusOK, body: pageJSON("12345", "Design Doc", synced+1, editedCSF)}}
 
 	out, code := runCLI(t, confEnv(cs.srv), "conf", "push", csfPath, "--into", root)
@@ -553,7 +553,7 @@ func TestConfPush_TextHappy(t *testing.T) {
 	cs := newConfServer(t)
 	const synced = 7
 	root, csfPath := dirtyMirror(t, cs, synced)
-	cs.page = pageJSON("12345", "Design Doc", synced+1, sampleCSF)
+	cs.page = pageJSON("12345", "Design Doc", synced+1, editedCSF)
 	cs.writes = []cannedResp{{status: http.StatusOK, body: pageJSON("12345", "Design Doc", synced+1, editedCSF)}}
 
 	out, _, code := runCLIFull(t, confEnv(cs.srv), "conf", "push", csfPath, "--into", root, "-o", "text")
