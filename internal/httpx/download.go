@@ -39,6 +39,7 @@ func (c *Client) GetStream(ctx context.Context, path string) (io.ReadCloser, err
 		// A per-attempt cancel lets the idle watchdog abort a stalled body
 		// without touching the caller's context.
 		rctx, cancel := context.WithCancel(ctx)
+		rctx = context.WithValue(rctx, downloadRedirectCancelKey{}, cancel)
 		req, err := c.newRequest(rctx, http.MethodGet, url, nil, map[string]string{"Accept": "*/*"})
 		if err != nil {
 			cancel()
@@ -47,13 +48,14 @@ func (c *Client) GetStream(ctx context.Context, path string) (io.ReadCloser, err
 		c.tracef("→ GET %s\n", traceRequestURL(ctx, req.URL))
 		resp, err := c.dl.Do(req)
 		if err != nil {
+			interrupted := rctx.Err() != nil
 			cancel()
 			c.tracef("× GET %s (transport error: %s)\n", traceRequestURL(ctx, req.URL), transportErrorCategory(err))
 			if budgetErr := readBudgetExhaustion(err); budgetErr != nil {
 				return nil, budgetErr
 			}
 			lastErr = transportError(http.MethodGet, req.URL, err)
-			if errors.Is(err, errRedirectLimit) {
+			if interrupted || errors.Is(err, errRedirectLimit) {
 				return nil, lastErr
 			}
 			continue // GET is idempotent → retry

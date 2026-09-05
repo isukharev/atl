@@ -15,7 +15,6 @@ import (
 
 	"github.com/isukharev/atl/internal/domain"
 	"github.com/isukharev/atl/internal/httpx"
-	"github.com/isukharev/atl/internal/strictjson"
 )
 
 // Confluence is the DocStore adapter.
@@ -265,8 +264,12 @@ func (cf *Confluence) getPage(ctx context.Context, id, status string, opts domai
 	if status != "" {
 		requestPath = "/rest/api/content/" + url.PathEscape(id) + "?status=" + url.QueryEscape(status) + "&expand=" + expand
 	}
-	var ct content
-	if err := cf.c.GetJSON(ctx, requestPath, &ct); err != nil {
+	var raw json.RawMessage
+	if err := cf.c.GetJSON(ctx, requestPath, &raw); err != nil {
+		return nil, err
+	}
+	ct, err := decodeContentEvidence(raw)
+	if err != nil {
 		return nil, err
 	}
 	body, present := ct.storageBody()
@@ -487,8 +490,8 @@ func (cf *Confluence) UpdatePage(ctx context.Context, id string, expectVersion i
 		}
 		return 0, err
 	}
-	var out content
-	if strictjson.Decode(raw, &out) != nil || next <= 0 || out.Version.Number != next || (out.ID != "" && out.ID != id) {
+	out, decodeErr := decodeContentEvidence(raw)
+	if decodeErr != nil || next <= 0 || out.Version.Number != next || (out.ID != "" && out.ID != id) {
 		return 0, &domain.PageUpdateUnconfirmedError{ExpectedVersion: next}
 	}
 	return out.Version.Number, nil

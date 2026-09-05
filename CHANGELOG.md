@@ -21,6 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Jira image downloads use stable attachment-ID-prefixed inventory filenames,
   preserving distinct attachments with equal or sanitization-colliding names.
   Ambiguous image identities are rejected before downloads or output writes.
+  Existing output targets are refused, including files created during transfer;
+  use a fresh output directory for another download.
 
 ## [0.9.0] - 2026-08-23
 

@@ -155,7 +155,8 @@ body по allowlist. Точные флаги описаны в
 [`jira attachment-bodies`](docs/reference/cli/jira-mirrors.md#atl-jira-attachment-bodies).
 
 Для одной задачи `jira issue images KEY` сохраняет изображения под стабильными
-именами `<attachment-id>-<filename>`; используйте возвращённые пути. Общая
+именами `<attachment-id>-<filename>`; используйте возвращённые пути и новый
+каталог, если целевые файлы уже существуют. Общая
 HTTP-политика ограничивает цепочки redirect и простой при чтении тел ответов.
 
 Файл `.csf` содержит точный native body Confluence. Соседний `.md` — производное

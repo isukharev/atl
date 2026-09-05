@@ -403,6 +403,10 @@ func (s *ConfluenceService) Push(ctx context.Context, target string, o PushOpts)
 // the highest. The rank is NOT the exit code: it only decides which error wins;
 // codeFor then maps the winner.
 func errRank(err error) int {
+	var ambiguous interface{ DiagnosticAmbiguousWrite() bool }
+	if errors.As(err, &ambiguous) && ambiguous.DiagnosticAmbiguousWrite() {
+		return 7
+	}
 	switch {
 	case err == nil:
 		return -1

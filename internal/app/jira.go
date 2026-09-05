@@ -331,6 +331,9 @@ func (s *JiraService) Images(ctx context.Context, key, dir string) ([]string, er
 	if dir == "" {
 		dir = filepath.Join("mirror-jira", key+".assets")
 	}
+	if err := preflightJiraImageTargets(dir, names); err != nil {
+		return nil, err
+	}
 	var paths []string
 	for i, a := range atts {
 		if names[i] == "" {
@@ -369,9 +372,12 @@ func (s *JiraService) Images(ctx context.Context, key, dir string) ([]string, er
 		}
 		// Stream to disk atomically: bounded memory, and an interrupted
 		// transfer never leaves a truncated image.
-		_, werr := safepath.WriteReaderAtomicWithin(dir, p, rc, 0o644)
+		werr := safepath.WriteReaderExclusiveWithin(dir, p, rc, 0o644)
 		rc.Close()
 		if werr != nil {
+			if os.IsExist(werr) {
+				return paths, fmt.Errorf("%w: image output appeared during download; existing file preserved", domain.ErrCheckFailed)
+			}
 			return paths, werr
 		}
 		paths = append(paths, p)

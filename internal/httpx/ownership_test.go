@@ -14,6 +14,7 @@ import (
 
 func TestTransportResponsibilityOwnersStayClosed(t *testing.T) {
 	expected := map[string][]string{
+		"redirect_idle.go": {"(redirectIdleTransport).RoundTrip", "(*redirectIdleBody).Close", "downloadRedirectCancelKey", "redirectIdleBody", "redirectIdleTransport"},
 		"attempt.go": {
 			"(*Client).classifyAttempt", "(*Client).classifyResult", "attemptResult",
 		},

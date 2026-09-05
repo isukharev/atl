@@ -1286,7 +1286,9 @@ the actual written paths. Each basename includes the stable attachment ID:
 `<id>-<safe-inventory-filename>` (at most 255 UTF-8 bytes). Different attachments
 with equal names retain different paths. Invalid or duplicate selected image
 identities fail with exit `8` before downloads or local writes. Existing
-unprefixed files are not removed.
+targets also fail with exit `8`; use a fresh output directory for another
+download. Exclusive publication preserves files that appear during a download,
+too. Existing unprefixed files are not removed or overwritten.
 
 `atl jira issue attachment list <KEY>` returns the issue key plus the attachment
 metadata Jira exposes. `-o id` prints attachment ids one per line:

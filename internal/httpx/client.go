@@ -140,7 +140,7 @@ func newWithScheduler(base, token, version string, scheduler *Scheduler, transpo
 			CheckRedirect: checkRedirect,
 		},
 		dl: &http.Client{
-			Transport:     scheduleTransport(readBudgetTransport{base: dlTransport}, scheduler),
+			Transport:     scheduleTransport(readBudgetTransport{base: redirectIdleTransport{base: dlTransport}}, scheduler),
 			CheckRedirect: checkRedirect,
 		},
 	}
@@ -239,6 +239,7 @@ func (c *Client) DoStreamSized(ctx context.Context, method, path string, r io.Re
 	// streaming its response body.
 	rctx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	rctx = context.WithValue(rctx, downloadRedirectCancelKey{}, cancel)
 	req, err := c.newRequestReader(rctx, method, url, r, headers)
 	if err != nil {
 		return nil, err

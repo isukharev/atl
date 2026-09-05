@@ -139,7 +139,8 @@ mirrors](docs/reference/cli/jira-mirrors.md#atl-jira-pull). Attachments:
 [`jira attachment-bodies`](docs/reference/cli/jira-mirrors.md#atl-jira-attachment-bodies).
 
 For one issue, `jira issue images KEY` saves images under stable
-`<attachment-id>-<filename>` names; use its returned paths. Download redirect
+`<attachment-id>-<filename>` names; use its returned paths and a fresh output
+directory when targets already exist. Download redirect
 chains and stalled response bodies are bounded by the shared HTTP policy.
 
 `.csf` is the native body; `.md` is its derived staging view. After editing

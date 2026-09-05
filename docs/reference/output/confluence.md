@@ -607,6 +607,10 @@ same partial refresh is advisory: local body/base/state bytes are preserved and
 the item reports a re-pull warning. `BodyPresent=true` with zero body bytes is a
 valid explicitly empty page.
 
+Page reads reject duplicate JSON members, lossy Unicode, and case aliases of
+known content members before projecting evidence. Unknown additional members
+remain forward-compatible; contradictory evidence cannot confirm an update.
+
 Post-push refresh also requires the exact confirmed page ID, version, and
 native body. Any mismatch, including a newer concurrent version, preserves
 local candidate/base/state bytes and sets `warning` while keeping the

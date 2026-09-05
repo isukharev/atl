@@ -91,3 +91,13 @@ func TestConfluencePushReconcilesUnconfirmedAcknowledgementWithoutReplay(t *test
 		})
 	}
 }
+
+func TestConfluencePushAggregatePreservesUnconfirmedOutcomeInEitherOrder(t *testing.T) {
+	unconfirmed := &domain.PageUpdateUnconfirmedError{ExpectedVersion: 4}
+	for _, pair := range [][2]error{{domain.ErrCheckFailed, unconfirmed}, {unconfirmed, domain.ErrCheckFailed}, {domain.ErrVersionConflict, unconfirmed}} {
+		var got *domain.PageUpdateUnconfirmedError
+		if !errors.As(moreSevereErr(pair[0], pair[1]), &got) {
+			t.Fatal("aggregate lost ambiguous write evidence")
+		}
+	}
+}

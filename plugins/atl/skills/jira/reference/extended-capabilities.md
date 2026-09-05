@@ -97,7 +97,8 @@ empty successful backend upload response is exit `8`; because the mutation may
 have committed, inspect the attachment list and do not retry blindly.
 `images` returns the actual `<attachment-id>-<safe-inventory-filename>` paths;
 use those paths even when attachment names repeat. Existing unprefixed files
-are preserved. An invalid or duplicate image identity is refused before any
+are preserved. Existing output targets are refused: choose a fresh directory
+for another download. An invalid or duplicate image identity is refused before any
 download or output write; re-read the inventory rather than guessing names.
 The current attachment list is useful for selecting an exact id, but it has no
 explicit completeness member; do not treat an empty list as proof that no

@@ -259,6 +259,12 @@ func WriteFileOwnedAtomicWithin(root, target, tempBase string, data []byte, perm
 // symlinks, fsyncs a fresh temporary inode, then atomically links that inode at
 // the final name. Readers therefore cannot observe a partial target.
 func WriteFileExclusiveWithin(root, target string, data []byte, perm os.FileMode) error {
+	return WriteReaderExclusiveWithin(root, target, bytes.NewReader(data), perm)
+}
+
+// WriteReaderExclusiveWithin streams a fresh root-contained file and publishes
+// it without replacing an existing target, including one created during I/O.
+func WriteReaderExclusiveWithin(root, target string, reader io.Reader, perm os.FileMode) error {
 	rel, err := relativeToRoot(root, target)
 	if err != nil {
 		return err
@@ -289,7 +295,7 @@ func WriteFileExclusiveWithin(root, target string, data []byte, perm os.FileMode
 		return err
 	}
 	defer func() { _ = parent.Remove(tempName) }()
-	if _, err := io.Copy(f, bytes.NewReader(data)); err != nil {
+	if _, err := io.Copy(f, reader); err != nil {
 		_ = f.Close()
 		return err
 	}

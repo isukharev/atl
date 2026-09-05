@@ -2,6 +2,8 @@ package app
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"unicode/utf8"
 
@@ -39,4 +41,17 @@ func jiraImageOutputNames(attachments []domain.Attachment) ([]string, error) {
 		names[i] = attachment.ID + "-" + base
 	}
 	return names, nil
+}
+
+func preflightJiraImageTargets(directory string, names []string) error {
+	for _, name := range names {
+		if name == "" {
+			continue
+		}
+		_, err := safepath.StatWithin(directory, filepath.Join(directory, name))
+		if !os.IsNotExist(err) {
+			return fmt.Errorf("%w: image output is occupied or unavailable; choose a fresh output directory", domain.ErrCheckFailed)
+		}
+	}
+	return nil
 }

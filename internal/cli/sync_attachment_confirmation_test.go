@@ -83,3 +83,24 @@ func TestJiraImagesCLIEmitsDistinctIdentityQualifiedPaths(t *testing.T) {
 		}
 	}
 }
+
+func TestConfPushRejectsAmbiguousReadbackJSON(t *testing.T) {
+	for _, version := range []string{`"number":7,"number":8`, `"number":7,"Number":8`, `"Number":8`} {
+		server := newConfServer(t)
+		root, path := dirtyMirror(t, server, 7)
+		server.writes = []cannedResp{{status: 200, body: `{}`}}
+		server.page = fmt.Sprintf(`{"id":"12345","title":"Design Doc","version":{%s},"body":{"storage":{"value":%q}}}`, version, editedCSF)
+		stdout, _, err := executeCLIRaw(t, confEnv(server.srv), "conf", "push", path, "--into", root)
+		var result app.PushResult
+		if decodeErr := json.Unmarshal([]byte(stdout), &result); decodeErr != nil {
+			t.Fatal(decodeErr)
+		}
+		if codeFor(err) != exitCheckFailed || result.Items[0].Pushed || len(server.writeReqs()) != 1 || diagnostic.Recover(err, diagnostic.OperationWrite).Action != diagnostic.RecoveryReconcileWriteOutcome {
+			t.Fatalf("result=%+v err=%v", result, err)
+		}
+		data, readErr := os.ReadFile(path)
+		if readErr != nil || string(data) != editedCSF {
+			t.Fatal("candidate changed")
+		}
+	}
+}

@@ -11,7 +11,7 @@ import (
 )
 
 func TestUpdatePageQualifiesAcknowledgement(t *testing.T) {
-	for _, response := range []string{"", "{}", "null", "{", `{"version":{"number":0}}`, `{"version":{"number":-1}}`, `{"version":{"number":5}}`, `{"version":{"number":"4"}}`, `{"id":"999","version":{"number":4}}`, `{"version":{"number":1,"number":4}}`} {
+	for _, response := range []string{"", "{}", "null", "{", `{"version":{"number":0}}`, `{"version":{"number":-1}}`, `{"version":{"number":5}}`, `{"version":{"number":"4"}}`, `{"id":"999","version":{"number":4}}`, `{"version":{"number":1,"number":4}}`, `{"version":{"number":3,"Number":4}}`, `{"version":{"Number":4}}`, `{"version":{"number":3},"Version":{"number":4}}`} {
 		t.Run(response, func(t *testing.T) {
 			calls := 0
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
