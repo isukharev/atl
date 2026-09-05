@@ -834,6 +834,16 @@ attachment exits `8`.
 
 Download image attachments of an issue to files (useful for agent vision).
 
+Output names are `<attachment-id>-<safe-inventory-filename>`, stable across
+inventory order. Long basenames are shortened on a UTF-8 boundary so the full
+component stays within 255 bytes. The selected image inventory must have
+distinct canonical numeric IDs; ambiguous identities fail with exit `8` before
+any download or file write. All target paths must be absent: if an output
+already exists, choose a fresh directory. Publication also refuses a target
+created during the download. Attachment-ID fallback downloads retain the
+inventory filename. Previously downloaded unprefixed files are preserved;
+consume the returned `images` paths rather than constructing names yourself.
+
 ```bash
 atl jira issue images PROJ-1
 atl jira issue images PROJ-1 --into /tmp/proj1-images

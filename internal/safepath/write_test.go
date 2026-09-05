@@ -534,6 +534,28 @@ func TestWriteFileExclusiveWithinNeverReplacesExistingTarget(t *testing.T) {
 	}
 }
 
+func TestWriteReaderExclusiveWithinPreservesTargetOnPartialStream(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "image.png")
+	if err := WriteReaderExclusiveWithin(root, path, &failingReader{}, 0o644); err == nil {
+		t.Fatal("expected stream failure")
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil || len(entries) != 0 {
+		t.Fatalf("partial stream left artifacts: %v %v", entries, err)
+	}
+	if err := WriteReaderExclusiveWithin(root, path, strings.NewReader("complete"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteReaderExclusiveWithin(root, path, strings.NewReader("replacement"), 0o644); !os.IsExist(err) {
+		t.Fatalf("existing target error=%v", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil || string(data) != "complete" {
+		t.Fatalf("data=%q err=%v", data, err)
+	}
+}
+
 func TestWriteFileExclusiveWithinRejectsDescendantSymlink(t *testing.T) {
 	root := t.TempDir()
 	outside := t.TempDir()

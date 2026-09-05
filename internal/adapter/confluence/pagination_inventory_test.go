@@ -139,6 +139,10 @@ confluence.go:HistoryQualified:range:1
 confluence.go:confluenceWebURL:range:1
 confluence.go:resolveAdapterOptions:range:1
 confluence.go:toResource:range:1
+content_evidence.go:canonicalContentMembers:for:1
+content_evidence.go:canonicalContentMembers:for:2
+content_evidence.go:canonicalContentMembers:range:1
+content_evidence.go:canonicalContentMembers:range:2
 corpus_metadata.go:ReadConfluenceCorpusMetadata:for:1
 corpus_metadata.go:ReadConfluenceCorpusMetadata:range:1
 corpus_metadata.go:labelValues:range:1

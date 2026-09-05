@@ -46,6 +46,12 @@ Each item in a real `atl conf push` reports one of:
 
 ## Pre-push checklist
 
+An unconfirmed update acknowledgement triggers one bounded exact readback.
+If it remains unresolved, exit `8` carries `reconcile_write_outcome`; never
+replay the write. A confirmed push whose refresh has a different page ID,
+version, or native body preserves local files and emits a warning. Keep those
+edits, inspect remote state, and reconcile before refreshing the mirror.
+
 1. `atl conf validate <file.csf>` → no `error`-severity problems.
 2. `atl conf snapshot ~/.atl/<workspace>/ --remote` → `complete:true`,
    `reconciled:true`, and no unexpected local/remote/render/baseline failures.

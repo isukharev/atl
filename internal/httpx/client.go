@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -23,6 +24,7 @@ import (
 const (
 	defaultTimeout = 60 * time.Second
 	userAgent      = "atl-cli"
+	maxRedirects   = 10
 )
 
 // Client is a per-backend HTTP client (one for Confluence, one for Jira).
@@ -117,6 +119,9 @@ func newWithScheduler(base, token, version string, scheduler *Scheduler, transpo
 		if len(via) > 0 && domain.SingleAttempt(via[0].Context()) {
 			return http.ErrUseLastResponse
 		}
+		if len(via) >= maxRedirects {
+			return errRedirectLimit
+		}
 		return nil
 	}
 	return &Client{
@@ -135,7 +140,7 @@ func newWithScheduler(base, token, version string, scheduler *Scheduler, transpo
 			CheckRedirect: checkRedirect,
 		},
 		dl: &http.Client{
-			Transport:     scheduleTransport(readBudgetTransport{base: dlTransport}, scheduler),
+			Transport:     scheduleTransport(readBudgetTransport{base: redirectIdleTransport{base: dlTransport}}, scheduler),
 			CheckRedirect: checkRedirect,
 		},
 	}
@@ -234,6 +239,7 @@ func (c *Client) DoStreamSized(ctx context.Context, method, path string, r io.Re
 	// streaming its response body.
 	rctx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	rctx = context.WithValue(rctx, downloadRedirectCancelKey{}, cancel)
 	req, err := c.newRequestReader(rctx, method, url, r, headers)
 	if err != nil {
 		return nil, err
@@ -298,7 +304,7 @@ func (c *Client) do(ctx context.Context, method, path string, body []byte, heade
 			safeErr := transportError(method, req.URL, err)
 			// A committed-but-lost write can double-execute or turn success into a
 			// misleading conflict/not-found; only replay-safe reads retry here.
-			if !replaySafe(method) {
+			if !replaySafe(method) || errors.Is(err, errRedirectLimit) {
 				return nil, safeErr
 			}
 			lastErr = safeErr

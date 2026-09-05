@@ -134,8 +134,8 @@ func TestJiraImagesStreamsListedAttachmentWithoutRefetch(t *testing.T) {
 	if streamPath != "/secure/attachment/1/shot.png" {
 		t.Fatalf("stream path = %q, want listed attachment path", streamPath)
 	}
-	if len(paths) != 1 || filepath.Base(paths[0]) != "shot.png" {
-		t.Fatalf("paths = %v, want one shot.png", paths)
+	if len(paths) != 1 || filepath.Base(paths[0]) != "1-shot.png" {
+		t.Fatalf("paths = %v, want one 1-shot.png", paths)
 	}
 	got, err := os.ReadFile(paths[0])
 	if err != nil {
@@ -174,8 +174,8 @@ func TestJiraImagesFallsBackToAttachmentIDWithoutDirectPath(t *testing.T) {
 	if downloadKey != "PROJ-1" || downloadID != "1" {
 		t.Fatalf("fallback target = %q/%q, want PROJ-1/1", downloadKey, downloadID)
 	}
-	if len(paths) != 1 || filepath.Base(paths[0]) != "resolved.png" {
-		t.Fatalf("paths = %v, want one resolved.png", paths)
+	if len(paths) != 1 || filepath.Base(paths[0]) != "1-listed.png" {
+		t.Fatalf("paths = %v, want the identity-qualified inventory filename", paths)
 	}
 	got, err := os.ReadFile(paths[0])
 	if err != nil {

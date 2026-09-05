@@ -14,6 +14,7 @@ import (
 
 func TestTransportResponsibilityOwnersStayClosed(t *testing.T) {
 	expected := map[string][]string{
+		"redirect_idle.go": {"(redirectIdleTransport).RoundTrip", "(*redirectIdleBody).Close", "downloadRedirectCancelKey", "redirectIdleBody", "redirectIdleTransport"},
 		"attempt.go": {
 			"(*Client).classifyAttempt", "(*Client).classifyResult", "attemptResult",
 		},
@@ -31,7 +32,7 @@ func TestTransportResponsibilityOwnersStayClosed(t *testing.T) {
 			"(*Client).Base", "(*Client).Do", "(*Client).DoStream", "(*Client).DoStreamSized", "(*Client).DoWithBodyLimit",
 			"(*Client).GetJSON", "(*Client).GetJSONUseNumber", "(*Client).ResolveGET", "(*Client).SendJSON",
 			"(*Client).do", "Client", "New", "NewWithScheduler", "NewWithSchedulerTLS", "defaultTimeout", "newWithScheduler",
-			"unmarshal", "userAgent",
+			"maxRedirects", "unmarshal", "userAgent",
 		},
 		"download.go": {
 			"(*Client).GetStream", "validateNoReplayReadBudget",
@@ -40,7 +41,7 @@ func TestTransportResponsibilityOwnersStayClosed(t *testing.T) {
 			"(*APIError).Error", "(*APIError).HTTPStatus", "(*APIError).Unwrap", "(*TransportError).Error", "(*TransportError).Format",
 			"(*TransportError).Is", "(*unclearedWriteError).DiagnosticWriteAttempted", "(*unclearedWriteError).DiagnosticWriteClearanceFailure",
 			"(*unclearedWriteError).Error", "(*unclearedWriteError).Unwrap", "APIError", "TransportError", "classify",
-			"errUnclearedWrite", "redactURLString", "sameHost", "traceURL", "transportError", "transportErrorCategory", "unclearedWriteError",
+			"errRedirectLimit", "errUnclearedWrite", "redactURLString", "sameHost", "traceURL", "transportError", "transportErrorCategory", "unclearedWriteError",
 		},
 		"options.go": {
 			"(*Client).tracef", "Option", "WithGenericConflict", "WithRequiredWriteClearance", "WithTrace", "clientOptions",

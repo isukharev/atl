@@ -154,9 +154,10 @@ body по allowlist. Точные флаги описаны в
 Для большого attachment inventory используйте
 [`jira attachment-bodies`](docs/reference/cli/jira-mirrors.md#atl-jira-attachment-bodies).
 
-Файл `.csf` содержит точный native body Confluence. Соседний `.md` — производное
-представление для чтения и поддерживаемых staging-правок. После изменения
-Markdown:
+Изображения сохраняются под [ID-префиксами в свободные целевые файлы](docs/reference/cli/jira-issues.md#atl-jira-issue-images).
+
+`.csf` — native body Confluence; `.md` — производное представление для
+staging-правок. После изменения Markdown:
 
 ```sh
 env -u ATL_READ_ONLY atl conf apply \
@@ -173,12 +174,12 @@ Markdown-правки, потеря фрагментов, некорректны
 классифицируется как mutation даже с `--dry-run`; scoped `env -u` сохраняет
 policy в текущей shell-сессии. Pull не перезаписывает правки native-файла или
 derived view: используйте его dry-run, stash или явное overwrite-восстановление,
-чтобы не потерять работу. Долговременное зеркало также связано с
+чтобы не потерять работу. Зеркало связано с
 content-minimized identity backend, поэтому зеркало staging нельзя случайно
 отправить в другой настроенный instance.
 
-Jira использует нативные `.wiki`-файлы; обычный цикл и qualified resumable pull,
-apply, reconcile и push описаны в разделе [Jira mirrors](docs/reference/cli/jira-mirrors.md).
+Нативные `.wiki`-файлы и pull/apply/reconcile/push описаны в
+[Jira mirrors](docs/reference/cli/jira-mirrors.md).
 
 ### 3. Выполните preview, примените один раз и сверьте результат
 
@@ -197,12 +198,15 @@ env -u ATL_READ_ONLY atl conf push \
 Hash-bound записи используют выведенные gates, одну попытку и reconciliation;
 `write_attempted:true` запрещает replay. Большие fields начинайте с GET-only
 `jira issue field preview`.
-Для компактного анализа небольшого известного набора issues используйте
+Для известных issues используйте
 JSON-only `jira issue field batch` с повторяемыми `--key` и `--field`.
 Для multi-issue CSV сначала выполните schema-v2
 `jira issue plan preview`, затем hash-confirmed execution-only `plan apply`;
 единый barrier предшествует всем writers. См. [руководство](docs/safe-writes.md).
 Confluence trash принимает только канонический numeric `--id`.
+
+Неподтверждённый push требует reconciliation без replay; некорректный refresh
+сохраняет правки.
 
 ## Кодинг-агенты
 
