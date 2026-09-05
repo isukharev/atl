@@ -23,8 +23,8 @@ atl jira issue search --jql 'order by updated DESC' --limit 5
 atl conf search --cql 'type = page' --limit 5
 ```
 
-Pulling writes local mirror files but never mutates Jira or Confluence. Keep the
-read-only policy until one exact write proposal has been reviewed.
+Pull changes local files only. Keep read-only policy until an exact write
+proposal is reviewed.
 
 > `atl` is an independent open-source project. It is not affiliated with,
 > endorsed by, or sponsored by Atlassian Pty Ltd.
@@ -138,12 +138,9 @@ Complete Jira mirrors: [Jira
 mirrors](docs/reference/cli/jira-mirrors.md#atl-jira-pull). Attachments:
 [`jira attachment-bodies`](docs/reference/cli/jira-mirrors.md#atl-jira-attachment-bodies).
 
-For one issue, `jira issue images KEY` saves images under stable
-`<attachment-id>-<filename>` names; use its returned paths and a fresh output
-directory when targets already exist. Download redirect
-chains and stalled response bodies are bounded by the shared HTTP policy.
+Image downloads use [ID-prefixed, unoccupied targets](docs/reference/cli/jira-issues.md#atl-jira-issue-images).
 
-`.csf` is the native body; `.md` is its derived staging view. After editing
+`.csf` is native; `.md` is its derived staging view. After editing
 Markdown:
 
 ```sh
@@ -162,8 +159,8 @@ changes local bytes and remains mutation-classified during dry-run; the scoped
 use dry-run, stash, or explicit overwrite recovery. Mirrors are bound to a
 content-minimized backend identity to prevent accidental cross-instance push.
 
-Jira uses native `.wiki` files; see [Jira mirrors](docs/reference/cli/jira-mirrors.md)
-for ordinary and qualified resumable project pulls, apply, reconcile, and push.
+Jira uses `.wiki`; [Jira mirrors](docs/reference/cli/jira-mirrors.md) covers
+pull, apply, reconcile, and push.
 
 ### 3. Preview, apply once, reconcile
 
@@ -177,16 +174,13 @@ env -u ATL_READ_ONLY atl conf push \
   "$ATL_WORKSPACE_ROOT/SPACE/page/page.csf" --dry-run
 ```
 
-After review, run the command without `--dry-run`. Confluence version conflict
+After review, omit `--dry-run`. Confluence version conflict
 exits `5`; use `conf reconcile preview`, never auto-force. Hash-bound writes use
 emitted gates, one attempt, and reconciliation; never replay
 `write_attempted:true`. Large fields use GET-only `jira issue field preview`.
 For small known keys, use JSON-only `jira issue field batch` with repeated
 selectors.
-Confluence push preserves your local candidate if its post-write readback does
-not match the confirmed page/version/body. An unconfirmed acknowledgement is
-reconciled by one bounded read; an unresolved outcome exits `8` and must not be
-replayed. Inspect remote state and reconcile before refreshing preserved edits.
+Unqualified refresh preserves edits; unconfirmed push requires reconciliation without replay.
 For multi-issue CSV, review schema-v2 `jira issue plan preview`, then use
 hash-confirmed execution-only `plan apply`; its global barrier precedes every
 writer. See the [safe-write guide](docs/safe-writes.md). Confluence trash
