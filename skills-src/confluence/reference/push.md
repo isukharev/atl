@@ -27,6 +27,11 @@ overwrite. Never auto-`--force`.
 - `added_fragments`, `removed_fragments` — fragment changes your edit introduces/drops
 - `problems` — validation problems (if any)
 
+All four review fields are always present in dry-run JSON. A clean candidate
+uses `remote_drifted: false` and empty arrays; do not interpret a missing field
+as a neutral result. Text output lists both additions and removals from those
+same arrays.
+
 Review this before the real push. Push the exact bytes you reviewed — don't regenerate the body in
 between, or the diff you approved won't match what gets written.
 

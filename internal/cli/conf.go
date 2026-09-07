@@ -719,6 +719,9 @@ func pushText(res *app.PushResult) string {
 		for _, r := range it.Removed {
 			fmt.Fprintf(&b, "   - removes %s %s\n", r.Kind, r.Display)
 		}
+		for _, r := range it.Added {
+			fmt.Fprintf(&b, "   + adds %s %s\n", r.Kind, r.Display)
+		}
 		for _, p := range it.Problems {
 			fmt.Fprintf(&b, "   ! %s:%d:%d %s\n", p.Severity, p.Line, p.Col, p.Message)
 		}

@@ -598,6 +598,14 @@ Such a copy is reported by status with `non_canonical:true` and
 drift probing is skipped for this stale copy. Push/dry-run refuses it with exit
 `8` even under `--force`.
 
+Every `conf push --dry-run` item has the stable review fields
+`remote_drifted`, `added_fragments`, `removed_fragments`, and `problems`.
+A clean candidate emits `false` and `[]` for those fields. Their presence
+therefore proves that the dry-run output supports this review contract; missing
+fields do not mean neutral values. Apply items retain their existing sparse
+shape. Text output derives its added/removed fragment lines from the same
+arrays, with no separate counts that could disagree.
+
 A successful Confluence response that omits the requested body projection is
 not equivalent to an empty page. Pull and native-CSF reads require
 `body.storage.value`; `conf page get --format view` requires `body.view.value`.

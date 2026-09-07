@@ -12,6 +12,8 @@ import (
 	"testing"
 
 	"github.com/isukharev/atl/internal/app"
+	"github.com/isukharev/atl/internal/csf"
+	"github.com/isukharev/atl/internal/domain"
 )
 
 // --- stateful, method+path-routing httptest server ---
@@ -584,6 +586,28 @@ func TestConfPush_TextInvalid(t *testing.T) {
 		t.Fatalf("text output = %q, want prefix %q", out, "INVALID\t")
 	}
 	assertGolden(t, "conf_push_text_invalid.txt", []byte(maskPath(out, csfPath)))
+}
+
+func TestPushText_DryRunReviewFields(t *testing.T) {
+	result := &app.PushResult{Items: []app.PushItem{
+		{Path: "clean.csf", DryRun: true},
+		{
+			Path: "changed.csf", DryRun: true, Drifted: true,
+			Removed: []domain.Ref{{Kind: domain.RefDrawio, Display: "old-diagram"}},
+			Added:   []domain.Ref{{Kind: domain.RefAttachment, Display: "new.png"}},
+			Problems: []csf.Problem{{
+				Severity: "warning", Line: 4, Col: 2, Message: "review candidate",
+			}},
+		},
+	}}
+	want := "dry-run\tclean.csf\n" +
+		"dry-run/DRIFTED\tchanged.csf\n" +
+		"   - removes drawio old-diagram\n" +
+		"   + adds attachment new.png\n" +
+		"   ! warning:4:2 review candidate"
+	if got := pushText(result); got != want {
+		t.Fatalf("pushText() = %q, want %q", got, want)
+	}
 }
 
 // maskPath replaces the volatile absolute .csf path (under a TempDir) with a

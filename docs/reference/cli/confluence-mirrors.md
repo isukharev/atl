@@ -1053,6 +1053,10 @@ atl conf push --force mirror/DOCS/guide/guide.csf
 
 Push output lists each file's outcome and any removed/added fragments so you
 can confirm that a macro or diagram was not accidentally deleted from the CSF.
+Every dry-run JSON item includes `remote_drifted`, `added_fragments`,
+`removed_fragments`, and `problems`; clean candidates use `false` and empty
+arrays rather than omitting those review fields. Text output renders both added
+and removed fragment summaries from the same arrays.
 An error-severity CSF problem returns the item and its `problems[]` with
 `check_failed` / exit 8 before any write and, on an uncontended local mirror
 snapshot, before backend configuration. An active mirror mutation keeps its

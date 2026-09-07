@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Confluence push dry-run items now always emit explicit `remote_drifted`,
+  `added_fragments`, `removed_fragments`, and `problems` review fields. Clean
+  candidates use `false` and empty arrays, and text output reports additions as
+  well as removals from the same fragment arrays.
 - Confluence push now validates update acknowledgements and reconciles an
   unconfirmed acknowledgement through one bounded read without replaying PUT.
   Post-push refresh preserves local candidate/base/state bytes when the read

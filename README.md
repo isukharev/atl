@@ -174,6 +174,8 @@ env -u ATL_READ_ONLY atl conf push \
   "$ATL_WORKSPACE_ROOT/SPACE/page/page.csf" --dry-run
 ```
 
+Dry-run JSON always includes explicit drift, added/removed fragment, and
+validation-problem review fields, including neutral `false` and `[]` values.
 After review, omit `--dry-run`. Confluence version conflict
 exits `5`; use `conf reconcile preview`, never auto-force. Hash-bound writes use
 emitted gates, one attempt, and reconciliation; never replay
