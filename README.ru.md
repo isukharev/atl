@@ -205,8 +205,7 @@ JSON-only `jira issue field batch` с повторяемыми `--key` и `--fie
 единый barrier предшествует всем writers. См. [руководство](docs/safe-writes.md).
 Confluence trash принимает только канонический numeric `--id`.
 
-Неподтверждённый push требует reconciliation без replay; некорректный refresh
-сохраняет правки.
+Поля review в dry-run явные; неподтверждённый push требует reconciliation.
 
 ## Кодинг-агенты
 
