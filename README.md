@@ -174,15 +174,13 @@ env -u ATL_READ_ONLY atl conf push \
   "$ATL_WORKSPACE_ROOT/SPACE/page/page.csf" --dry-run
 ```
 
-Dry-run JSON always includes explicit drift, added/removed fragment, and
-validation-problem review fields, including neutral `false` and `[]` values.
 After review, omit `--dry-run`. Confluence version conflict
 exits `5`; use `conf reconcile preview`, never auto-force. Hash-bound writes use
 emitted gates, one attempt, and reconciliation; never replay
 `write_attempted:true`. Large fields use GET-only `jira issue field preview`.
 For small known keys, use JSON-only `jira issue field batch` with repeated
 selectors.
-Unqualified refresh preserves edits; unconfirmed push requires reconciliation without replay.
+Dry-run review fields are explicit; unconfirmed push requires reconciliation.
 For multi-issue CSV, review schema-v2 `jira issue plan preview`, then use
 hash-confirmed execution-only `plan apply`; its global barrier precedes every
 writer. See the [safe-write guide](docs/safe-writes.md). Confluence trash

@@ -193,8 +193,6 @@ env -u ATL_READ_ONLY atl conf push \
   "$ATL_WORKSPACE_ROOT/SPACE/page/page.csf" --dry-run
 ```
 
-JSON dry-run всегда содержит явные поля проверки drift, добавленных/удалённых
-фрагментов и ошибок валидации, включая нейтральные значения `false` и `[]`.
 После review запустите команду без `--dry-run`. Version conflict Confluence
 завершается с кодом `5`: используйте `conf reconcile preview`, не auto-force.
 Hash-bound записи используют выведенные gates, одну попытку и reconciliation;
@@ -207,8 +205,7 @@ JSON-only `jira issue field batch` с повторяемыми `--key` и `--fie
 единый barrier предшествует всем writers. См. [руководство](docs/safe-writes.md).
 Confluence trash принимает только канонический numeric `--id`.
 
-Неподтверждённый push требует reconciliation без replay; некорректный refresh
-сохраняет правки.
+Поля review в dry-run явные; неподтверждённый push требует reconciliation.
 
 ## Кодинг-агенты
 
