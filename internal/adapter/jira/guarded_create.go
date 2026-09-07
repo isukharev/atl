@@ -181,8 +181,8 @@ func guardedCreateRejectionEvidence(status int, body []byte) domain.JiraGuardedC
 	if strictjson.Decode(body, &envelope) != nil {
 		return evidence
 	}
-	var fieldErrors map[string]string
-	var globalErrors []string
+	var fieldErrors map[string]json.RawMessage
+	var globalErrors []json.RawMessage
 	recognized := false
 	if raw, ok := envelope["errors"]; ok {
 		if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) || strictjson.Decode(raw, &fieldErrors) != nil {
@@ -203,6 +203,16 @@ func guardedCreateRejectionEvidence(status int, body []byte) domain.JiraGuardedC
 		evidence.DetailsStatus = domain.JiraGuardedCreateRejectionOmittedBounds
 		return evidence
 	}
+	for _, raw := range fieldErrors {
+		if !guardedCreateRejectionString(raw) {
+			return evidence
+		}
+	}
+	for _, raw := range globalErrors {
+		if !guardedCreateRejectionString(raw) {
+			return evidence
+		}
+	}
 	fieldIDs := make([]string, 0, len(fieldErrors))
 	for fieldID := range fieldErrors {
 		if domain.ValidJiraTechnicalFieldID(fieldID) {
@@ -216,6 +226,14 @@ func guardedCreateRejectionEvidence(status int, body []byte) domain.JiraGuardedC
 	evidence.FieldIDs = fieldIDs
 	evidence.GlobalErrorCount = len(globalErrors)
 	return evidence
+}
+
+func guardedCreateRejectionString(raw json.RawMessage) bool {
+	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return false
+	}
+	var value string
+	return strictjson.Decode(raw, &value) == nil
 }
 
 func guardedCreatePayloadProject(payload []byte, project string) bool {

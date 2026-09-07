@@ -253,6 +253,8 @@ func TestGuardedCreateRejectionEvidenceFailsClosed(t *testing.T) {
 		{"duplicate member", domain.JiraGuardedCreateRejectionUnavailable, []byte(`{"errors":{},"errors":{}}`)},
 		{"wrong member type", domain.JiraGuardedCreateRejectionUnavailable, []byte(`{"errors":[]}`)},
 		{"null member", domain.JiraGuardedCreateRejectionUnavailable, []byte(`{"errorMessages":null}`)},
+		{"null field value", domain.JiraGuardedCreateRejectionUnavailable, []byte(`{"errors":{"reporter":null}}`)},
+		{"null global value", domain.JiraGuardedCreateRejectionUnavailable, []byte(`{"errorMessages":[null]}`)},
 		{"trailing JSON", domain.JiraGuardedCreateRejectionUnavailable, []byte(`{"errors":{}} {}`)},
 		{"unpaired surrogate", domain.JiraGuardedCreateRejectionUnavailable, []byte(`{"errorMessages":["\ud800"]}`)},
 		{"invalid UTF-8", domain.JiraGuardedCreateRejectionUnavailable, append([]byte(`{"errorMessages":["`), 0xff, '"', ']', '}')},

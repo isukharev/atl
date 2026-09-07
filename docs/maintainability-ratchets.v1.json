@@ -115,7 +115,7 @@
   ],
   "package_totals": [
     {"owner":"adapter-confluence","path":"internal/adapter/confluence/","max_lines":4889,"rationale":"Include lossless exact-member page evidence for acknowledgement and readback plus content-free unconfirmed-version evidence without transport replay."},
-    {"owner":"adapter-jira","path":"internal/adapter/jira/","max_lines":5786,"rationale":"Keep total Jira adapter production at the exact guarded-workflow baseline, including strict content-minimized projection of bounded guarded-create rejection envelopes."},
+    {"owner":"adapter-jira","path":"internal/adapter/jira/","max_lines":5804,"rationale":"Keep total Jira adapter production at the exact guarded-workflow baseline, including strict per-value content-minimized projection of bounded guarded-create rejection envelopes."},
     {"owner":"app","path":"internal/app/","max_lines":52354,"rationale":"Include bounded Confluence confirmation, ambiguity-preserving aggregation, identity-qualified Jira image publication, explicit Confluence dry-run review output, and revalidated closed Jira create diagnostics."},
     {"owner":"cli","path":"internal/cli/","max_lines":13309,"rationale":"Keep total CLI production at the exact guarded-plan result-publication baseline, including ambiguity-preserving output, JSON-only Jira field batch, access-policy rows, and the focused Confluence push text projection."},
     {"owner":"compose","path":"internal/compose/","max_lines":761,"rationale":"Keep complete concrete composition visible after selected-service doctor transport and sole-Confluence cache builds add exact generator identity, qualified configured trust admission, and a strict metadata reader."},
