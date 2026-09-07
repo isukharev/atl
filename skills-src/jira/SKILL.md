@@ -383,6 +383,11 @@ shell/workspace configuration implicitly.
   created issue but registration exits 8, never replay create; preserve local
   files and recover only that key with
   `jira pull --jql 'key = <KEY>' --limit 1 --into <ROOT>`.
+  A blocked preview may identify a closed `check.code` and safe technical
+  `field_id`; correct that field and create a new preview/hash. A definitive
+  `not_applied` may identify rejected qualified field ids and counts, while Jira
+  message text stays hidden. These diagnostics never make an ambiguous write
+  replay-safe.
 - Jira has no general server-side version gate. Use the command-specific
   current-state/CAS/proposal-hash guard and never convert it into blind retry.
 - Prefer dedicated one-shot commands for summary, labels, links, comments,

@@ -177,7 +177,7 @@ env -u ATL_READ_ONLY atl conf push \
 After review, omit `--dry-run`. Confluence version conflict
 exits `5`; use `conf reconcile preview`, never auto-force. Hash-bound writes use
 emitted gates, one attempt, and reconciliation; never replay
-`write_attempted:true`. Large fields use GET-only `jira issue field preview`.
+`write_attempted:true`. Jira create failures name safe fields without backend messages.
 For small known keys, use JSON-only `jira issue field batch` with repeated
 selectors.
 Dry-run review fields are explicit; unconfirmed push requires reconciliation.

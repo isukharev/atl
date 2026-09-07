@@ -1,7 +1,9 @@
 package jira
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -186,6 +188,126 @@ func TestGuardedCreateWriteIsSingleAttemptNoRedirectAndChargesErrorBody(t *testi
 	if errors.Is(err, domain.ErrReadAttemptBudgetExhausted) {
 		t.Fatalf("write retried: %v", err)
 	}
+}
+
+func TestGuardedCreateWriteProjectsSafeRejectionEvidence(t *testing.T) {
+	var requests atomic.Int32
+	const privateMessage = "submitted private value was rejected"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests.Add(1)
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = io.WriteString(w, `{"errorMessages":["`+privateMessage+`"],"errors":{"reporter":"`+privateMessage+`","customfield_42":"`+privateMessage+`","Display Name":"`+privateMessage+`"}}`)
+	}))
+	defer server.Close()
+
+	adapter := New(server.URL, "token", "test")
+	prepared, err := adapter.PrepareGuardedCreate(domain.JiraGuardedCreatePreparationRequest{
+		ProjectKey: "OPS", IssueTypeID: "10", Summary: "S",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = adapter.WriteGuardedCreate(domain.WithSingleAttempt(t.Context()), domain.JiraGuardedCreateWrite{
+		Payload: prepared.Payload, ProjectID: "7", ProjectKey: "OPS",
+	})
+	var diagnostic interface {
+		DiagnosticJiraGuardedCreateRejection() domain.JiraGuardedCreateRejectionEvidence
+	}
+	var status interface{ HTTPStatus() int }
+	if !errors.Is(err, domain.ErrUsage) || !errors.As(err, &status) || status.HTTPStatus() != http.StatusBadRequest ||
+		!errors.As(err, &diagnostic) || requests.Load() != 1 {
+		t.Fatalf("err=%v status=%T diagnostic=%T requests=%d", err, status, diagnostic, requests.Load())
+	}
+	evidence := diagnostic.DiagnosticJiraGuardedCreateRejection()
+	if evidence.HTTPStatus != http.StatusBadRequest || evidence.DetailsStatus != domain.JiraGuardedCreateRejectionAvailable ||
+		!reflect.DeepEqual(evidence.FieldIDs, []string{"customfield_42", "reporter"}) ||
+		evidence.GlobalErrorCount != 1 || evidence.OmittedFieldErrorCount != 1 {
+		t.Fatalf("evidence=%+v", evidence)
+	}
+	for _, formatted := range []string{err.Error(), fmt.Sprintf("%+v", err), fmt.Sprintf("%#v", err)} {
+		if strings.Contains(formatted, privateMessage) || strings.Contains(formatted, "/rest/api/") {
+			t.Fatalf("rejection formatting leaked private evidence: %q", formatted)
+		}
+	}
+}
+
+func TestGuardedCreateRejectionEvidenceFailsClosed(t *testing.T) {
+	oversized := []byte(`{"errorMessages":["` + strings.Repeat("x", jiraGuardedCreateMaxRejectionBodyBytes) + `"]}`)
+	atLimit := append([]byte(`{"errors":{}}`), bytes.Repeat([]byte(" "), jiraGuardedCreateMaxRejectionBodyBytes-len(`{"errors":{}}`))...)
+	many := make(map[string]string, domain.JiraGuardedCreateRejectionMaxDetails+1)
+	for index := 0; index < domain.JiraGuardedCreateRejectionMaxDetails+1; index++ {
+		many[fmt.Sprintf("customfield_%d", index)] = "private"
+	}
+	manyBody, err := json.Marshal(map[string]any{"errors": many})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name, want string
+		body       []byte
+	}{
+		{"valid empty", domain.JiraGuardedCreateRejectionAvailable, []byte(`{"errors":{},"errorMessages":[]}`)},
+		{"valid unknown members", domain.JiraGuardedCreateRejectionAvailable, []byte(`{"errors":{},"unknown":{"private":"value"}}`)},
+		{"body at limit", domain.JiraGuardedCreateRejectionAvailable, atLimit},
+		{"missing members", domain.JiraGuardedCreateRejectionUnavailable, []byte(`{"message":"private"}`)},
+		{"duplicate member", domain.JiraGuardedCreateRejectionUnavailable, []byte(`{"errors":{},"errors":{}}`)},
+		{"wrong member type", domain.JiraGuardedCreateRejectionUnavailable, []byte(`{"errors":[]}`)},
+		{"null member", domain.JiraGuardedCreateRejectionUnavailable, []byte(`{"errorMessages":null}`)},
+		{"trailing JSON", domain.JiraGuardedCreateRejectionUnavailable, []byte(`{"errors":{}} {}`)},
+		{"unpaired surrogate", domain.JiraGuardedCreateRejectionUnavailable, []byte(`{"errorMessages":["\ud800"]}`)},
+		{"invalid UTF-8", domain.JiraGuardedCreateRejectionUnavailable, append([]byte(`{"errorMessages":["`), 0xff, '"', ']', '}')},
+		{"non JSON", domain.JiraGuardedCreateRejectionUnavailable, []byte(`<html>private</html>`)},
+		{"oversized body", domain.JiraGuardedCreateRejectionOmittedBounds, oversized},
+		{"too many details", domain.JiraGuardedCreateRejectionOmittedBounds, manyBody},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			evidence := guardedCreateRejectionEvidence(http.StatusBadRequest, test.body)
+			if evidence.DetailsStatus != test.want || evidence.HTTPStatus != http.StatusBadRequest ||
+				len(evidence.FieldIDs) != 0 || evidence.GlobalErrorCount != 0 || evidence.OmittedFieldErrorCount != 0 {
+				t.Fatalf("evidence=%+v", evidence)
+			}
+		})
+	}
+
+	globalErrors := make([]string, domain.JiraGuardedCreateRejectionMaxDetails)
+	for index := range globalErrors {
+		globalErrors[index] = "private"
+	}
+	atDetailLimit, err := json.Marshal(map[string]any{"errorMessages": globalErrors})
+	if err != nil {
+		t.Fatal(err)
+	}
+	evidence := guardedCreateRejectionEvidence(http.StatusBadRequest, atDetailLimit)
+	if evidence.DetailsStatus != domain.JiraGuardedCreateRejectionAvailable ||
+		evidence.GlobalErrorCount != domain.JiraGuardedCreateRejectionMaxDetails {
+		t.Fatalf("detail-limit evidence=%+v", evidence)
+	}
+}
+
+func FuzzGuardedCreateRejectionEvidence(f *testing.F) {
+	for _, seed := range [][]byte{
+		[]byte(`{"errors":{"reporter":"private"},"errorMessages":[]}`),
+		[]byte(`{"errors":{"Display Name":"private"}}`),
+		[]byte(`{"errors":{},"errors":{"reporter":"private"}}`),
+		[]byte(`{"errorMessages":["\ud800"]}`),
+		[]byte(`<html>private</html>`),
+	} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(t *testing.T, body []byte) {
+		evidence := guardedCreateRejectionEvidence(http.StatusBadRequest, body)
+		if evidence.HTTPStatus != http.StatusBadRequest ||
+			evidence.GlobalErrorCount < 0 || evidence.OmittedFieldErrorCount < 0 ||
+			evidence.GlobalErrorCount+evidence.OmittedFieldErrorCount+len(evidence.FieldIDs) > domain.JiraGuardedCreateRejectionMaxDetails {
+			t.Fatalf("invalid evidence=%+v", evidence)
+		}
+		for index, fieldID := range evidence.FieldIDs {
+			if !domain.ValidJiraTechnicalFieldID(fieldID) || index > 0 && evidence.FieldIDs[index-1] >= fieldID {
+				t.Fatalf("unsafe or unordered fields=%v", evidence.FieldIDs)
+			}
+		}
+	})
 }
 
 func TestGuardedCreateRejectsUnqualifiedEvidenceBeforeDispatch(t *testing.T) {

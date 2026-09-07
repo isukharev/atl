@@ -32,6 +32,7 @@ const (
 	JiraGuardedFieldPreviewMaxResponseBytes = int64(80 << 20)
 	JiraGuardedFieldApplyMaxResponseBytes   = int64(225 << 20)
 	JiraGuardedFieldDeadlineMillis          = int64(60_000)
+	JiraTechnicalFieldMaxIDBytes            = 128
 )
 
 type jiraGuardedValueDepthFrame struct {
@@ -115,6 +116,40 @@ func ValidJiraGuardedFieldID(identifier string) bool {
 	return identifier != "" && identifier == strings.TrimSpace(identifier) &&
 		len(identifier) <= JiraGuardedFieldMaxIDBytes && utf8.ValidString(identifier) &&
 		!strings.ContainsAny(identifier, "\x00\r\n")
+}
+
+var jiraKnownSystemFieldIDs = map[string]struct{}{
+	"aggregateprogress": {}, "aggregatetimeestimate": {}, "aggregatetimeoriginalestimate": {},
+	"aggregatetimespent": {}, "assignee": {}, "attachment": {}, "comment": {},
+	"components": {}, "created": {}, "creator": {}, "description": {}, "duedate": {},
+	"environment": {}, "fixVersions": {}, "issuelinks": {}, "issuetype": {},
+	"labels": {}, "lastViewed": {}, "parent": {}, "priority": {}, "progress": {},
+	"project": {}, "reporter": {}, "resolution": {}, "resolutiondate": {},
+	"security": {}, "status": {}, "subtasks": {}, "summary": {},
+	"timeestimate": {}, "timeoriginalestimate": {}, "timespent": {}, "timetracking": {},
+	"updated": {}, "versions": {}, "votes": {}, "watches": {}, "worklog": {},
+}
+
+// ValidJiraTechnicalFieldID accepts only exact Jira system ids and exact
+// customfield_<digits> ids. It is intentionally narrower than
+// ValidJiraGuardedFieldID because callers may publish an accepted identifier.
+func ValidJiraTechnicalFieldID(identifier string) bool {
+	if identifier == "" || len(identifier) > JiraTechnicalFieldMaxIDBytes {
+		return false
+	}
+	if _, ok := jiraKnownSystemFieldIDs[identifier]; ok {
+		return true
+	}
+	digits := strings.TrimPrefix(identifier, "customfield_")
+	if digits == identifier || digits == "" {
+		return false
+	}
+	for _, char := range digits {
+		if char < '0' || char > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 type JiraGuardedFieldCatalogEntry struct {

@@ -20,19 +20,21 @@ import (
 	"testing"
 
 	"github.com/isukharev/atl/internal/app"
+	"github.com/isukharev/atl/internal/diagnostic"
 	"github.com/isukharev/atl/internal/domain"
 	"github.com/isukharev/atl/internal/version"
 )
 
 type jiraGuardedCreateCLIServer struct {
-	t      *testing.T
-	server *httptest.Server
-	mu     sync.Mutex
-	posts  int
-	reads  int
-	ack    string
-	body   string
-	status int
+	t        *testing.T
+	server   *httptest.Server
+	mu       sync.Mutex
+	posts    int
+	reads    int
+	ack      string
+	body     string
+	status   int
+	metadata string
 }
 
 func newJiraGuardedCreateCLIServer(t *testing.T) *jiraGuardedCreateCLIServer {
@@ -53,7 +55,11 @@ func (s *jiraGuardedCreateCLIServer) handle(w http.ResponseWriter, r *http.Reque
 	case r.Method == http.MethodGet && r.URL.Path == "/rest/api/2/issue/createmeta/OPS/issuetypes":
 		_, _ = io.WriteString(w, `{"startAt":0,"total":1,"isLast":true,"values":[{"id":"3","name":"Task","subtask":false}]}`)
 	case r.Method == http.MethodGet && r.URL.Path == "/rest/api/2/issue/createmeta/OPS/issuetypes/3":
-		_, _ = io.WriteString(w, jiraGuardedCreateCLIMetadata())
+		metadata := s.metadata
+		if metadata == "" {
+			metadata = jiraGuardedCreateCLIMetadata()
+		}
+		_, _ = io.WriteString(w, metadata)
 	case r.Method == http.MethodPost && r.URL.Path == "/rest/api/2/issue":
 		s.posts++
 		body, _ := io.ReadAll(r.Body)
@@ -97,6 +103,12 @@ func jiraGuardedCreateCLIMetadata() string {
 		field("project", "project", true) + `,` + field("issuetype", "issuetype", true) + `,` +
 		field("summary", "string", true) + `,` + field("description", "string", false) + `,` +
 		`{"fieldId":"customfield_1","name":"Number","required":false,"schema":{"type":"number","custom":"number","customId":1},"hasDefaultValue":false,"allowedValues":[],"autoCompleteUrl":null}]}`
+}
+
+func jiraGuardedCreateCLIRequiredReporterMetadata() string {
+	field := `{"fieldId":"reporter","name":"Reporter","required":true,"schema":{"type":"user","system":"reporter"},"hasDefaultValue":false,"allowedValues":[],"autoCompleteUrl":null}`
+	metadata := strings.Replace(jiraGuardedCreateCLIMetadata(), `"total":5`, `"total":6`, 1)
+	return strings.TrimSuffix(metadata, `]}`) + `,` + field + `]}`
 }
 
 func guardedCreateCLIArgs() []string {
@@ -182,6 +194,56 @@ func TestJiraGuardedCreateIDOutputSuppressesUnprovedIdentifier(t *testing.T) {
 	if code != exitCheckFailed || out != "" || fixture.posts != 1 {
 		t.Fatalf("exit=%d output=%q posts=%d", code, out, fixture.posts)
 	}
+}
+
+func TestJiraGuardedCreateCLIEmitsSafeCheckAndRejection(t *testing.T) {
+	t.Run("blocked preview", func(t *testing.T) {
+		fixture := newJiraGuardedCreateCLIServer(t)
+		fixture.metadata = jiraGuardedCreateCLIRequiredReporterMetadata()
+		var stdout, stderr string
+		var code int
+		withStdin(t, "wiki", func() {
+			stdout, stderr, code = runCLIFull(t, jiraEnv(fixture.server), guardedCreateCLIArgs()...)
+		})
+		var result app.JiraGuardedCreateResult
+		if err := json.Unmarshal([]byte(stdout), &result); err != nil || code != exitCheckFailed ||
+			result.Status != "blocked" || result.Check == nil || result.Check.Code != "required_field_omitted" ||
+			result.Check.FieldID != "reporter" || fixture.posts != 0 {
+			t.Fatalf("result=%+v decode=%v exit=%d stderr=%q", result, err, code, stderr)
+		}
+	})
+
+	t.Run("definitive rejection", func(t *testing.T) {
+		fixture := newJiraGuardedCreateCLIServer(t)
+		_, preview := runJiraGuardedCreatePreview(t, fixture, false)
+		const privateMessage = "submitted private value was rejected"
+		fixture.status = http.StatusBadRequest
+		fixture.ack = `{"errorMessages":["` + privateMessage + `"],"errors":{"customfield_1":"` + privateMessage + `","reporter":"` + privateMessage + `","Display Name":"` + privateMessage + `"}}`
+		args := append(guardedCreateCLIArgs(), "--apply", "--expected-proposal-hash", preview.ProposalHash)
+		var stdout, stderr string
+		var execErr error
+		withStdin(t, "wiki", func() {
+			stdout, stderr, execErr = executeCLIRaw(t, jiraEnv(fixture.server), args...)
+		})
+		code := codeFor(execErr)
+		var result app.JiraGuardedCreateResult
+		if err := json.Unmarshal([]byte(stdout), &result); err != nil || code != exitUsage ||
+			result.Status != "not_applied" || result.Rejection == nil ||
+			result.Rejection.HTTPStatus != http.StatusBadRequest ||
+			result.Rejection.DetailsStatus != domain.JiraGuardedCreateRejectionAvailable ||
+			!reflect.DeepEqual(result.Rejection.FieldErrors, []app.JiraGuardedCreateFieldRejection{{
+				FieldID: "customfield_1", Code: domain.JiraGuardedCreateFieldRejected,
+			}}) || result.Rejection.GlobalErrorCount != 1 || result.Rejection.OmittedFieldErrorCount != 2 ||
+			fixture.posts != 1 {
+			t.Fatalf("result=%+v decode=%v exit=%d stderr=%q", result, err, code, stderr)
+		}
+		var rendered strings.Builder
+		writeErrorWithContext(&rendered, "json", execErr, code, diagnostic.OperationWrite)
+		if strings.Contains(stdout, privateMessage) || strings.Contains(stderr, privateMessage) ||
+			strings.Contains(rendered.String(), privateMessage) || strings.Contains(rendered.String(), "/rest/api/") {
+			t.Fatalf("private rejection evidence leaked: stdout=%q stderr=%q error=%q", stdout, stderr, rendered.String())
+		}
+	})
 }
 
 func TestJiraGuardedCreatePureValidationAndPolicy(t *testing.T) {

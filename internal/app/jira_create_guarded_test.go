@@ -32,6 +32,7 @@ type guardedCreateServer struct {
 	drift       bool
 	status      int
 	ack         string
+	metadata    string
 	mutate      func(map[string]any)
 	postEntered chan struct{}
 	releasePost chan struct{}
@@ -58,7 +59,11 @@ func (s *guardedCreateServer) handle(w http.ResponseWriter, r *http.Request) {
 		}
 		_, _ = io.WriteString(w, `{"startAt":0,"total":1,"isLast":true,"values":[{"id":"3","name":"`+name+`","subtask":false}]}`)
 	case r.Method == http.MethodGet && r.URL.Path == "/rest/api/2/issue/createmeta/OPS/issuetypes/3":
-		_, _ = io.WriteString(w, guardedCreateMetadataFixture())
+		metadata := s.metadata
+		if metadata == "" {
+			metadata = guardedCreateMetadataFixture()
+		}
+		_, _ = io.WriteString(w, metadata)
 	case r.Method == http.MethodPost && r.URL.Path == "/rest/api/2/issue":
 		s.posts++
 		if s.postEntered != nil {
@@ -103,6 +108,12 @@ func guardedCreateMetadataFixture() string {
 		field("summary", "Summary", "string", true) + `,` +
 		field("description", "Description", "string", false) + `,` +
 		`{"fieldId":"customfield_1","name":"Number","required":false,"schema":{"type":"number","custom":"number","customId":1},"hasDefaultValue":false,"allowedValues":[],"autoCompleteUrl":null}]}`
+}
+
+func guardedCreateMetadataWithRequiredField(fieldID string) string {
+	field := `{"fieldId":"` + fieldID + `","name":"Required field","required":true,"schema":{"type":"user","system":"` + fieldID + `"},"hasDefaultValue":false,"allowedValues":[],"autoCompleteUrl":null}`
+	metadata := strings.Replace(guardedCreateMetadataFixture(), `"total":5`, `"total":6`, 1)
+	return strings.TrimSuffix(metadata, `]}`) + `,` + field + `]}`
 }
 
 func guardedCreateOpts() JiraGuardedCreateOpts {
@@ -154,6 +165,19 @@ func TestGuardedCreatePrewriteDriftAndClosedOutcomes(t *testing.T) {
 	}{
 		{"prewrite drift", "blocked", func(f *guardedCreateServer) { f.drift = true }, false},
 		{"definitive rejection", "not_applied", func(f *guardedCreateServer) { f.status, f.ack = http.StatusForbidden, `{"error":"private"}` }, true},
+		{"conflict rejection", "not_applied", func(f *guardedCreateServer) { f.status, f.ack = http.StatusConflict, `{"errorMessages":["private"]}` }, true},
+		{"request timeout", "outcome_unknown", func(f *guardedCreateServer) {
+			f.status, f.ack = http.StatusRequestTimeout, `{"errors":{"reporter":"private"}}`
+		}, true},
+		{"too early", "outcome_unknown", func(f *guardedCreateServer) {
+			f.status, f.ack = http.StatusTooEarly, `{"errors":{"reporter":"private"}}`
+		}, true},
+		{"rate limited", "outcome_unknown", func(f *guardedCreateServer) {
+			f.status, f.ack = http.StatusTooManyRequests, `{"errors":{"reporter":"private"}}`
+		}, true},
+		{"server failure", "outcome_unknown", func(f *guardedCreateServer) {
+			f.status, f.ack = http.StatusInternalServerError, `{"errors":{"reporter":"private"}}`
+		}, true},
 		{"missing acknowledgement", "outcome_unknown", func(f *guardedCreateServer) { f.ack = `{}` }, true},
 		{"moved readback", "outcome_unknown", func(f *guardedCreateServer) {
 			f.mutate = func(fields map[string]any) { fields["project"] = map[string]any{"id": "8", "key": "ALT"} }
@@ -179,7 +203,80 @@ func TestGuardedCreatePrewriteDriftAndClosedOutcomes(t *testing.T) {
 			if strings.Contains(err.Error(), "private") {
 				t.Fatalf("remote content leaked: %v", err)
 			}
+			if test.name == "prewrite drift" && (result.Check == nil || result.Check.Code != guardedCreateCheckMetadataUnavailable) {
+				t.Fatalf("prewrite check=%+v", result.Check)
+			}
+			if test.status == "outcome_unknown" && result.Rejection != nil {
+				t.Fatalf("ambiguous outcome exposed rejection=%+v", result.Rejection)
+			}
 		})
+	}
+}
+
+func TestGuardedCreateReportsSafeQualificationChecks(t *testing.T) {
+	t.Run("required technical field", func(t *testing.T) {
+		fixture := newGuardedCreateServer(t)
+		fixture.metadata = guardedCreateMetadataWithRequiredField("reporter")
+		result, err := guardedCreateService(fixture).GuardedCreate(t.Context(), guardedCreateOpts())
+		if !errors.Is(err, domain.ErrCheckFailed) || result.Status != "blocked" || result.Check == nil ||
+			result.Check.Code != guardedCreateCheckRequiredFieldOmitted || result.Check.FieldID != "reporter" || fixture.posts != 0 {
+			t.Fatalf("result=%+v err=%v posts=%d", result, err, fixture.posts)
+		}
+	})
+
+	t.Run("unsafe metadata field omitted", func(t *testing.T) {
+		fixture := newGuardedCreateServer(t)
+		fixture.metadata = guardedCreateMetadataWithRequiredField("plugin.vendor")
+		result, err := guardedCreateService(fixture).GuardedCreate(t.Context(), guardedCreateOpts())
+		if !errors.Is(err, domain.ErrCheckFailed) || result.Check == nil ||
+			result.Check.Code != guardedCreateCheckRequiredFieldOmitted || result.Check.FieldID != "" {
+			t.Fatalf("result=%+v err=%v", result, err)
+		}
+	})
+
+	t.Run("non screen field selection is deterministic", func(t *testing.T) {
+		fixture := newGuardedCreateServer(t)
+		opts := guardedCreateOpts()
+		opts.Fields["customfield_3"] = domain.JiraFieldInput{Value: "three"}
+		opts.Fields["customfield_2"] = domain.JiraFieldInput{Value: "two"}
+		for range 20 {
+			result, err := guardedCreateService(fixture).GuardedCreate(t.Context(), opts)
+			if !errors.Is(err, domain.ErrCheckFailed) || result.Check == nil ||
+				result.Check.Code != guardedCreateCheckFieldNotOnScreen || result.Check.FieldID != "customfield_2" {
+				t.Fatalf("result=%+v err=%v", result, err)
+			}
+		}
+		if fixture.posts != 0 {
+			t.Fatalf("posts=%d", fixture.posts)
+		}
+	})
+}
+
+func TestGuardedCreateProjectsDefinitiveRejectionWithoutBackendText(t *testing.T) {
+	fixture := newGuardedCreateServer(t)
+	service := guardedCreateService(fixture)
+	preview, err := service.GuardedCreate(t.Context(), guardedCreateOpts())
+	if err != nil {
+		t.Fatal(err)
+	}
+	const privateMessage = "submitted private value was rejected"
+	fixture.status = http.StatusBadRequest
+	fixture.ack = `{"errorMessages":["` + privateMessage + `"],"errors":{"customfield_1":"` + privateMessage + `","reporter":"` + privateMessage + `","customfield_42":"` + privateMessage + `","Display Name":"` + privateMessage + `"}}`
+	opts := guardedCreateOpts()
+	opts.Apply, opts.ExpectedProposalHash = true, preview.ProposalHash
+	result, err := service.GuardedCreate(t.Context(), opts)
+	if !errors.Is(err, domain.ErrUsage) || result.Status != "not_applied" || !result.WriteAttempted ||
+		result.ReadbackReconciled || result.Rejection == nil || result.Rejection.HTTPStatus != http.StatusBadRequest ||
+		result.Rejection.DetailsStatus != domain.JiraGuardedCreateRejectionAvailable ||
+		result.Rejection.GlobalErrorCount != 1 || result.Rejection.OmittedFieldErrorCount != 3 ||
+		!reflect.DeepEqual(result.Rejection.FieldErrors, []JiraGuardedCreateFieldRejection{
+			{FieldID: "customfield_1", Code: domain.JiraGuardedCreateFieldRejected},
+		}) || fixture.posts != 1 {
+		t.Fatalf("result=%+v err=%v posts=%d", result, err, fixture.posts)
+	}
+	encoded, marshalErr := json.Marshal(result)
+	if marshalErr != nil || strings.Contains(string(encoded), privateMessage) || strings.Contains(err.Error(), privateMessage) {
+		t.Fatalf("marshalErr=%v result=%s err=%v", marshalErr, encoded, err)
 	}
 }
 

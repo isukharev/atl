@@ -63,6 +63,51 @@ positive immutable-ID acknowledgement plus exact ID readback is `applied`.
 Definitive HTTP refusal is `not_applied`; ambiguous or unproved writes are
 `outcome_unknown` and never automatically replayed.
 
+A known local `blocked` qualification may add:
+
+```json
+{"check":{"code":"required_field_omitted","field_id":"reporter"}}
+```
+
+`code` is closed to `project_inventory_unavailable`,
+`project_inventory_incomplete`, `project_selector_ambiguous`,
+`project_not_found`, `project_archived`, `metadata_unavailable`,
+`metadata_incomplete`, `schema_invalid`, `required_field_omitted`,
+`field_not_on_screen`, `preparation_failed`, `preparation_invalid`,
+`backend_identity_invalid`, `registration_qualification_failed`,
+`readback_projection_invalid`, `proposal_changed`, or `deadline_exceeded`.
+`field_id` is present only for an exact known Jira system id or exact
+`customfield_<digits>` id; arbitrary metadata names remain omitted. The check
+is diagnostic only and is not part of the proposal hash.
+
+A definitive HTTP create refusal adds a content-minimized rejection:
+
+```json
+{
+  "rejection": {
+    "http_status": 400,
+    "details_status": "available",
+    "field_errors": [
+      {"field_id": "reporter", "code": "field_rejected"}
+    ],
+    "global_error_count": 0,
+    "omitted_field_error_count": 0
+  }
+}
+```
+
+`field_errors` contains only technical ids from the qualified create screen;
+display names, unknown technical ids, and unsafe keys increment
+`omitted_field_error_count`. `global_error_count` counts Jira's standard
+`errorMessages` entries. Backend message values, submitted values, raw response
+bodies, request paths, and backend URLs are never emitted. The adapter parses
+at most 64 KiB and 50 combined field/global details. `details_status` is
+`available` only for a strict supported envelope, `omitted_bounds` when those
+diagnostic bounds are exceeded, and `unavailable` for absent, malformed,
+duplicate, invalid-Unicode, or unsupported evidence. The HTTP refusal remains
+`not_applied` even when details are unavailable. HTTP 408, 425, 429, 5xx, and
+transport failures remain `outcome_unknown` without a `rejection` object.
+
 ## Guarded Confluence page copy
 
 `conf page copy` emits schema version 1. Dry-run status is `would_apply` and

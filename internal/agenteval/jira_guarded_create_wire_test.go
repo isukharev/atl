@@ -25,4 +25,8 @@ func TestDecodeJiraGuardedCreateResultRegisteredPreviewAndApply(t *testing.T) {
 	if _, err := DecodeJiraGuardedCreateResult(strings.NewReader(obsolete)); err == nil {
 		t.Fatal("obsolete registration_staging_files member was accepted")
 	}
+	contradictory := strings.Replace(preview, `"usage":{}`, `"check":{"code":"required_field_omitted","field_id":"reporter"},"usage":{}`, 1)
+	if _, err := DecodeJiraGuardedCreateResult(strings.NewReader(contradictory)); err == nil {
+		t.Fatal("successful preview accepted failure diagnostics")
+	}
 }
