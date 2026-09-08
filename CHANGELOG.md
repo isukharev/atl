@@ -15,6 +15,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   MCP Broker discovery resources. Each read negotiates discovery v2 and
   refreshes operation-level advisory access without backend PATs or direct
   fallback; operation execution still reauthorizes independently.
+- Added bounded offline complete-pull checkpoint/progress inspection to Jira
+  snapshot schema v2 and its MCP projection. Content-free counts distinguish
+  resumable work, pending recovery, unsafe state and inventory limits without
+  writes or recovery. Historical Jira v1 remains decodable without invented
+  checkpoint facts; Confluence snapshot stays v1.
+
 - Added a separate strict Broker discovery v2 semantic schema and codec for
   operation-level structural support and current advisory access state. It
   binds request, authenticated execution, authority revision, service, schema

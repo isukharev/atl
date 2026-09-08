@@ -330,7 +330,7 @@ func jiraSnapshotCmd() *cobra.Command {
 	var into string
 	cmd := &cobra.Command{
 		Use:   "snapshot [DIR]",
-		Short: "Summarize Jira mirror, baseline, raw snapshot, pending, render, and drift health without content",
+		Short: "Summarize Jira mirror health and complete-pull progress without content",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			dir, err := resolveInspectionMirrorRoot(args, into, cmd.Flags().Changed("into"), "mirror-jira")
@@ -358,10 +358,11 @@ func jiraSnapshotCmd() *cobra.Command {
 			if result != nil {
 				emitErr := emitSnapshot(cmd, result, func() string {
 					return fmt.Sprintf(
-						"complete=%t reconciled=%t total=%d present=%d edited=%d baseline_mismatch=%d snapshot_invalid=%d pending_unbound=%d render_unsupported=%d remote_drifted=%d remote_unavailable=%d",
+						"complete=%t reconciled=%t total=%d present=%d edited=%d baseline_mismatch=%d snapshot_invalid=%d pending_unbound=%d render_unsupported=%d remote_drifted=%d remote_unavailable=%d complete_pull=%s checkpoint_selected=%d checkpoint_completed=%d checkpoint_remaining=%d checkpoint_recovery=%s",
 						result.Complete, result.Reconciled, result.Native.Total, result.Local.Present, result.Local.LocallyEdited,
 						result.Native.BaselineMismatch, result.Snapshot.Invalid+result.Snapshot.KeyMismatched,
 						result.Pending.Unbound, result.Render.Unsupported, result.Remote.Drifted, result.Remote.Unavailable,
+						result.CompletePull.Status, result.CompletePull.Selected, result.CompletePull.Completed, result.CompletePull.Remaining, result.CompletePull.Recovery,
 					)
 				})
 				return snapshotResultErr(snapshotErr, emitErr)

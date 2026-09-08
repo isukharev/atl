@@ -229,9 +229,8 @@ func (s *JiraService) prepareJiraCompleteSelection(ctx context.Context, m *mirro
 		if checkpoint.OptionsSHA256 != optionsSHA256 {
 			return nil, fmt.Errorf("%w: complete Jira pull options changed since the checkpoint; rerun the exact command or use --restart-complete after preserving local edits", domain.ErrCheckFailed)
 		}
-		digest, hashErr := confluenceCompleteHashJSON(checkpoint.IDs)
-		if hashErr != nil || digest != checkpoint.SelectionSHA256 || !sort.SliceIsSorted(checkpoint.IDs, func(i, j int) bool { return jiraNumericIdentityLess(checkpoint.IDs[i], checkpoint.IDs[j]) }) {
-			return nil, fmt.Errorf("%w: complete Jira checkpoint selection identity is invalid", domain.ErrCheckFailed)
+		if err := mirror.ValidateJiraCompletePullSelection(checkpoint); err != nil {
+			return nil, err
 		}
 		return newJiraCompleteSelection(checkpoint, nil, "resumed"), nil
 	}

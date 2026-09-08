@@ -135,9 +135,9 @@ atl conf diff "$ATL_WORKSPACE_ROOT" -o text
 `conf pull --complete --space KEY` uses a two-pass bootstrap; [Confluence
 mirrors](docs/reference/cli/confluence-mirrors.md) covers attachments.
 
-Complete Jira mirrors: [Jira
-mirrors](docs/reference/cli/jira-mirrors.md#atl-jira-pull). Attachments:
-[`jira attachment-bodies`](docs/reference/cli/jira-mirrors.md#atl-jira-attachment-bodies).
+Jira: [complete mirrors](docs/reference/cli/jira-mirrors.md#atl-jira-pull),
+[attachments](docs/reference/cli/jira-mirrors.md#atl-jira-attachment-bodies),
+[offline checkpoint progress](docs/reference/cli/jira-mirrors.md#atl-jira-snapshot).
 
 Image downloads use [ID-prefixed, unoccupied targets](docs/reference/cli/jira-issues.md#atl-jira-issue-images).
 

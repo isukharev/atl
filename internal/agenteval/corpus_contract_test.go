@@ -1168,7 +1168,7 @@ func TestRepositoryMirrorSnapshotMCPV1SchemaMutationsAreRejected(t *testing.T) {
 		{
 			name: "schema version constant",
 			mutate: func(schema, _ map[string]any) {
-				schema["properties"].(map[string]any)["schema_version"].(map[string]any)["const"] = 2
+				schema["properties"].(map[string]any)["schema_version"].(map[string]any)["const"] = 3
 			},
 		},
 		{
@@ -1188,6 +1188,52 @@ func TestRepositoryMirrorSnapshotMCPV1SchemaMutationsAreRejected(t *testing.T) {
 			mutate: func(schema, _ map[string]any) {
 				local := schema["properties"].(map[string]any)["local"].(map[string]any)
 				local["properties"].(map[string]any)["present"].(map[string]any)["type"] = "string"
+			},
+		},
+		{
+			name: "complete pull required omission",
+			mutate: func(schema, _ map[string]any) {
+				pull := schema["properties"].(map[string]any)["complete_pull"].(map[string]any)
+				pull["required"] = slices.DeleteFunc(pull["required"].([]any), func(value any) bool { return value == "healthy" })
+			},
+		},
+		{
+			name: "complete pull matched omission",
+			mutate: func(schema, output map[string]any) {
+				delete(schema["properties"].(map[string]any), "complete_pull")
+				schema["required"] = slices.DeleteFunc(schema["required"].([]any), func(value any) bool { return value == "complete_pull" })
+				delete(output, "complete_pull")
+			},
+		},
+		{
+			name: "complete pull enum extension",
+			mutate: func(schema, _ map[string]any) {
+				status := schema["properties"].(map[string]any)["complete_pull"].(map[string]any)["properties"].(map[string]any)["status"].(map[string]any)
+				status["enum"] = append(status["enum"].([]any), "other")
+			},
+		},
+		{
+			name: "complete pull enum omission",
+			mutate: func(schema, _ map[string]any) {
+				delete(schema["properties"].(map[string]any)["complete_pull"].(map[string]any)["properties"].(map[string]any)["recovery"].(map[string]any), "enum")
+			},
+		},
+		{
+			name: "complete pull count bound",
+			mutate: func(schema, _ map[string]any) {
+				delete(schema["properties"].(map[string]any)["complete_pull"].(map[string]any)["properties"].(map[string]any)["selected"].(map[string]any), "maximum")
+			},
+		},
+		{
+			name: "complete pull checkpoint bound",
+			mutate: func(schema, _ map[string]any) {
+				schema["properties"].(map[string]any)["complete_pull"].(map[string]any)["properties"].(map[string]any)["checkpoints"].(map[string]any)["maximum"] = float64(129)
+			},
+		},
+		{
+			name: "complete pull contradictory health",
+			mutate: func(_ map[string]any, output map[string]any) {
+				output["complete_pull"].(map[string]any)["healthy"] = false
 			},
 		},
 		{
@@ -1232,11 +1278,25 @@ var repositoryMirrorSnapshotAllowedProperties = map[string]struct{}{
 	"current": {}, "legacy": {}, "missing_marker": {}, "unsupported": {}, "state_recorded": {},
 	"state_missing": {}, "renderer_compatible": {}, "requested": {}, "eligible": {}, "attempted": {},
 	"not_attempted": {}, "checked": {}, "in_sync": {}, "drifted": {}, "unavailable": {}, "absent": {},
+	"complete_pull": {}, "status": {}, "reason": {}, "recovery": {}, "checkpoints": {}, "selected": {},
+	"completed": {}, "remaining": {}, "journals": {}, "publications": {}, "healthy": {},
 }
 
 func validateRepositoryMirrorSnapshotSchema(schema map[string]any, output any, service string) error {
 	if service != "jira" && service != "confluence" {
 		return fmt.Errorf("unsupported mirror snapshot service %q", service)
+	}
+	data, err := json.Marshal(output)
+	if err != nil {
+		return err
+	}
+	if service == "jira" {
+		_, err = decodeJiraMirrorSnapshotWire(bytes.NewReader(data))
+	} else {
+		_, err = decodeConfluenceMirrorSnapshotWire(bytes.NewReader(data))
+	}
+	if err != nil {
+		return err
 	}
 	return validateRepositoryContentFreeSchema(schema, output, "$", service)
 }
@@ -1298,15 +1358,29 @@ func validateRepositoryContentFreeSchema(schema map[string]any, output any, poin
 			return fmt.Errorf("%s app output is not an integer", pointer)
 		}
 		if pointer == "$/schema_version" {
+			version := float64(mirrorSnapshotWireSchemaVersion)
+			if service == "jira" {
+				version = jiraMirrorSnapshotWireSchemaVersion
+			}
 			constant, ok := schema["const"].(float64)
-			if !ok || constant != 1 || number != 1 {
-				return fmt.Errorf("%s schema_version is not the released schema-v1 constant", pointer)
+			if !ok || constant != version || number != version {
+				return fmt.Errorf("%s schema_version is not the current %s constant", pointer, service)
 			}
 			break
 		}
 		minimum, ok := schema["minimum"].(float64)
 		if !ok || minimum != 0 || number < 0 {
 			return fmt.Errorf("%s integer is not nonnegative with minimum zero", pointer)
+		}
+		if strings.HasPrefix(pointer, "$/complete_pull/") {
+			limit := float64(mirrorSnapshotCompletePullMaxCheckpoints)
+			if pointer == "$/complete_pull/selected" || pointer == "$/complete_pull/completed" || pointer == "$/complete_pull/remaining" {
+				limit = mirrorSnapshotCompletePullMaxSelected
+			}
+			maximum, ok := schema["maximum"].(float64)
+			if !ok || maximum != limit || number > maximum {
+				return fmt.Errorf("%s integer does not match its checkpoint inventory bound", pointer)
+			}
 		}
 	case "string":
 		value, ok := output.(string)
@@ -1319,12 +1393,48 @@ func validateRepositoryContentFreeSchema(schema map[string]any, output any, poin
 				return fmt.Errorf("%s service is not the released %s constant", pointer, service)
 			}
 		}
+		if strings.HasPrefix(pointer, "$/complete_pull/") {
+			if err := validateRepositoryCompletePullEnum(schema, value, pointer); err != nil {
+				return err
+			}
+		}
 	case "boolean":
 		if _, ok := output.(bool); !ok {
 			return fmt.Errorf("%s app output is not a boolean", pointer)
 		}
 	default:
 		return fmt.Errorf("%s uses unsupported schema type %q", pointer, typeName)
+	}
+	return nil
+}
+
+func validateRepositoryCompletePullEnum(schema map[string]any, value, pointer string) error {
+	var want []string
+	switch pointer {
+	case "$/complete_pull/status":
+		want = []string{"empty", "resumable", "recovery_pending", "invalid", "inventory_limit"}
+	case "$/complete_pull/reason":
+		want = []string{"", "malformed", "unsupported_schema", "orphaned", "unreadable", "entry_limit", "byte_limit"}
+	case "$/complete_pull/recovery":
+		want = []string{"none", "rerun_original_command", "preserve_for_inspection"}
+	default:
+		return fmt.Errorf("%s is not a reviewed string property", pointer)
+	}
+	values, ok := schema["enum"].([]any)
+	if !ok || len(values) != len(want) {
+		return fmt.Errorf("%s has no exact reviewed enum", pointer)
+	}
+	got := make([]string, len(values))
+	for i, item := range values {
+		got[i], ok = item.(string)
+		if !ok {
+			return fmt.Errorf("%s enum has a nonstring member", pointer)
+		}
+	}
+	slices.Sort(got)
+	slices.Sort(want)
+	if !slices.Equal(got, want) || !slices.Contains(got, value) {
+		return fmt.Errorf("%s enum does not match its reviewed vocabulary", pointer)
 	}
 	return nil
 }
@@ -1412,6 +1522,9 @@ func repositoryMirrorSnapshotFinal(t *testing.T, service, template string) ([]by
 		wire, decodeErr := decodeJiraMirrorSnapshotWire(bytes.NewReader(structured))
 		if decodeErr != nil {
 			t.Fatal(decodeErr)
+		}
+		if wire.SchemaVersion != jiraMirrorSnapshotWireSchemaVersion || wire.CompletePull == nil || wire.CompletePull.Status != "empty" {
+			t.Fatalf("selected ATL did not report Jira v2 empty checkpoint inventory: %+v", wire)
 		}
 		complete = wire.Complete
 	case "confluence":

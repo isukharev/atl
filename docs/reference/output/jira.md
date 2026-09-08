@@ -268,8 +268,8 @@ identifies the latter. They and `remote_error` appear only with `--remote` and a
 pending-to-mirror binding such as a missing or moved `.wiki`.
 
 `atl jira snapshot [DIR | --into ROOT] [--remote]` emits the content-free aggregate contract
-`{schema_version:1,service:"jira",remote_requested,complete,reconciled,local,
-native,snapshot,pending,render,remote}`. It intentionally omits root/target,
+`{schema_version:2,service:"jira",remote_requested,complete,reconciled,local,
+native,snapshot,pending,render,remote,complete_pull}`. It intentionally omits root/target,
 issue identity, path, hashes, field identity, diagnostic text, and native/raw/
 derived content. The offline default requires no config or credentials and
 performs no pending-transaction recovery, network, or filesystem writes. Local
@@ -277,6 +277,59 @@ inspection shares the persistent mutation lock when it exists. Contention
 returns a content-free exit `8` before inspection. If a legacy mirror has no
 lock yet, the command verifies that no current writer created it during the
 read and discards/retries the first result if one did.
+
+`complete_pull` is required in Jira v2, including through the offline
+`jira_mirror_snapshot` MCP tool and its text projection. Historical Jira v1
+does not report checkpoint facts; consumers must not invent an empty inventory
+for it. Confluence snapshot remains v1.
+
+The new object has exactly `status`, `reason`, `recovery`, `checkpoints`,
+`selected`, `completed`, `remaining`, `journals`, `publications`, `complete`,
+and `healthy`. Counts sum validated Jira checkpoint selections, not unique
+issues across potentially overlapping selections, with
+`selected = completed + remaining`; `completed` is the durable progress prefix
+and excludes pending journal entries. Stale progress bindings retain resume's
+conservative zero-prefix interpretation. `journals` counts validated journals;
+`publications` counts structurally qualified stages, including owned pre-intent
+residue. Metadata qualification does not read native/staged payload bodies or
+establish that recovery will succeed.
+
+| `status` | `reason` | `recovery` | `complete` / `healthy` |
+|---|---|---|---|
+| `empty` | empty string | `none` | true / true |
+| `resumable` | empty string | `rerun_original_command` | true / true |
+| `recovery_pending` | empty string | `preserve_for_inspection` | true / false |
+| `invalid` | `malformed`, `unsupported_schema`, `orphaned`, or `unreadable` | `preserve_for_inspection` | false / false |
+| `inventory_limit` | `entry_limit` or `byte_limit` | `preserve_for_inspection` | false / false |
+
+`complete_pull.complete` means the bounded Jira metadata inventory finished,
+not that the selection finished or the whole mirror is healthy. `healthy`
+requires no pending transaction or unsafe inventory; it does not validate
+current native artifacts, original option values or backend availability.
+Only `resumable` recommends the user's original complete-pull command.
+An exhausted selection can remain resumable until its ordinary retirement.
+Invalid/limited results retain only the validated partial counts encountered
+before the first deterministic failure; those counts are not totals.
+Any unhealthy complete-pull inventory sets top-level `complete:false` and
+returns exit `8` before optional remote configuration or requests. Top-level
+`reconciled` additionally requires `complete_pull.complete`.
+
+The inspection caps the shared top-level directory at 128 entries (including
+sibling families and temporary metadata), aggregate metadata at 64 MiB, each
+metadata file at its existing limit, and a Jira publication stage at 2,049
+entries. Stage `.tmp-*` candidates consume the aggregate metadata budget both
+before and after an intent exists. Named `payload-*` bodies receive metadata
+checks only and are not charged as metadata or read. Qualified Confluence
+manifest reads consume the shared budget but contribute no Jira counts.
+Sibling progress remains outside Jira inspection. If global journal/progress
+temporary metadata lacks a qualified Jira owner, bounded sibling journal and
+intent reads may qualify the owning token against its checkpoint. These reads
+also consume the metadata budget and establish no sibling health or recovery
+claim; unclassifiable, unsafe or racing ownership can fail closed.
+All results and errors omit selectors, identities, option values, hashes,
+paths, reconstructed commands and backend/native content. No inspection
+creates a lock or changes checkpoint durability, formats, recovery or request
+bounds.
 
 Jira status/snapshot use the same mutually exclusive explicit forms and
 pre-network initialized-root check as Confluence, with `mirror-jira` as the

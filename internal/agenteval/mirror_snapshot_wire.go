@@ -8,26 +8,28 @@ import (
 )
 
 const (
-	mirrorSnapshotWireSchemaVersion = 1
-	mirrorSnapshotWireMaxBytes      = 64 << 10
-	mirrorSnapshotWireMaxCount      = maxWorkspaceEntries
+	mirrorSnapshotWireSchemaVersion     = 1
+	jiraMirrorSnapshotWireSchemaVersion = 2
+	mirrorSnapshotWireMaxBytes          = 64 << 10
+	mirrorSnapshotWireMaxCount          = maxWorkspaceEntries
 )
 
 // jiraMirrorSnapshotWire and confluenceMirrorSnapshotWire are evaluator-owned
-// projections of the released schema-v1 content-free mirror snapshot wires.
+// projections of the versioned content-free mirror snapshot wires.
 // They deliberately do not use product mirror types.
 type jiraMirrorSnapshotWire struct {
-	SchemaVersion   int                           `json:"schema_version"`
-	Service         string                        `json:"service"`
-	RemoteRequested bool                          `json:"remote_requested"`
-	Complete        bool                          `json:"complete"`
-	Reconciled      bool                          `json:"reconciled"`
-	Local           mirrorSnapshotLocalWire       `json:"local"`
-	Native          jiraMirrorSnapshotNativeWire  `json:"native"`
-	Snapshot        jiraMirrorSnapshotRawWire     `json:"snapshot"`
-	Pending         jiraMirrorSnapshotPendingWire `json:"pending"`
-	Render          mirrorSnapshotRenderWire      `json:"render"`
-	Remote          mirrorSnapshotRemoteWire      `json:"remote"`
+	SchemaVersion   int                                 `json:"schema_version"`
+	Service         string                              `json:"service"`
+	RemoteRequested bool                                `json:"remote_requested"`
+	Complete        bool                                `json:"complete"`
+	Reconciled      bool                                `json:"reconciled"`
+	Local           mirrorSnapshotLocalWire             `json:"local"`
+	Native          jiraMirrorSnapshotNativeWire        `json:"native"`
+	Snapshot        jiraMirrorSnapshotRawWire           `json:"snapshot"`
+	Pending         jiraMirrorSnapshotPendingWire       `json:"pending"`
+	Render          mirrorSnapshotRenderWire            `json:"render"`
+	Remote          mirrorSnapshotRemoteWire            `json:"remote"`
+	CompletePull    *jiraMirrorSnapshotCompletePullWire `json:"complete_pull,omitempty"`
 }
 
 type confluenceMirrorSnapshotWire struct {
@@ -199,9 +201,24 @@ func validateJiraMirrorSnapshotWireMembers(data []byte) error {
 	if err != nil {
 		return err
 	}
-	if err := requireMirrorSnapshotMembers(root, "Jira mirror snapshot", []string{
+	var version int
+	if err := json.Unmarshal(root["schema_version"], &version); err != nil {
+		return fmt.Errorf("Jira mirror snapshot schema_version: %w", err)
+	}
+	members := []string{
 		"schema_version", "service", "remote_requested", "complete", "reconciled", "local", "native", "snapshot", "pending", "render", "remote",
-	}); err != nil {
+	}
+	switch version {
+	case mirrorSnapshotWireSchemaVersion:
+	case jiraMirrorSnapshotWireSchemaVersion:
+		members = append(members, "complete_pull")
+		if err := validateJiraMirrorSnapshotCompletePullMembers(root); err != nil {
+			return err
+		}
+	default:
+		return fmt.Errorf("unsupported Jira mirror snapshot schema_version")
+	}
+	if err := requireMirrorSnapshotMembers(root, "Jira mirror snapshot", members); err != nil {
 		return err
 	}
 	if _, err := mirrorSnapshotNested(root, "local", "Jira mirror snapshot", []string{
@@ -324,8 +341,19 @@ func mirrorSnapshotNull(raw json.RawMessage) bool {
 }
 
 func (value jiraMirrorSnapshotWire) validate() error {
-	if value.SchemaVersion != mirrorSnapshotWireSchemaVersion || value.Service != "jira" {
-		return fmt.Errorf("schema_version/service is not the released Jira schema-v1 wire")
+	if (value.SchemaVersion != mirrorSnapshotWireSchemaVersion && value.SchemaVersion != jiraMirrorSnapshotWireSchemaVersion) || value.Service != "jira" {
+		return fmt.Errorf("schema_version/service is not a supported Jira snapshot wire")
+	}
+	if (value.SchemaVersion == jiraMirrorSnapshotWireSchemaVersion) != (value.CompletePull != nil) {
+		return fmt.Errorf("complete_pull presence does not match Jira schema_version")
+	}
+	if value.CompletePull != nil {
+		if err := value.CompletePull.validate(); err != nil {
+			return fmt.Errorf("complete_pull: %w", err)
+		}
+		if value.Complete && !value.CompletePull.Healthy {
+			return fmt.Errorf("complete contradicts unhealthy complete_pull")
+		}
 	}
 	if err := value.Local.validate(); err != nil {
 		return fmt.Errorf("local: %w", err)
@@ -347,6 +375,10 @@ func (value jiraMirrorSnapshotWire) validate() error {
 	}
 	wantReconciled := value.Local.Reconciled && value.Native.Reconciled && value.Snapshot.Reconciled &&
 		value.Pending.Reconciled && value.Render.Reconciled && value.Remote.Reconciled
+	if value.CompletePull != nil {
+		wantReconciled = wantReconciled && value.CompletePull.Complete &&
+			value.CompletePull.Selected == value.CompletePull.Completed+value.CompletePull.Remaining
+	}
 	if value.Reconciled != wantReconciled {
 		return fmt.Errorf("reconciled is not reconciled with component summaries")
 	}
