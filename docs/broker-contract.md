@@ -3,8 +3,10 @@
 This document defines version 1 of ATL's transport-neutral Broker contract. It
 is an implementation boundary for the later authenticated server and remote
 client slices. The current ATL CLI and MCP server still use direct composition;
-this contract does not activate a Broker, accept workload credentials, contact
-an external authorizer, or make a gated operation available.
+no transport activates a Broker or accepts workload credentials. The exact-read
+coordinator can invoke an injected authorizer port, but this repository still
+has no configured external authorizer adapter and makes no gated operation
+available.
 
 The machine-readable shape is
 [`schemas/broker-v1.schema.json`](schemas/broker-v1.schema.json). The normative
@@ -91,8 +93,53 @@ Each read permits at most 64 MiB of selected native value bytes. The closed JSON
 result envelope has a separate 129 MiB transport cap to cover canonical base64
 or worst-case accepted JSON escaping plus bounded metadata. Results reject
 unknown members, incomplete projections, mismatched key/project identity,
-ambiguous numeric ids, malformed
-base64 and invalid native UTF-8 without echoing rejected content.
+ambiguous numeric ids, malformed base64 and invalid native UTF-8 without
+echoing rejected content.
+
+## Exact read enforcement
+
+The transport-neutral `BrokerReadService` implements the first service-owned
+semantic path for `jira.issue.read` and `confluence.page.read`. Each injected
+reader is paired with a server-owned workload-backend id and reports a digest
+derived from its immutable configured adapter base. Before backend I/O the
+service compares both values with the authenticated backend binding, validates
+the closed request, version and features, then obtains preliminary admission
+and explicit authorization for one metadata qualification read. A qualification
+denial therefore performs zero backend requests. Final denial performs exactly
+the one authorized metadata request and no business read.
+
+After qualification, the service binds the immutable resource, identity and
+version evidence, requested projection and effect to a final authorization
+request. The business GET uses the qualified numeric id, not the original
+selector. Jira requests only project/update evidence and the selected subset of
+`summary`, `description` and `updated`. Confluence requests only
+space/version/ancestors plus `body.storage` for the storage projection. It does
+not expand labels, restrictions, links, attachments, rendered views or nested
+resources.
+
+Evidence digests use the contract's domain-separated canonical JSON. Jira
+version evidence covers `id` and `updated`; its identity projection also covers
+`key` and `project`. Confluence version evidence covers `id`, `version` and
+`updated`; its identity projection also covers `type`, `status`, `space`, the
+ordered ancestor ids and explicit ancestor presence. These fields are compared
+again against the business response before content can be returned.
+
+Qualification and business reads use single-attempt contexts and child budgets
+under one parent: one 64 KiB qualification response, one 64 MiB business
+response, two physical requests and 64 MiB plus 64 KiB total. Each phase
+context expires with the decision that authorized its request, so a queued GET
+cannot be dispatched after that lease. The service buffers the complete result
+and checks identity, scope, version, projection, request binding and the current
+final decision again before returning it to a future transport. Expiry or
+observed drift discards the result without publishing resource content.
+
+Version 1 offers `identity_snapshot_v1` consistency. Project, space, ancestors
+and revision are qualified snapshot facts for one immutable resource. Matching
+two reads does not prove atomic current membership or exclude an unobserved ABA
+move. An authority that requires a stronger current-project or current-space
+guarantee must deny this operation with `unsupported_consistency`; the service
+does not silently downgrade that requirement. No broad upstream credential is
+recast as a membership-scoped credential.
 
 The gated Jira comment result schema is also closed. Preview returns
 `proposed`, an operation ticket and proposal/evidence digests with
@@ -152,8 +199,8 @@ The guarded comment profile keeps qualification to one identity/metadata
 request. Its business phase owns the authorized identity/update, actor and
 comment-inventory reads, the single mutation for apply, and exact readback.
 Preview reserves 101 business requests after qualification; apply reserves
-305. Both remain inside
-the existing 102/306 total request and 16 MiB aggregate response ceilings.
+305. Both remain inside the existing 102/306 total request and 16 MiB aggregate
+response ceilings.
 
 ## Time, freshness and revocation
 

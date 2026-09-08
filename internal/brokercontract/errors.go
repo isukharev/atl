@@ -51,3 +51,14 @@ func Reason(err error) (domain.BrokerReason, bool) {
 	}
 	return contractErr.reason, true
 }
+
+// ContentFreeError extracts only the closed Broker rejection classification.
+// Wrapping policy or transport errors may carry private text, so callers must
+// not preserve the original chain merely because it contains a Broker Error.
+func ContentFreeError(err error) (bool, error) {
+	reason, ok := Reason(err)
+	if !ok {
+		return false, nil
+	}
+	return true, reject(reason)
+}

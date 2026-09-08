@@ -90,6 +90,14 @@ authorization.go:exactIdentityFromResource:range:1
 authorization.go:fail:for:1
 authorization.go:identityFromMeta:range:1
 authorization.go:put:for:1
+broker_read.go:brokerPageClosedShape:for:1
+broker_read.go:brokerPageClosedShape:range:1
+broker_read.go:brokerPageClosedShape:range:2
+broker_read.go:brokerPageClosedShape:range:3
+broker_read.go:brokerPageIdentifier:range:1
+broker_read.go:brokerPageTitle:range:1
+broker_read.go:brokerPageTransportFailure:range:1
+broker_read.go:decodeBrokerPage:range:1
 comment_mutation_highlights.go:serializeInlineHighlights:range:1
 comment_mutation_highlights.go:serializeInlineHighlights:range:2
 comment_mutation_preparation.go:asciiEqualFold:range:1

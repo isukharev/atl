@@ -107,6 +107,14 @@ authorization.go:fail:for:1
 authorization.go:issueTargets:range:1
 authorization.go:put:for:1
 authorization.go:removeCanonical:range:1
+broker_read.go:ReadBrokerIssue:range:1
+broker_read.go:ReadBrokerIssue:range:2
+broker_read.go:ReadBrokerIssue:range:3
+broker_read.go:brokerJiraProjectMetadata:range:1
+broker_read.go:brokerJiraProjectMetadata:range:2
+broker_read.go:brokerJiraTransportFailure:range:1
+broker_read.go:decodeBrokerJiraIssue:range:1
+broker_read.go:decodeBrokerJiraIssue:range:2
 create_metadata.go:ReadCreateIssueTypes:range:1
 create_metadata.go:ReadQualifiedCreateMetadata:range:1
 create_metadata.go:ReadQualifiedCreateMetadata:range:2
