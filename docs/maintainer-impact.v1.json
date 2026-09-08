@@ -34,6 +34,7 @@
     {"path":".editorconfig","checks":["test"]},
     {"path":".env.integration.example","checks":["docs-catalog"]},
     {"path":".gitattributes","checks":["docs-freshness","maintainer-contract"]},
+    {"path":".github/workflows/ci.yml","checks":["corpus-devcontainer"]},
     {"path":".gitignore","checks":["test"]},
     {"path":".golangci.yml","checks":["lint"]},
     {"path":".mcp.json","checks":["plugins"]},
