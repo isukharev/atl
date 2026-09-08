@@ -7,7 +7,7 @@ and are interchangeable transport layers.
 
 See also: [../README.md](../README.md) · [CLI reference](reference/cli/README.md) ·
 [csf-and-fragments.md](csf-and-fragments.md) · [self-update.md](self-update.md) ·
-[network-egress.md](network-egress.md)
+[network-egress.md](network-egress.md) · [broker-contract.md](broker-contract.md)
 
 ---
 
@@ -46,6 +46,8 @@ cross-cutting (no import of adapters or CLI):
   internal/jiramap  — pure Jira snapshot → domain mapping
   internal/mirror   — on-disk layout + dirty/drift detection
   internal/diagnostic — stable transport-neutral error classes and recovery
+  internal/brokercontract — strict pure wire codecs and semantic registry;
+                            no server, credentials, policy store, or backend I/O
   internal/selfupdate, internal/version
 ```
 

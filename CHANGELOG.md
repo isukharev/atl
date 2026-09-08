@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Added the versioned transport-neutral Broker semantic contract, strict pure
+  codecs, canonical operation registry and compatibility vectors. The first
+  contract profile is limited to exact Jira issue and Confluence page reads;
+  server/client composition and gated write, outcome and cache paths remain
+  unavailable until their dependent safety slices land.
+
 ### Fixed
 
 - `jira issue update` now previews by default and requires an exact reviewed
