@@ -17,7 +17,9 @@ description: Implement or review changes in the ATL repository with the correct 
 4. For non-trivial work, require an issue and public agent plan that states the
    low, standard, or high process class before code.
 5. Find the canonical subsystem and documentation owner. Never edit generated
-   client skill trees directly.
+   client skill trees directly. Apply
+   [Simplify within the contract](../../../docs/maintainers/development.md#simplify-within-the-contract)
+   before implementation and during the existing integrated review.
 6. Iterate with focused tests. Once stable, run only impact-mapped gates plus
    the class-required privacy/review contour. Raw Go uses the runbook's automatic
    toolchain environment; never derive or pin `GOROOT`.
