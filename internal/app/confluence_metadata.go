@@ -34,6 +34,7 @@ type ConfluencePageMetadataResult struct {
 // a transport must never attach metadata from a different page to the caller's
 // reference.
 func (s *ConfluenceService) PageMetadata(ctx context.Context, reference string) (*ConfluencePageMetadataResult, error) {
+	ctx = domain.WithBrokerClientReadPurpose(ctx, domain.BrokerClientReadConfluenceMeta)
 	resolved, err := s.ResolvePageReference(ctx, reference)
 	if err != nil {
 		return nil, err

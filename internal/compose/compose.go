@@ -31,6 +31,9 @@ func confluenceTLSOptions(cfg *config.Config) httpx.TLSOptions {
 func NewCompatibility(cfg *config.Config, settings compatibility.Settings, version string, values ...Option) *app.CompatibilityService {
 	resolved := resolveOptions(values)
 	return app.NewCompatibilityService(settings, func() (domain.ExactServerMetadataReader, app.DependencySetupStatus) {
+		if brokerMode(cfg) {
+			return nil, app.DependencyNotConfigured
+		}
 		if cfg == nil || cfg.ConfluenceURL == "" {
 			return nil, app.DependencyNotConfigured
 		}
@@ -80,6 +83,9 @@ func NewConfluenceCommentMutations(cfg *config.Config, version string, activatio
 }
 
 func NewConfluenceCommentMutationsWithWriteAuthorizer(cfg *config.Config, version string, activation compatibility.Activation, authorizer domain.WriteAuthorizer, options ...Option) (*app.ConfluenceService, error) {
+	if brokerMode(cfg) {
+		return nil, fmt.Errorf("%w: Confluence comment mutations are unavailable in Broker mode", domain.ErrUsage)
+	}
 	resolved := resolveOptions(options)
 	cf, scheduler, err := confluenceAdapter(cfg, version, 0, 0, authorizer, resolved)
 	if err != nil {
@@ -108,6 +114,9 @@ func NewConfluenceScheduled(cfg *config.Config, version string, maxInFlight, req
 }
 
 func NewConfluenceScheduledWithWriteAuthorizer(cfg *config.Config, version string, maxInFlight, requestsPerSecond int, authorizer domain.WriteAuthorizer, options ...Option) (*app.ConfluenceService, error) {
+	if brokerMode(cfg) {
+		return newBrokerConfluenceService(cfg, version, maxInFlight, requestsPerSecond)
+	}
 	resolved := resolveOptions(options)
 	cf, scheduler, err := confluenceAdapter(cfg, version, maxInFlight, requestsPerSecond, authorizer, resolved)
 	if err != nil {
@@ -124,6 +133,13 @@ func NewConfluenceScheduledWithWriteAuthorizer(cfg *config.Config, version strin
 }
 
 func confluenceAdapter(cfg *config.Config, version string, maxInFlight, requestsPerSecond int, authorizer domain.WriteAuthorizer, resolved options) (*confluenceadapter.Confluence, *httpx.Scheduler, error) {
+	if brokerMode(cfg) {
+		return nil, nil, fmt.Errorf("%w: operation is unavailable in Broker mode", domain.ErrUsage)
+	}
+	return directConfluenceAdapter(cfg, version, maxInFlight, requestsPerSecond, authorizer, resolved)
+}
+
+func directConfluenceAdapter(cfg *config.Config, version string, maxInFlight, requestsPerSecond int, authorizer domain.WriteAuthorizer, resolved options) (*confluenceadapter.Confluence, *httpx.Scheduler, error) {
 	if maxInFlight == 0 && requestsPerSecond != 0 {
 		return nil, nil, fmt.Errorf("%w: request pacing requires a positive in-flight bound", domain.ErrUsage)
 	}
@@ -143,6 +159,9 @@ func confluenceAdapter(cfg *config.Config, version string, maxInFlight, requests
 }
 
 func optionalJiraReadScheduled(cfg *config.Config, version string, scheduler *httpx.Scheduler, resolved options) (domain.Tracker, string) {
+	if brokerMode(cfg) {
+		return nil, "Jira direct reads are unavailable in Broker mode"
+	}
 	if cfg == nil || cfg.JiraURL == "" {
 		return nil, "Jira URL is not configured"
 	}
@@ -176,6 +195,9 @@ func LoadJira(version string, options ...Option) (*app.JiraService, error) {
 }
 
 func NewJiraWithWriteAuthorizer(cfg *config.Config, version string, authorizer domain.WriteAuthorizer, options ...Option) (*app.JiraService, error) {
+	if brokerMode(cfg) {
+		return newBrokerJiraService(cfg, version, authorizer)
+	}
 	resolved := resolveOptions(options)
 	j, err := jiraAdapter(cfg, version, authorizer, resolved)
 	if err != nil {
@@ -203,6 +225,9 @@ func qualifiedConfluenceBaseURL(cfg *config.Config) string {
 }
 
 func optionalConfluenceReferenceResolver(cfg *config.Config, version string, resolved options) (app.ConfluencePageReferenceResolver, app.DependencySetupStatus) {
+	if brokerMode(cfg) {
+		return nil, app.DependencyNotConfigured
+	}
 	if cfg == nil || cfg.ConfluenceURL == "" {
 		return nil, app.DependencyNotConfigured
 	}
@@ -226,6 +251,9 @@ func optionalConfluenceReferenceResolver(cfg *config.Config, version string, res
 }
 
 func optionalConfluenceGraphRead(cfg *config.Config, version string, resolved options) (domain.ConfluenceGraphPageMetadataReader, string) {
+	if brokerMode(cfg) {
+		return nil, string(app.DependencyNotConfigured)
+	}
 	if cfg == nil || cfg.ConfluenceURL == "" {
 		return nil, string(app.DependencyNotConfigured)
 	}
@@ -261,6 +289,9 @@ func NewEnvironment(cfg *config.Config, version string, options ...Option) *app.
 }
 
 func jiraEnvironmentReader(cfg *config.Config, version string, resolved options) (domain.JiraTimeSemanticsReader, app.DependencySetupStatus) {
+	if brokerMode(cfg) {
+		return nil, app.DependencyNotConfigured
+	}
 	if cfg.JiraURL == "" {
 		return nil, app.DependencyNotConfigured
 	}
@@ -282,6 +313,9 @@ func jiraEnvironmentReader(cfg *config.Config, version string, resolved options)
 }
 
 func confluenceEnvironmentReader(cfg *config.Config, version string, resolved options) (domain.ConfluenceTimeSemanticsReader, app.DependencySetupStatus) {
+	if brokerMode(cfg) {
+		return nil, app.DependencyNotConfigured
+	}
 	if cfg.ConfluenceURL == "" {
 		return nil, app.DependencyNotConfigured
 	}
@@ -325,70 +359,4 @@ func VerifyJira(ctx context.Context, rawURL, token, version string, cfg *config.
 		return "", err
 	}
 	return app.VerifyJira(ctx, client)
-}
-
-// DoctorDependencies projects concrete configuration, credentials, and the
-// selected services' TLS health into app-owned values. The reader closure
-// captures the qualified config so app never receives a config-shaped
-// construction seam.
-func DoctorDependencies(service string, options ...Option) app.DoctorDependencies {
-	return doctorDependencies(service, httpx.ValidateCABundle, options...)
-}
-
-func doctorDependencies(service string, validateCABundle func(string) error, options ...Option) app.DoctorDependencies {
-	resolved := resolveOptions(options)
-	cfgInspection := config.Inspect()
-	credentialInspection := auth.Inspect()
-	cfg := cfgInspection.Effective
-	transport := config.TransportProjection(cfg)
-	return app.DoctorDependencies{
-		Config: app.DoctorConfigInspection{
-			Status: cfgInspection.Status, Reason: cfgInspection.Reason,
-			DirectorySource: cfgInspection.DirectorySource,
-			File: app.DoctorFileInspection{
-				Present: cfgInspection.File.Present, Status: cfgInspection.File.Status,
-				OwnerOnly: cfgInspection.File.OwnerOnly, PermissionKnown: cfgInspection.File.PermissionKnown,
-			},
-			ConfluenceURL: cfg.ConfluenceURL, ConfluenceURLSource: cfgInspection.ConfluenceURLSource,
-			ConfluenceURLStatus: doctorURLStatus(cfg.ConfluenceURL),
-			JiraURL:             cfg.JiraURL, JiraURLSource: cfgInspection.JiraURLSource,
-			JiraURLStatus: doctorURLStatus(cfg.JiraURL),
-			ReadOnly:      cfg.ReadOnly,
-			Transport:     doctorTransportProjection(service, cfg, transport, validateCABundle),
-		},
-		Credentials: app.DoctorCredentialInspection{
-			Store: app.DoctorCredentialStore{
-				Present: credentialInspection.Store.Present, Status: credentialInspection.Store.Status,
-				OwnerOnly: credentialInspection.Store.OwnerOnly, PermissionKnown: credentialInspection.Store.PermissionKnown,
-			},
-			Confluence: app.DoctorCredential{
-				Present: credentialInspection.Confluence.Present,
-				Source:  credentialInspection.Confluence.Source, Status: credentialInspection.Confluence.Status,
-			},
-			Jira: app.DoctorCredential{
-				Present: credentialInspection.Jira.Present,
-				Source:  credentialInspection.Jira.Source, Status: credentialInspection.Jira.Status,
-			},
-		},
-		Token: func(service string) (string, error) {
-			return auth.Token(auth.Service(service))
-		},
-		Reader: func(service, rawURL, token, version string) (domain.ServerMetadataReader, error) {
-			switch service {
-			case domain.ServerProductJira:
-				return jiraadapter.NewWithSchedulerTLS(rawURL, token, version, nil, jiraTLSOptions(cfg), jiraOptions(nil, resolved)...)
-			case domain.ServerProductConfluence:
-				return confluenceadapter.NewWithSchedulerTLS(rawURL, token, version, nil, confluenceTLSOptions(cfg), confluenceOptions(nil, resolved)...)
-			default:
-				return nil, fmt.Errorf("%w: unsupported backend service", domain.ErrConfig)
-			}
-		},
-	}
-}
-
-// RunDoctor supplies production remote composition without changing the app's
-// content-free diagnostic and classification logic.
-func RunDoctor(ctx context.Context, opts app.DoctorOptions, options ...Option) (*app.DoctorResult, error) {
-	opts.Dependencies = DoctorDependencies(opts.Service, options...)
-	return app.RunDoctor(ctx, opts)
 }

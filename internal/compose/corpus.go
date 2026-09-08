@@ -36,6 +36,9 @@ func NewCorpusBuild(cfg *config.Config, selection CorpusBuildSelection, values .
 	if selection.MaxInFlight <= 0 || selection.RequestsPerSecond <= 0 {
 		return nil, fmt.Errorf("%w: corpus build requires a finite request schedule", domain.ErrUsage)
 	}
+	if brokerMode(cfg) {
+		return nil, fmt.Errorf("%w: corpus build is unavailable in Broker mode", domain.ErrUsage)
+	}
 	scheduler, err := httpx.NewScheduler(selection.MaxInFlight, selection.RequestsPerSecond)
 	if err != nil {
 		return nil, fmt.Errorf("%w: invalid corpus build request schedule", domain.ErrUsage)

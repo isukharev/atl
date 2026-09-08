@@ -86,14 +86,13 @@ export ATL_READ_ONLY=1
 atl jira issue search --jql 'order by updated DESC' --limit 5
 ```
 
-`auth login` читает PAT из скрытого prompt, stdin или файла, не argv. В мастере
-и `config set` hostname без схемы означает HTTPS; явный HTTP требует override.
-Без `--remote` `doctor` работает offline; `--service jira|confluence` ограничивает
-проверку одним backend. Remote-режим выполняет ограниченные проверки продукта и
-версии без body страниц или задач. Результат `safety` показывает read-only
-состояние и источник `flag|environment|configuration|none`. По умолчанию вывод
-JSON, а логи и ошибки остаются в stderr.
-`labels preview`: read-only; apply требует hash.
+`auth login` читает PAT из скрытого prompt, stdin или файла. Hostname без схемы
+означает HTTPS; явный HTTP требует override. `doctor --service` ограничивает
+проверку, а `--remote` добавляет запросы без body. JSON идёт в stdout, ошибки —
+в stderr.
+
+Точный read-only scope и приватные session-файлы описаны в разделе
+[Broker client mode](docs/reference/cli/configuration.md#broker-client-mode).
 
 Для Confluence:
 

@@ -11,6 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added explicit Broker client mode for exact projected Jira issue reads and
+  exact Confluence native page/metadata reads through ordinary CLI and
+  read-only MCP application services. The client validates Broker identity and
+  protocol hashes, reloads owner-private execution sessions per call, performs
+  bounded single-attempt requests, never loads backend PATs in Broker mode, and
+  fails closed for unsupported operations without direct REST fallback.
 - Added the explicit local read-only `atl broker serve` host with strict
   owner-private file configuration, selected-backend credential isolation,
   bounded loopback TLS lifecycle, separate authenticated admin readiness,

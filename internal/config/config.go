@@ -41,6 +41,10 @@ type Config struct {
 	ReadOnly      bool   `json:"read_only,omitempty"`
 	ConfluenceURL string `json:"confluence_url,omitempty"`
 	JiraURL       string `json:"jira_url,omitempty"`
+	// ConnectionMode selects the authenticated backend transport. Empty is the
+	// established direct mode; "broker" uses only Broker session references.
+	ConnectionMode string              `json:"connection_mode,omitempty"`
+	Broker         *BrokerClientConfig `json:"broker,omitempty"`
 	// UpdateBaseURL is the distribution server used for self-update; empty
 	// disables auto-update.
 	UpdateBaseURL string `json:"update_base_url,omitempty"`
@@ -84,6 +88,9 @@ func Load() (*Config, error) {
 	if err := ValidateRenderConfig(c.Render); err != nil {
 		return nil, fmt.Errorf("%w: render: %v", domain.ErrConfig, err)
 	}
+	if err := ValidateBrokerClientConfig(c.ConnectionMode, c.Broker); err != nil {
+		return nil, fmt.Errorf("%w: broker: %v", domain.ErrConfig, err)
+	}
 	views, err := NormalizeJiraListViews(c.JiraListViews)
 	if err != nil {
 		return nil, fmt.Errorf("%w: jira_list_views: %v", domain.ErrConfig, err)
@@ -110,6 +117,7 @@ func LoadForEdit() (*Config, error) {
 	if v := os.Getenv("ATL_UPDATE_URL"); v != "" {
 		c.UpdateBaseURL = v
 	}
+	overlayBrokerEnvironment(c)
 	overlayTransportEnvironment(c)
 	trimConfigURLs(c)
 	return c, nil
@@ -136,6 +144,9 @@ func trimConfigURLs(c *Config) {
 	c.ConfluenceURL = strings.TrimRight(c.ConfluenceURL, "/")
 	c.JiraURL = strings.TrimRight(c.JiraURL, "/")
 	c.UpdateBaseURL = strings.TrimRight(c.UpdateBaseURL, "/")
+	if c.Broker != nil {
+		c.Broker.BaseURL = strings.TrimRight(c.Broker.BaseURL, "/")
+	}
 }
 
 // Save persists non-secret config to disk (0700 dir, 0600 file).
@@ -145,6 +156,9 @@ func Save(c *Config) error {
 	}
 	if err := ValidateRenderConfig(c.Render); err != nil {
 		return fmt.Errorf("%w: render: %v", domain.ErrConfig, err)
+	}
+	if err := ValidateBrokerClientConfig(c.ConnectionMode, c.Broker); err != nil {
+		return fmt.Errorf("%w: broker: %v", domain.ErrConfig, err)
 	}
 	views, err := NormalizeJiraListViews(c.JiraListViews)
 	if err != nil {

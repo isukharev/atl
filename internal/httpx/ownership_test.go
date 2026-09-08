@@ -34,6 +34,8 @@ func TestTransportResponsibilityOwnersStayClosed(t *testing.T) {
 			"(*Client).do", "Client", "New", "NewWithScheduler", "NewWithSchedulerTLS", "defaultTimeout", "newWithScheduler",
 			"maxRedirects", "unmarshal", "userAgent",
 		},
+		"bounded_response.go": {"(*Client).DoBoundedResponse", "BoundedResponse", "maxReviewedResponseBody"},
+		"credential.go":       {"(*Client).ClearCredential"},
 		"download.go": {
 			"(*Client).GetStream", "validateNoReplayReadBudget",
 		},

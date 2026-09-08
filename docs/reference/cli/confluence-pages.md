@@ -179,6 +179,13 @@ Both formats require the backend to include the requested body projection
 instead of appearing as an empty body; an explicitly present empty value is
 valid.
 
+In explicit Broker mode `--id` must be numeric and only native `csf` is
+supported. The JSON projection keeps `url` as the honest empty value because
+the Broker result does not expose an upstream URL. Numeric-id metadata,
+outline, section, and sections reads use the same exact page port; URL
+resolution, rendered `view`, searches, and broader page operations fail closed
+without direct REST fallback.
+
 ## `atl conf page view`
 
 Fetch native CSF and render one page through the same configured Markdown

@@ -39,8 +39,10 @@ A Broker authorization never replaces the final adapter clearance.
 ## Authenticated HTTP server core
 
 The server core has two exact routes: `POST /v1/execute` for the two available
-read operations and authenticated `GET /v1/protocol` for static schema,
-registry and profile metadata. The latter is compatibility metadata, not
+read operations and authenticated `GET /v1/protocol` for schema, registry,
+profile metadata, and the configured Broker id and workload audience. A client
+checks that identity against its fixed configuration before execution. The
+response is compatibility metadata, not
 execution-scoped discovery or a grant. Paths, methods, queries, content type,
 content encoding, authorization header cardinality and body shape are closed.
 There is no raw URL, method, header, JQL, CQL or MCP forwarding surface.

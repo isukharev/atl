@@ -125,6 +125,12 @@ tool only when the owner has configured `ATL_MIRROR_ROOT`. Continue using the
 CLI for raw Structure forest/values, mirror content/status/diff, exports,
 diff/plan, attachment content/downloads/uploads, and every guarded write.
 
+If `atl auth status` reports `mode: broker`, use only the Broker-supported
+exact-read subset: Jira issue get with an explicit nonempty subset of
+`summary,description,updated`, and numeric-id Confluence page
+metadata/CSF/outline/section reads. Treat `unsupported` as a closed capability
+boundary; do not retry through direct REST or request a backend PAT.
+
 ## Mental model
 
 Mirrored Atlassian content becomes local files you operate on like code: the bytes are the

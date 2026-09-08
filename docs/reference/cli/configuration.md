@@ -13,6 +13,7 @@ Backend binding, configuration, diagnostics, compatibility pins, environment ins
 - [Global read-only policy](#global-read-only-policy)
 - [`atl config show`](#atl-config-show)
 - [`atl config set`](#atl-config-set)
+- [Broker client mode](#broker-client-mode)
 - [`atl doctor`](#atl-doctor)
 - [`atl compatibility status|pin|clear`](#atl-compatibility-statuspinclear)
 - [`atl environment inspect`](#atl-environment-inspect)
@@ -138,6 +139,13 @@ JSON output:
 
 ```json
 {
+  "connection_mode": "direct",
+  "broker": {
+    "configured": false,
+    "ca_configured": false,
+    "jira_session_configured": false,
+    "confluence_session_configured": false
+  },
   "read_only": false,
   "configured_read_only": false,
   "effective_read_only": true,
@@ -273,6 +281,62 @@ transport and cannot be set in a mirror-local file. They do not change trust for
 `update_base_url` or the self-update distribution channel, whose transport and
 signed-manifest verification remain separate.
 
+## Broker client mode
+
+Direct mode remains the default. Set `connection_mode` to `broker` only in the
+owner-controlled global `config.json`, together with one fixed HTTPS Broker
+origin, its expected id and workload audience, optional dedicated CA bundle,
+and at least one service session reference:
+
+```json named-broker-client-config-v1
+{
+  "connection_mode": "broker",
+  "broker": {
+    "base_url": "https://broker.example.test",
+    "broker_id": "broker-1",
+    "audience": "atl-broker",
+    "ca_file": "/secure/runtime/broker-ca.pem",
+    "jira_session_file": "/secure/runtime/jira-session.json",
+    "confluence_session_file": "/secure/runtime/confluence-session.json"
+  }
+}
+```
+
+Each session reference names one regular owner-only `0600` file in an
+owner-only directory. The bounded strict snapshot is replaced atomically by
+the runtime that owns the credential:
+
+```json named-broker-client-session-v1
+{
+  "schema_version": 1,
+  "credential": "opaque-workload-credential",
+  "execution_id": "execution-1",
+  "execution_epoch": "epoch-1",
+  "authority_revision": "revision-1"
+}
+```
+
+The process reloads this coherent snapshot for each logical call. It never
+copies it into `credentials.json`, never reads a Jira/Confluence PAT in Broker
+mode, and never falls back to direct REST. Environment deployments can provide
+the same non-secret selection and file references with
+`ATL_CONNECTION_MODE=broker`, `ATL_BROKER_URL`, `ATL_BROKER_ID`,
+`ATL_BROKER_AUDIENCE`, `ATL_BROKER_CA_BUNDLE`,
+`ATL_BROKER_JIRA_SESSION_FILE`, and
+`ATL_BROKER_CONFLUENCE_SESSION_FILE`. Empty environment values do not override
+global configuration.
+
+The initial Jira surface is `jira issue get <KEY> --fields ...` with a nonempty
+subset of the exact technical ids `summary`, `description`, and `updated`.
+The initial Confluence surface is a numeric-id `conf page get --format csf` and
+the metadata/outline/section reads built from the same exact page port. URL
+selectors, rendered `view` bodies, searches, mirrors, corpus builds, writes,
+and all broader methods return the closed unsupported error before execution.
+Authenticated protocol negotiation checks the configured Broker id, audience,
+schema/registry digests, profiles, operation versions, features, and bounds.
+Every supported call then makes one execute attempt; redirects and automatic
+retries are disabled.
+
 ## `atl doctor`
 
 Run one privacy-safe setup diagnostic:
@@ -291,6 +355,13 @@ policy, optional content-free mirror health, and the fact that plugin version
 is not observable from the CLI. It emits no backend URL or hostname,
 filesystem path, token, environment-variable name, identity, object id, mirror
 content, or raw parser/backend error.
+
+In Broker mode the diagnostic reports `connection_mode: broker`, the safe
+source categories `broker_configuration` and `broker_session_file`, and does
+not inspect `credentials.json`. The initial `--remote` metadata probe is skipped
+because the exact-read Broker profile does not expose the direct backend
+`serverInfo` contract; an actual supported read performs current authenticated
+negotiation instead.
 
 `--service all|jira|confluence` defaults to `all`. A single-service selection
 scopes which service's URL, CA-bundle, mirror, compatibility, and optional
@@ -491,8 +562,9 @@ Flags:
 
 ## `atl auth status`
 
-Show where each token is resolved from (env var name or file path). Never
-prints the token value.
+Show the selected connection mode and credential source category. Direct mode
+retains the existing environment/file source. Broker mode emits only
+`broker_session_file` and never opens or prints the ordinary PAT store.
 
 ```
 atl auth status
@@ -500,6 +572,7 @@ atl auth status
 
 ```json
 {
+  "mode": "direct",
   "confluence": "env:ATL_CONFLUENCE_PAT",
   "jira": "keychain-file:/home/user/.config/atl/credentials.json"
 }

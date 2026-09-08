@@ -52,6 +52,11 @@ atl jira issue get PROJ-1 -o text
 An ambiguous display name fails closed and lists candidate ids; use an id (or
 `id:<id>`) to disambiguate.
 
+In explicit Broker mode this command requires `--fields` with a nonempty subset
+of `summary`, `description`, and `updated`. Omission, display names, custom
+fields, and every wider Jira issue operation return `unsupported` before an
+execute request; ATL never falls back to direct REST.
+
 ## `atl jira issue fields`
 
 Inspect the fields actually carrying evidence on one issue:

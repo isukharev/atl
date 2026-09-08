@@ -21,8 +21,8 @@ import (
 )
 
 const (
-	ExecutePath            = "/v1/execute"
-	ProtocolPath           = "/v1/protocol"
+	ExecutePath            = brokertransport.ExecutePath
+	ProtocolPath           = brokertransport.ProtocolPath
 	MaxRequestHeaderBytes  = 16 << 10
 	MaxExecuteRequestBytes = 64 << 10
 	DefaultMaxConcurrent   = 2
@@ -116,8 +116,9 @@ func (h *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 
 	switch request.URL.Path {
 	case ProtocolPath:
-		encoded, encodeErr := brokertransport.EncodeProtocolV1(brokertransport.StaticProtocolV1())
-		if encodeErr != nil || h.guard.Check(app.BrokerExactReadResult{}, encoded, credential) != nil {
+		protocol, protocolErr := brokertransport.ProtocolV1(h.config.BrokerID, h.config.Audience)
+		encoded, encodeErr := brokertransport.EncodeProtocolV1(protocol)
+		if protocolErr != nil || encodeErr != nil || h.guard.Check(app.BrokerExactReadResult{}, encoded, credential) != nil {
 			h.writeFailure(writer, domain.BrokerReasonAuthorizationUnavailable, credential, nonce)
 			return
 		}

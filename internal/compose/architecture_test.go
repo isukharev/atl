@@ -41,6 +41,7 @@ func TestInnerEntrypointsDoNotImportAdapters(t *testing.T) {
 
 func TestHTTPClientConstructionAndImmutablePolicyInventory(t *testing.T) {
 	expectedConstructors := map[string]int{
+		"adapter/brokerclient/client.go:execute:httpx.NewWithSchedulerTLS":               1,
 		"adapter/brokerauthority/authority.go:New:httpx.NewWithSchedulerTLS":             1,
 		"adapter/confluence/confluence.go:NewWithScheduler:httpx.NewWithScheduler":       1,
 		"adapter/confluence/confluence.go:NewWithSchedulerTLS:httpx.NewWithSchedulerTLS": 1,
@@ -212,6 +213,12 @@ func scanHTTPConstructorReferences(file *ast.File, relative string) ([]construct
 
 func validateReviewedConstructorCall(t *testing.T, key string, call *ast.CallExpr) {
 	t.Helper()
+	if key == "adapter/brokerclient/client.go:execute:httpx.NewWithSchedulerTLS" {
+		if call.Ellipsis != token.NoPos || len(call.Args) != 5 {
+			t.Errorf("%s must pass exactly the fixed Broker origin, session credential, version, scheduler and TLS configuration", key)
+		}
+		return
+	}
 	if key == "adapter/brokerauthority/authority.go:New:httpx.NewWithSchedulerTLS" {
 		validateBrokerAuthorityConstructorCall(t, key, call)
 		return

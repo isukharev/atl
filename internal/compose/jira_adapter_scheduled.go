@@ -12,6 +12,9 @@ import (
 )
 
 func jiraAdapterScheduled(cfg *config.Config, version string, scheduler *httpx.Scheduler, authorizer domain.WriteAuthorizer, resolved options) (*jiraadapter.Jira, error) {
+	if brokerMode(cfg) {
+		return nil, fmt.Errorf("%w: operation is unavailable in Broker mode", domain.ErrUsage)
+	}
 	if cfg == nil || cfg.JiraURL == "" {
 		return nil, fmt.Errorf("%w: Jira URL not set — run `atl config set --jira-url https://jira.example.com` (or export ATL_JIRA_URL); see `atl auth status`", domain.ErrConfig)
 	}
