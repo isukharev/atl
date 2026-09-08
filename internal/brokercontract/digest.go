@@ -14,6 +14,10 @@ import (
 )
 
 func digestValue(kind string, value any) (string, error) {
+	return digestValueInNamespace("atl.broker.v1/", kind, value)
+}
+
+func digestValueInNamespace(namespace, kind string, value any) (string, error) {
 	encoded, err := json.Marshal(value)
 	if err != nil || int64(len(encoded)) > MaxEnvelopeBytes {
 		return "", reject(domain.BrokerReasonMalformed)
@@ -27,7 +31,7 @@ func digestValue(kind string, value any) (string, error) {
 		return "", err
 	}
 	hasher := sha256.New()
-	_, _ = hasher.Write([]byte("atl.broker.v1/" + kind + "\x00"))
+	_, _ = hasher.Write([]byte(namespace + kind + "\x00"))
 	_, _ = hasher.Write(canonical.Bytes())
 	return hex.EncodeToString(hasher.Sum(nil)), nil
 }

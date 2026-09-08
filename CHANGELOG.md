@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added a separate strict Broker discovery v2 semantic schema and codec for
+  operation-level structural support and current advisory access state. It
+  binds request, authenticated execution, authority revision, service, schema
+  and registry digests under a five-second lease without changing v1 bytes or
+  activating a server, CLI or MCP discovery route.
 - Added explicit Broker client mode for exact projected Jira issue reads and
   exact Confluence native page/metadata reads through ordinary CLI and
   read-only MCP application services. The client validates Broker identity and
