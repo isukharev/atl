@@ -147,37 +147,15 @@ func (s *JiraService) resolveJiraFieldSelectors(ctx context.Context, selectors [
 	return ResolveJiraFieldSelectors(defs, selectors)
 }
 
-var jiraKnownSystemFieldIDs = map[string]bool{
-	"aggregateprogress": true, "aggregatetimeestimate": true, "aggregatetimeoriginalestimate": true,
-	"aggregatetimespent": true, "assignee": true, "attachment": true, "comment": true,
-	"components": true, "created": true, "creator": true, "description": true, "duedate": true,
-	"environment": true, "fixVersions": true, "issuelinks": true, "issuetype": true,
-	"labels": true, "lastViewed": true, "parent": true, "priority": true, "progress": true,
-	"project": true, "reporter": true, "resolution": true, "resolutiondate": true,
-	"security": true, "status": true, "subtasks": true, "summary": true,
-	"timeestimate": true, "timeoriginalestimate": true, "timespent": true, "timetracking": true,
-	"updated": true, "versions": true, "votes": true, "watches": true, "worklog": true,
-}
-
 func jiraTechnicalFieldDefs(selectors []string) ([]domain.FieldDef, bool) {
 	defs := make([]domain.FieldDef, 0, len(selectors))
 	seen := map[string]bool{}
 	for _, raw := range selectors {
 		selector := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(raw), "id:"))
-		custom := false
-		if strings.HasPrefix(selector, "customfield_") {
-			digits := strings.TrimPrefix(selector, "customfield_")
-			custom = digits != ""
-			for _, char := range digits {
-				if char < '0' || char > '9' {
-					custom = false
-					break
-				}
-			}
-		}
-		if !custom && !jiraKnownSystemFieldIDs[selector] {
+		if !domain.ValidJiraTechnicalFieldID(selector) {
 			return nil, false
 		}
+		custom := strings.HasPrefix(selector, "customfield_")
 		if !seen[selector] {
 			seen[selector] = true
 			defs = append(defs, domain.FieldDef{ID: selector, Name: selector, Custom: custom})

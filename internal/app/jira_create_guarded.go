@@ -91,6 +91,24 @@ type JiraGuardedCreateIdentity struct {
 	Key string `json:"key"`
 }
 
+type JiraGuardedCreateCheck struct {
+	Code    string `json:"code"`
+	FieldID string `json:"field_id,omitempty"`
+}
+
+type JiraGuardedCreateFieldRejection struct {
+	FieldID string `json:"field_id"`
+	Code    string `json:"code"`
+}
+
+type JiraGuardedCreateRejection struct {
+	HTTPStatus             int                               `json:"http_status"`
+	DetailsStatus          string                            `json:"details_status"`
+	FieldErrors            []JiraGuardedCreateFieldRejection `json:"field_errors"`
+	GlobalErrorCount       int                               `json:"global_error_count"`
+	OmittedFieldErrorCount int                               `json:"omitted_field_error_count"`
+}
+
 // JiraGuardedCreateRegistrationEffects distinguishes reviewed possible local
 // staging from files this invocation actually created. Paths are stable,
 // mirror-relative names; the parent coordination lock is deliberately
@@ -127,6 +145,8 @@ type JiraGuardedCreateResult struct {
 	Acknowledgement        *domain.JiraGuardedCreateAcknowledgement `json:"acknowledgement,omitempty"`
 	Issue                  *JiraGuardedCreateIdentity               `json:"issue,omitempty"`
 	ReadbackReconciled     bool                                     `json:"readback_reconciled"`
+	Check                  *JiraGuardedCreateCheck                  `json:"check,omitempty"`
+	Rejection              *JiraGuardedCreateRejection              `json:"rejection,omitempty"`
 	Registration           *CreatedMirrorRegistration               `json:"registration,omitempty"`
 	Usage                  JiraGuardedCreateUsage                   `json:"usage"`
 }
@@ -207,12 +227,14 @@ func (s *JiraService) GuardedCreate(ctx context.Context, opts JiraGuardedCreateO
 	initial, err := s.buildGuardedCreateSnapshot(workflowCtx, port, opts)
 	if err != nil {
 		base.Status = "blocked"
+		setGuardedCreateCheck(base, err, guardedCreateCheckPreparationInvalid)
 		return base, guardedCreateFailure("guarded Jira create proposal qualification failed", err, true, false)
 	}
 	base = initial.result
 	base.Bounds.MaxRequests = maxRequests
 	if err := workflowCtx.Err(); err != nil {
 		base.Status = "blocked"
+		setGuardedCreateCheck(base, err, guardedCreateCheckDeadlineExceeded)
 		return base, guardedCreateFailure("guarded Jira create deadline expired during proposal qualification", err, true, false)
 	}
 	if !opts.Apply {
@@ -223,6 +245,7 @@ func (s *JiraService) GuardedCreate(ctx context.Context, opts JiraGuardedCreateO
 	}
 	if opts.ExpectedProposalHash != base.ProposalHash {
 		base.Status = "blocked"
+		setGuardedCreateCheck(base, domain.ErrCheckFailed, guardedCreateCheckProposalChanged)
 		return base, guardedCreateFailure("guarded Jira create proposal changed since review", domain.ErrCheckFailed, true, false)
 	}
 
@@ -236,16 +259,19 @@ func (s *JiraService) GuardedCreate(ctx context.Context, opts JiraGuardedCreateO
 		}
 		if err != nil {
 			base.Status = "blocked"
+			setGuardedCreateCheck(base, err, guardedCreateCheckRegistrationQualificationFailed)
 			return base, guardedCreateFailure("guarded Jira create registration staging failed", err, true, false)
 		}
 	}
 	prewrite, err := s.buildGuardedCreateSnapshot(workflowCtx, port, opts)
 	if err != nil || prewrite.result.ProposalHash != base.ProposalHash {
 		base.Status = "blocked"
+		setGuardedCreateCheck(base, err, guardedCreateCheckProposalChanged)
 		return base, guardedCreateFailure("guarded Jira create proposal changed immediately before dispatch", errors.Join(err, domain.ErrCheckFailed), true, false)
 	}
 	if err := workflowCtx.Err(); err != nil {
 		base.Status = "blocked"
+		setGuardedCreateCheck(base, err, guardedCreateCheckDeadlineExceeded)
 		return base, guardedCreateFailure("guarded Jira create deadline expired before dispatch", err, true, false)
 	}
 
@@ -264,6 +290,7 @@ func (s *JiraService) GuardedCreate(ctx context.Context, opts JiraGuardedCreateO
 	}
 	if writeErr != nil && definitiveWriteRejection(writeErr) {
 		base.Status = "not_applied"
+		base.Rejection = guardedCreateRejection(writeErr, prewrite.metadata)
 		return base, guardedCreateFailure("Jira definitively rejected the reviewed issue create", writeErr, false, false)
 	}
 	if ack.ID == "" {

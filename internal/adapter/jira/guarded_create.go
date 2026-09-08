@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -14,14 +15,16 @@ import (
 	"unicode/utf8"
 
 	"github.com/isukharev/atl/internal/domain"
+	"github.com/isukharev/atl/internal/httpx"
 	"github.com/isukharev/atl/internal/strictjson"
 )
 
 const (
-	jiraGuardedCreateMaxPayloadBytes = 64 << 20
-	jiraGuardedCreateMaxFields       = 1024
-	jiraGuardedCreateMaxStringBytes  = 1024
-	jiraGuardedCreateMaxQueryBytes   = 64 << 10
+	jiraGuardedCreateMaxPayloadBytes       = 64 << 20
+	jiraGuardedCreateMaxFields             = 1024
+	jiraGuardedCreateMaxStringBytes        = 1024
+	jiraGuardedCreateMaxQueryBytes         = 64 << 10
+	jiraGuardedCreateMaxRejectionBodyBytes = 64 << 10
 )
 
 var _ domain.JiraGuardedCreatePort = (*Jira)(nil)
@@ -33,6 +36,19 @@ func (e *guardedCreateNoAttemptError) Error() string {
 }
 func (e *guardedCreateNoAttemptError) Unwrap() error                  { return e.cause }
 func (e *guardedCreateNoAttemptError) DiagnosticWriteAttempted() bool { return false }
+
+type guardedCreateRejectionError struct {
+	status   int
+	kind     error
+	evidence domain.JiraGuardedCreateRejectionEvidence
+}
+
+func (*guardedCreateRejectionError) Error() string     { return "Jira rejected guarded issue create" }
+func (e *guardedCreateRejectionError) Unwrap() error   { return e.kind }
+func (e *guardedCreateRejectionError) HTTPStatus() int { return e.status }
+func (e *guardedCreateRejectionError) DiagnosticJiraGuardedCreateRejection() domain.JiraGuardedCreateRejectionEvidence {
+	return e.evidence
+}
 
 // PrepareGuardedCreate is the sole create-payload normalization owner. Legacy
 // Create and the guarded workflow both use these exact bytes.
@@ -113,7 +129,7 @@ func (j *Jira) WriteGuardedCreate(ctx context.Context, write domain.JiraGuardedC
 	}
 	data, err := j.c.Do(domain.WithWriteClearance(cleared), http.MethodPost, "/rest/api/2/issue", append([]byte(nil), write.Payload...), nil)
 	if err != nil {
-		return domain.JiraGuardedCreateAcknowledgement{}, err
+		return domain.JiraGuardedCreateAcknowledgement{}, guardedCreateWriteError(err)
 	}
 	var response struct {
 		ID  string `json:"id"`
@@ -136,6 +152,88 @@ func (j *Jira) WriteGuardedCreate(ctx context.Context, write domain.JiraGuardedC
 		return domain.JiraGuardedCreateAcknowledgement{}, fmt.Errorf("%w: Jira create acknowledgement omitted a canonical immutable id", domain.ErrCheckFailed)
 	}
 	return ack, nil
+}
+
+func guardedCreateWriteError(err error) error {
+	var apiErr *httpx.APIError
+	if !errors.As(err, &apiErr) {
+		return err
+	}
+	return &guardedCreateRejectionError{
+		status: apiErr.Status, kind: errors.Unwrap(apiErr),
+		evidence: guardedCreateRejectionEvidence(apiErr.Status, []byte(apiErr.Body)),
+	}
+}
+
+func guardedCreateRejectionEvidence(status int, body []byte) domain.JiraGuardedCreateRejectionEvidence {
+	evidence := domain.JiraGuardedCreateRejectionEvidence{
+		HTTPStatus: status, DetailsStatus: domain.JiraGuardedCreateRejectionUnavailable,
+		FieldIDs: []string{},
+	}
+	if len(body) == 0 {
+		return evidence
+	}
+	if len(body) > jiraGuardedCreateMaxRejectionBodyBytes {
+		evidence.DetailsStatus = domain.JiraGuardedCreateRejectionOmittedBounds
+		return evidence
+	}
+	var envelope map[string]json.RawMessage
+	if strictjson.Decode(body, &envelope) != nil {
+		return evidence
+	}
+	var fieldErrors map[string]json.RawMessage
+	var globalErrors []json.RawMessage
+	recognized := false
+	if raw, ok := envelope["errors"]; ok {
+		if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) || strictjson.Decode(raw, &fieldErrors) != nil {
+			return evidence
+		}
+		recognized = true
+	}
+	if raw, ok := envelope["errorMessages"]; ok {
+		if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) || strictjson.Decode(raw, &globalErrors) != nil {
+			return evidence
+		}
+		recognized = true
+	}
+	if !recognized {
+		return evidence
+	}
+	if len(fieldErrors)+len(globalErrors) > domain.JiraGuardedCreateRejectionMaxDetails {
+		evidence.DetailsStatus = domain.JiraGuardedCreateRejectionOmittedBounds
+		return evidence
+	}
+	for _, raw := range fieldErrors {
+		if !guardedCreateRejectionString(raw) {
+			return evidence
+		}
+	}
+	for _, raw := range globalErrors {
+		if !guardedCreateRejectionString(raw) {
+			return evidence
+		}
+	}
+	fieldIDs := make([]string, 0, len(fieldErrors))
+	for fieldID := range fieldErrors {
+		if domain.ValidJiraTechnicalFieldID(fieldID) {
+			fieldIDs = append(fieldIDs, fieldID)
+		} else {
+			evidence.OmittedFieldErrorCount++
+		}
+	}
+	sort.Strings(fieldIDs)
+	evidence.DetailsStatus = domain.JiraGuardedCreateRejectionAvailable
+	evidence.FieldIDs = fieldIDs
+	evidence.GlobalErrorCount = len(globalErrors)
+	return evidence
+}
+
+func guardedCreateRejectionString(raw json.RawMessage) bool {
+	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return false
+	}
+	var value string
+	return strictjson.Decode(raw, &value) == nil
 }
 
 func guardedCreatePayloadProject(payload []byte, project string) bool {

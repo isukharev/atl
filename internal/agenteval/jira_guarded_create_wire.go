@@ -36,6 +36,8 @@ type JiraGuardedCreateResult struct {
 	Acknowledgement        json.RawMessage                       `json:"acknowledgement,omitempty"`
 	Issue                  *JiraGuardedCreateIdentity            `json:"issue,omitempty"`
 	ReadbackReconciled     bool                                  `json:"readback_reconciled"`
+	Check                  *JiraGuardedCreateCheck               `json:"check,omitempty"`
+	Rejection              *JiraGuardedCreateRejection           `json:"rejection,omitempty"`
 	Registration           json.RawMessage                       `json:"registration,omitempty"`
 	Usage                  json.RawMessage                       `json:"usage"`
 }
@@ -62,6 +64,24 @@ type JiraGuardedCreateRegistrationEffects struct {
 	ActualFiles  []string `json:"actual_files"`
 }
 
+type JiraGuardedCreateCheck struct {
+	Code    string `json:"code"`
+	FieldID string `json:"field_id,omitempty"`
+}
+
+type JiraGuardedCreateFieldRejection struct {
+	FieldID string `json:"field_id"`
+	Code    string `json:"code"`
+}
+
+type JiraGuardedCreateRejection struct {
+	HTTPStatus             int                               `json:"http_status"`
+	DetailsStatus          string                            `json:"details_status"`
+	FieldErrors            []JiraGuardedCreateFieldRejection `json:"field_errors"`
+	GlobalErrorCount       int                               `json:"global_error_count"`
+	OmittedFieldErrorCount int                               `json:"omitted_field_error_count"`
+}
+
 func DecodeJiraGuardedCreateResult(r io.Reader) (JiraGuardedCreateResult, error) {
 	var result JiraGuardedCreateResult
 	if err := decodeJiraWorkflowWire(r, jiraIssueCreateWireMaxBytes, "Jira guarded issue create", &result, validateJiraGuardedCreateMembers); err != nil {
@@ -75,12 +95,12 @@ func DecodeJiraGuardedCreateResult(r io.Reader) (JiraGuardedCreateResult, error)
 	}
 	switch result.Status {
 	case "would_apply":
-		if result.Mode != "preview" || result.WriteAttempted || result.ReadbackReconciled || result.Issue != nil {
+		if result.Mode != "preview" || result.WriteAttempted || result.ReadbackReconciled || result.Issue != nil || result.Check != nil || result.Rejection != nil {
 			return JiraGuardedCreateResult{}, fmt.Errorf("validate Jira guarded issue create: preview status is contradictory")
 		}
 	case "applied":
 		if result.Mode != "apply" || !result.WriteAttempted || !result.ReadbackReconciled || result.Issue == nil ||
-			!jiraWorkflowNormalized(result.Issue.ID) || !jiraWorkflowNormalized(result.Issue.Key) {
+			!jiraWorkflowNormalized(result.Issue.ID) || !jiraWorkflowNormalized(result.Issue.Key) || result.Check != nil || result.Rejection != nil {
 			return JiraGuardedCreateResult{}, fmt.Errorf("validate Jira guarded issue create: applied status is unproved")
 		}
 	default:
@@ -99,5 +119,5 @@ func validateJiraGuardedCreateMembers(data []byte) error {
 		"summary", "description", "fields", "metadata_count", "request_bytes", "registration_requested",
 		"bounds", "mode", "status", "write_attempted", "readback_reconciled", "usage",
 	}, []string{"backend_sha256", "metadata_sha256", "request_sha256", "registration_root_sha256", "render_projection_sha256",
-		"registration_effects", "proposal_hash", "acknowledgement", "issue", "registration"})
+		"registration_effects", "proposal_hash", "acknowledgement", "issue", "check", "rejection", "registration"})
 }

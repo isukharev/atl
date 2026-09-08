@@ -51,6 +51,26 @@ type JiraGuardedCreateAcknowledgement struct {
 	Key string `json:"key,omitempty"`
 }
 
+const (
+	JiraGuardedCreateRejectionMaxDetails = 50
+
+	JiraGuardedCreateRejectionAvailable     = "available"
+	JiraGuardedCreateRejectionUnavailable   = "unavailable"
+	JiraGuardedCreateRejectionOmittedBounds = "omitted_bounds"
+	JiraGuardedCreateFieldRejected          = "field_rejected"
+)
+
+// JiraGuardedCreateRejectionEvidence is the content-minimized projection an
+// adapter may attach to a definitive create refusal. Backend message values and
+// raw response members never cross this boundary.
+type JiraGuardedCreateRejectionEvidence struct {
+	HTTPStatus             int
+	DetailsStatus          string
+	FieldIDs               []string
+	GlobalErrorCount       int
+	OmittedFieldErrorCount int
+}
+
 // JiraGuardedCreateReadRequest asks for exactly one immutable-id readback and
 // a bounded, deduplicated field projection.
 type JiraGuardedCreateReadRequest struct {

@@ -23,11 +23,12 @@ func (s *JiraService) buildGuardedCreateSnapshot(ctx context.Context, port domai
 	}
 	reader, ok := s.tr.(domain.JiraQualifiedCreateMetadataReader)
 	if !ok {
-		return nil, fmt.Errorf("%w: qualified Jira create metadata is unavailable", domain.ErrConfig)
+		return nil, guardedCreateCheckFailure(guardedCreateCheckMetadataUnavailable, "",
+			fmt.Errorf("%w: qualified Jira create metadata is unavailable", domain.ErrConfig))
 	}
 	metadata, err := reader.ReadQualifiedCreateMetadata(ctx, project.Key, opts.IssueType)
 	if err != nil {
-		return nil, err
+		return nil, guardedCreateCheckFailure(guardedCreateCheckMetadataUnavailable, "", err)
 	}
 	metadataDigest, schemas, err := qualifyGuardedCreateMetadata(metadata, project, opts)
 	if err != nil {
@@ -38,10 +39,11 @@ func (s *JiraService) buildGuardedCreateSnapshot(ctx context.Context, port domai
 		Description: opts.Description, DescriptionPresent: len(opts.Description) > 0, Fields: opts.Fields,
 	})
 	if err != nil {
-		return nil, err
+		return nil, guardedCreateCheckFailure(guardedCreateCheckPreparationFailed, "", err)
 	}
 	if len(prepared.Payload) == 0 || len(prepared.Payload) > jiraGuardedCreateMaxPayloadBytes || !json.Valid(prepared.Payload) {
-		return nil, fmt.Errorf("%w: Jira create preparer returned invalid payload bytes", domain.ErrCheckFailed)
+		return nil, guardedCreateCheckFailure(guardedCreateCheckPreparationInvalid, "",
+			fmt.Errorf("%w: Jira create preparer returned invalid payload bytes", domain.ErrCheckFailed))
 	}
 	fields, err := guardedCreateProposalFields(prepared, opts.Fields, schemas)
 	if err != nil {
@@ -49,7 +51,8 @@ func (s *JiraService) buildGuardedCreateSnapshot(ctx context.Context, port domai
 	}
 	backendHash, err := backendid.OriginSHA256(s.baseURL)
 	if err != nil {
-		return nil, fmt.Errorf("%w: invalid Jira backend identity", domain.ErrCheckFailed)
+		return nil, guardedCreateCheckFailure(guardedCreateCheckBackendIdentityInvalid, "",
+			fmt.Errorf("%w: invalid Jira backend identity", domain.ErrCheckFailed))
 	}
 	result := newGuardedCreateResult(opts)
 	result.BackendSHA256 = backendHash
@@ -71,22 +74,22 @@ func (s *JiraService) buildGuardedCreateSnapshot(ctx context.Context, port domai
 	if opts.Register {
 		root, rootErr := createdRegistrationRoot(opts.Into)
 		if rootErr != nil {
-			return nil, rootErr
+			return nil, guardedCreateCheckFailure(guardedCreateCheckRegistrationQualificationFailed, "", rootErr)
 		}
 		result.RegistrationRootSHA256 = sha256Hex([]byte(root))
 		render, err = s.resolveGuardedCreateRender(ctx, root)
 		if err != nil {
-			return nil, err
+			return nil, guardedCreateCheckFailure(guardedCreateCheckRegistrationQualificationFailed, "", err)
 		}
 		renderBytes, marshalErr := json.Marshal(render)
 		if marshalErr != nil {
-			return nil, marshalErr
+			return nil, guardedCreateCheckFailure(guardedCreateCheckRegistrationQualificationFailed, "", marshalErr)
 		}
 		result.RenderProjectionSHA256 = sha256Hex(renderBytes)
 	}
 	readFields := guardedCreateReadbackProjection(opts.Fields, render, opts.Register)
 	if err := validateGuardedCreateReadbackProjection(readFields); err != nil {
-		return nil, err
+		return nil, guardedCreateCheckFailure(guardedCreateCheckReadbackProjectionInvalid, "", err)
 	}
 	result.ProposalHash = guardedCreateProposalHash(result)
 	return &jiraGuardedCreateSnapshot{result: result, prepared: cloneGuardedPreparation(prepared), project: project, metadata: metadata, render: render, readFields: readFields}, nil
@@ -95,36 +98,42 @@ func (s *JiraService) buildGuardedCreateSnapshot(ctx context.Context, port domai
 func (s *JiraService) qualifyGuardedCreateProject(ctx context.Context, selector string) (domain.JiraProject, error) {
 	reader, ok := s.tr.(domain.JiraProjectReader)
 	if !ok {
-		return domain.JiraProject{}, fmt.Errorf("%w: complete Jira project inventory is unavailable", domain.ErrConfig)
+		return domain.JiraProject{}, guardedCreateCheckFailure(guardedCreateCheckProjectInventoryUnavailable, "",
+			fmt.Errorf("%w: complete Jira project inventory is unavailable", domain.ErrConfig))
 	}
 	projects, err := reader.ReadProjects(ctx, true)
 	if err != nil {
-		return domain.JiraProject{}, err
+		return domain.JiraProject{}, guardedCreateCheckFailure(guardedCreateCheckProjectInventoryUnavailable, "", err)
 	}
 	if len(projects) == 0 || len(projects) > jiraGuardedCreateMaxInventoryRows {
-		return domain.JiraProject{}, fmt.Errorf("%w: Jira project inventory is empty or exceeds 1000 rows", domain.ErrCheckFailed)
+		return domain.JiraProject{}, guardedCreateCheckFailure(guardedCreateCheckProjectInventoryIncomplete, "",
+			fmt.Errorf("%w: Jira project inventory is empty or exceeds 1000 rows", domain.ErrCheckFailed))
 	}
 	seenID, seenKey := map[string]bool{}, map[string]bool{}
 	var match *domain.JiraProject
 	for index := range projects {
 		project := projects[index]
 		if !guardedCreatePositiveID(project.ID) || !guardedCreateProjectKey(project.Key) || project.Name == "" || !guardedCreateMetadataString(project.Name) || project.Archived == nil || seenID[project.ID] || seenKey[project.Key] {
-			return domain.JiraProject{}, fmt.Errorf("%w: Jira project inventory is malformed, incomplete, or duplicate", domain.ErrCheckFailed)
+			return domain.JiraProject{}, guardedCreateCheckFailure(guardedCreateCheckProjectInventoryIncomplete, "",
+				fmt.Errorf("%w: Jira project inventory is malformed, incomplete, or duplicate", domain.ErrCheckFailed))
 		}
 		seenID[project.ID], seenKey[project.Key] = true, true
 		if project.Key == selector {
 			if match != nil {
-				return domain.JiraProject{}, fmt.Errorf("%w: Jira project selector is ambiguous", domain.ErrCheckFailed)
+				return domain.JiraProject{}, guardedCreateCheckFailure(guardedCreateCheckProjectSelectorAmbiguous, "",
+					fmt.Errorf("%w: Jira project selector is ambiguous", domain.ErrCheckFailed))
 			}
 			copy := project
 			match = &copy
 		}
 	}
 	if match == nil {
-		return domain.JiraProject{}, fmt.Errorf("%w: Jira project was not found", domain.ErrNotFound)
+		return domain.JiraProject{}, guardedCreateCheckFailure(guardedCreateCheckProjectNotFound, "",
+			fmt.Errorf("%w: Jira project was not found", domain.ErrNotFound))
 	}
 	if *match.Archived {
-		return domain.JiraProject{}, fmt.Errorf("%w: Jira project is archived", domain.ErrCheckFailed)
+		return domain.JiraProject{}, guardedCreateCheckFailure(guardedCreateCheckProjectArchived, "",
+			fmt.Errorf("%w: Jira project is archived", domain.ErrCheckFailed))
 	}
 	return *match, nil
 }
@@ -143,7 +152,8 @@ type guardedCreateMetadataHashField struct {
 
 func qualifyGuardedCreateMetadata(metadata *domain.JiraQualifiedCreateMetadata, project domain.JiraProject, opts JiraGuardedCreateOpts) (string, map[string]string, error) {
 	if metadata == nil || metadata.Project != project.Key || !guardedCreatePositiveID(metadata.IssueType.ID) || !guardedCreateMetadataString(metadata.IssueType.Name) || len(metadata.Fields) == 0 || len(metadata.Fields) > jiraGuardedCreateMaxInventoryRows {
-		return "", nil, fmt.Errorf("%w: Jira create metadata identity is incomplete or oversized", domain.ErrCheckFailed)
+		return "", nil, guardedCreateCheckFailure(guardedCreateCheckMetadataIncomplete, "",
+			fmt.Errorf("%w: Jira create metadata identity is incomplete or oversized", domain.ErrCheckFailed))
 	}
 	seen := map[string]bool{}
 	rows := make([]guardedCreateMetadataHashField, 0, len(metadata.Fields))
@@ -157,10 +167,12 @@ func qualifyGuardedCreateMetadata(metadata *domain.JiraQualifiedCreateMetadata, 
 	}
 	for _, field := range metadata.Fields {
 		if field.FieldID == "" || !guardedCreateMetadataString(field.FieldID) || field.Name == "" || !guardedCreateMetadataString(field.Name) || seen[field.FieldID] || field.Required == nil || field.Schema == nil || field.HasDefaultValue == nil || field.AllowedValuesCount < 0 || field.AllowedValuesCount > jiraGuardedCreateMaxInventoryRows || field.HasAutocomplete && !field.AutocompletePresent {
-			return "", nil, fmt.Errorf("%w: Jira create-screen metadata is malformed, incomplete, duplicate, or oversized", domain.ErrCheckFailed)
+			return "", nil, guardedCreateCheckFailure(guardedCreateCheckMetadataIncomplete, "",
+				fmt.Errorf("%w: Jira create-screen metadata is malformed, incomplete, duplicate, or oversized", domain.ErrCheckFailed))
 		}
 		if !guardedCreateMetadataString(field.Schema.Type) || field.Schema.Items != "" && !guardedCreateMetadataString(field.Schema.Items) || field.Schema.System != "" && !guardedCreateMetadataString(field.Schema.System) || field.Schema.Custom != "" && !guardedCreateMetadataString(field.Schema.Custom) || field.Schema.CustomID != nil && *field.Schema.CustomID <= 0 {
-			return "", nil, fmt.Errorf("%w: Jira create-screen schema is malformed or oversized", domain.ErrCheckFailed)
+			return "", nil, guardedCreateCheckFailure(guardedCreateCheckSchemaInvalid, field.FieldID,
+				fmt.Errorf("%w: Jira create-screen schema is malformed or oversized", domain.ErrCheckFailed))
 		}
 		seen[field.FieldID] = true
 		schemaBytes, _ := json.Marshal(field.Schema)
@@ -172,12 +184,19 @@ func qualifyGuardedCreateMetadata(metadata *domain.JiraQualifiedCreateMetadata, 
 			HasAutocomplete: field.HasAutocomplete,
 		})
 		if *field.Required && !*field.HasDefaultValue && !provided[field.FieldID] {
-			return "", nil, fmt.Errorf("%w: a required Jira create-screen field was omitted", domain.ErrCheckFailed)
+			return "", nil, guardedCreateCheckFailure(guardedCreateCheckRequiredFieldOmitted, field.FieldID,
+				fmt.Errorf("%w: a required Jira create-screen field was omitted", domain.ErrCheckFailed))
 		}
 	}
+	providedFields := make([]string, 0, len(provided))
 	for field := range provided {
+		providedFields = append(providedFields, field)
+	}
+	sort.Strings(providedFields)
+	for _, field := range providedFields {
 		if !seen[field] {
-			return "", nil, fmt.Errorf("%w: a supplied Jira create field is not on the qualified create screen", domain.ErrCheckFailed)
+			return "", nil, guardedCreateCheckFailure(guardedCreateCheckFieldNotOnScreen, field,
+				fmt.Errorf("%w: a supplied Jira create field is not on the qualified create screen", domain.ErrCheckFailed))
 		}
 	}
 	sort.Slice(rows, func(i, j int) bool { return rows[i].ID < rows[j].ID })
@@ -187,13 +206,15 @@ func qualifyGuardedCreateMetadata(metadata *domain.JiraQualifiedCreateMetadata, 
 
 func guardedCreateProposalFields(prepared domain.JiraGuardedCreatePreparation, inputs map[string]domain.JiraFieldInput, schemas map[string]string) ([]JiraGuardedCreateField, error) {
 	if len(prepared.Fields) != len(inputs) {
-		return nil, fmt.Errorf("%w: Jira create preparation projection is incomplete", domain.ErrCheckFailed)
+		return nil, guardedCreateCheckFailure(guardedCreateCheckPreparationInvalid, "",
+			fmt.Errorf("%w: Jira create preparation projection is incomplete", domain.ErrCheckFailed))
 	}
 	seen := map[string]bool{}
 	out := make([]JiraGuardedCreateField, 0, len(prepared.Fields))
 	for _, field := range prepared.Fields {
 		if seen[field.FieldID] || schemas[field.FieldID] == "" || field.Bytes <= 0 || !guardedCreateSHA256(field.SHA256) || field.JSONKind == "unknown" || field.InputKind != "legacy" && field.InputKind != "explicit_json" {
-			return nil, fmt.Errorf("%w: Jira create preparation projection is malformed", domain.ErrCheckFailed)
+			return nil, guardedCreateCheckFailure(guardedCreateCheckPreparationInvalid, field.FieldID,
+				fmt.Errorf("%w: Jira create preparation projection is malformed", domain.ErrCheckFailed))
 		}
 		seen[field.FieldID] = true
 		out = append(out, JiraGuardedCreateField{
@@ -201,9 +222,15 @@ func guardedCreateProposalFields(prepared domain.JiraGuardedCreatePreparation, i
 			NormalizedSHA: field.SHA256, NormalizedBytes: field.Bytes, SchemaSHA256: schemas[field.FieldID],
 		})
 	}
+	inputKeys := make([]string, 0, len(inputs))
 	for key := range inputs {
+		inputKeys = append(inputKeys, key)
+	}
+	sort.Strings(inputKeys)
+	for _, key := range inputKeys {
 		if !seen[key] {
-			return nil, fmt.Errorf("%w: Jira create preparation omitted a supplied field", domain.ErrCheckFailed)
+			return nil, guardedCreateCheckFailure(guardedCreateCheckPreparationInvalid, key,
+				fmt.Errorf("%w: Jira create preparation omitted a supplied field", domain.ErrCheckFailed))
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].FieldID < out[j].FieldID })

@@ -374,6 +374,15 @@ create`. A post-proof local failure is `applied_not_registered`. Preserve local
 files and recover only a safely proved returned key with
 `atl jira pull --jql 'key = NEW-1' --into ROOT --limit 1`.
 
+Known local qualification failures add a closed `check.code` and, only when it
+is a safe technical Jira id, `check.field_id`. A definitive HTTP refusal adds
+`rejection` with the status, closed `field_rejected` rows for fields on the
+qualified create screen, and bounded global/omitted counts. Jira message text,
+submitted values, display-name keys, raw bodies, paths, and backend URLs remain
+hidden. Fix the identified candidate field, create a fresh preview/hash, and
+apply once. An absent or unavailable rejection detail never makes an ambiguous
+write replay-safe.
+
 Flags:
 
 | flag | description |

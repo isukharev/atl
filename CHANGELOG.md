@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Guarded Jira issue creation now reports closed local qualification checks and
+  bounded definitive-rejection evidence. It identifies only qualified technical
+  field ids, HTTP status, and counts; backend messages, submitted values, raw
+  response bodies, paths, and URLs remain hidden.
 - Confluence push dry-run items now always emit explicit `remote_drifted`,
   `added_fragments`, `removed_fragments`, and `problems` review fields. Clean
   candidates use `false` and empty arrays, and text output reports additions as

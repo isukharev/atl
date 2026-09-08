@@ -133,7 +133,7 @@
     },
     {
       "path": "jira/SKILL.md",
-      "sha256": "0008178a1ad7389025fe77bb6912fb579037f3564e309dbee86777cc166a23e2"
+      "sha256": "20c543f75c576f8916d04cc4102f606086f8f34c74dac8cf8332494ae22b6141"
     },
     {
       "path": "jira/agents/openai.yaml",
