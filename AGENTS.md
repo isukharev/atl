@@ -135,8 +135,8 @@ contact configured providers or backends.
 - Put the runbook's low/standard/high class in the issue plan. Low-risk prose
   uses mapped docs checks only; standard/high work gets one review.
 - Use `docs/maintainer-impact.v1.json` for selection. Local checks are focused;
-  dispatch selected gates on GitHub after review. Require `ci-ready` on exact
-  PR head/base with strict up-to-date protection; retain docs/privacy/diff checks.
+  request gates by reviewed draft-to-ready transition. Require `ci-ready` on
+  exact PR head/base under strict protection; retain docs/privacy/diff checks.
 - Add a second review only after a material correctness/security or design fix.
 - Never derive or pin `GOROOT`; raw Go commands use
   `env -u GOROOT GOTOOLCHAIN=auto GOWORK=off go ...`.

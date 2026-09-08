@@ -19,13 +19,13 @@ description: Carry an ATL repository change from a shaped issue through linked b
 5. For a material fix, name changed paths and rerun only their impact-map gates;
    request a bounded follow-up only for material correctness, security, or
    design changes.
-6. Mark ready and manually dispatch hosted CI with exact reviewed PR head/base.
-   Reconcile its selected plan and required `ci-ready` check. A changed head or
-   base needs a new dispatch; `full` may widen the plan. Use bounded snapshots.
-   Never drive a watch with model-level wait/stdin polling. Do independent work
-   while checks run; when it is exhausted, use one bounded tool-internal
-   blocking watch and remain on the task. Inspect mergeability only after
-   checks are terminal.
+6. Follow the landing runbook's reviewed draft-to-ready procedure to request
+   hosted CI for the exact PR head/base. Reconcile its selected plan and required
+   `ci-ready` check; a changed head or base needs another reviewed transition.
+   Use bounded snapshots. Never drive a watch with model-level wait/stdin
+   polling. Do independent work while checks run; when it is exhausted, use one
+   bounded tool-internal blocking watch and remain on the task. Inspect
+   mergeability only after checks are terminal.
 7. Merge only when the author/authority rule permits it. Synchronize `main`,
    remove the working label, and update the durable checkpoint.
 

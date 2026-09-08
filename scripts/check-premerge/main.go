@@ -9,7 +9,6 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
-	"strconv"
 	"strings"
 	"time"
 
@@ -30,12 +29,18 @@ type revision struct {
 type pullRequest struct {
 	Number int      `json:"number"`
 	State  string   `json:"state"`
+	Draft  bool     `json:"draft"`
 	Head   revision `json:"head"`
 	Base   revision `json:"base"`
+	Labels []struct {
+		Name string `json:"name"`
+	} `json:"labels"`
 }
 
 type event struct {
-	Inputs map[string]string `json:"inputs"`
+	Action      string      `json:"action"`
+	Number      int         `json:"number"`
+	PullRequest pullRequest `json:"pull_request"`
 }
 
 type binding struct {
@@ -45,6 +50,8 @@ type binding struct {
 	Base       string
 	Checkout   string
 	Ref        string
+	HeadRef    string
+	BaseRef    string
 	Full       bool
 }
 
@@ -85,7 +92,7 @@ func run() error {
 	}
 	// Project at the producer: PR bodies, titles and other unrelated metadata
 	// never enter diagnostics. gh retains the workflow's read-only token scope.
-	query := `{number,state,head:{sha:.head.sha,ref:.head.ref,repo:{full_name:.head.repo.full_name}},base:{sha:.base.sha,ref:.base.ref,repo:{full_name:.base.repo.full_name}}}`
+	query := `{number,state,draft,head:{sha:.head.sha,ref:.head.ref,repo:{full_name:.head.repo.full_name}},base:{sha:.base.sha,ref:.base.ref,repo:{full_name:.base.repo.full_name}}}`
 	endpoint := fmt.Sprintf("repos/%s/pulls/%d", b.Repository, b.Number)
 	body, err = exec.CommandContext(ctx, "gh", "api", "--hostname", "github.com", endpoint, "--jq", query).Output()
 	if err != nil {
@@ -113,38 +120,35 @@ func eventBinding(name, repository, sha, ref string, body []byte) (binding, erro
 	if len(body) > 4<<20 || json.Unmarshal(body, &e) != nil {
 		return binding{}, errors.New("invalid workflow event")
 	}
-	if name != "workflow_dispatch" {
-		return binding{}, errors.New("premerge binding requires manual workflow_dispatch")
+	if name != "pull_request" || e.Action != "ready_for_review" {
+		return binding{}, errors.New("premerge binding requires a ready_for_review pull request event")
 	}
-	var err error
-	b.Number, err = strconv.Atoi(e.Inputs["pr"])
-	if err != nil || strconv.Itoa(b.Number) != e.Inputs["pr"] {
-		return binding{}, errors.New("manual dispatch requires a positive PR number")
-	}
-	b.Head, b.Base = e.Inputs["head_sha"], e.Inputs["base_sha"]
-	if b.Checkout != b.Head || !strings.HasPrefix(ref, "refs/heads/") {
-		return binding{}, errors.New("dispatch the PR branch at the expected head revision")
-	}
-	switch e.Inputs["full"] {
-	case "true":
-		b.Full = true
-	case "", "false":
-	default:
-		return binding{}, errors.New("full override must be true or false")
-	}
+	b.Number, b.Head, b.Base = e.Number, e.PullRequest.Head.SHA, e.PullRequest.Base.SHA
+	b.HeadRef, b.BaseRef = e.PullRequest.Head.Ref, e.PullRequest.Base.Ref
 	if b.Number <= 0 || !shaPattern.MatchString(b.Head) || !shaPattern.MatchString(b.Base) {
 		return binding{}, errors.New("missing or invalid PR/head/base binding")
+	}
+	if e.PullRequest.Number != b.Number || e.PullRequest.State != "open" || e.PullRequest.Draft ||
+		e.PullRequest.Head.Repo.FullName != repository || e.PullRequest.Base.Repo.FullName != repository ||
+		b.HeadRef == "" || b.BaseRef != "main" || ref != fmt.Sprintf("refs/pull/%d/merge", b.Number) {
+		return binding{}, errors.New("pull request event does not identify the expected open same-repository merge ref")
+	}
+	for _, label := range e.PullRequest.Labels {
+		if label.Name == "ci-full" {
+			b.Full = true
+			break
+		}
 	}
 	return b, nil
 }
 
 func validateCurrent(b binding, current pullRequest) error {
-	if current.Number != b.Number || current.State != "open" || current.Base.Ref != "main" ||
-		current.Base.Repo.FullName != b.Repository || current.Head.SHA != b.Head || current.Base.SHA != b.Base {
-		return errors.New("pull request is closed or its head/base changed; update the branch and dispatch again")
-	}
-	if current.Head.Repo.FullName != b.Repository || b.Ref != "refs/heads/"+current.Head.Ref {
-		return errors.New("manual dispatch must use this repository's PR head branch")
+	if current.Number != b.Number || current.State != "open" || current.Draft ||
+		current.Head.Repo.FullName != b.Repository || current.Base.Repo.FullName != b.Repository ||
+		current.Head.SHA != b.Head || current.Base.SHA != b.Base ||
+		current.Head.Ref != b.HeadRef || current.Base.Ref != b.BaseRef ||
+		b.Ref != fmt.Sprintf("refs/pull/%d/merge", b.Number) {
+		return errors.New("pull request is draft, closed, or its head/base changed; review and request checks again")
 	}
 	return nil
 }
@@ -154,8 +158,17 @@ func verifyCheckout(ctx context.Context, b binding) error {
 	if err != nil || strings.TrimSpace(string(head)) != b.Checkout {
 		return errors.New("checkout does not match the workflow revision")
 	}
+	parents, err := exec.CommandContext(ctx, "git", "rev-list", "--parents", "-n", "1", b.Checkout).Output()
+	if err != nil || strings.TrimSpace(string(parents)) != b.Checkout+" "+b.Base+" "+b.Head {
+		return errors.New("pull request checkout is not the ordered merge of the expected base and head")
+	}
 	if err := exec.CommandContext(ctx, "git", "merge-base", "--is-ancestor", b.Base, b.Head).Run(); err != nil {
-		return errors.New("manual head must contain the exact current base; update the branch and dispatch again")
+		return errors.New("pull request head does not contain the exact current base")
+	}
+	mergeTree, mergeErr := exec.CommandContext(ctx, "git", "rev-parse", b.Checkout+"^{tree}").Output()
+	headTree, headErr := exec.CommandContext(ctx, "git", "rev-parse", b.Head+"^{tree}").Output()
+	if mergeErr != nil || headErr != nil || strings.TrimSpace(string(mergeTree)) != strings.TrimSpace(string(headTree)) {
+		return errors.New("pull request merge tree differs from the reviewed head tree")
 	}
 	return nil
 }

@@ -117,7 +117,7 @@ func TestCorpusDevcontainerWorkflowBindsContractsToExactJob(t *testing.T) {
 
 	const header = "  corpus-devcontainer:\n"
 	const relocated = `  corpus-devcontainer:
-    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'pull_request' && github.event.action == 'ready_for_review'
     runs-on: ubuntu-latest
     steps:
       - run: true

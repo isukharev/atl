@@ -43,47 +43,62 @@ follow-up only when the finding or fix warrants it.
 
 ## CI and merge
 
-Premerge checks run on GitHub-hosted runners when the coordinator dispatches
-the reviewed PR revision. PR synchronization does not launch a full suite;
-main pushes retain only a bounded build smoke. `ci-ready` is the single required
-aggregate, with strict up-to-date branch protection. Weekly CodeQL and full
-release gates remain automatic.
+Premerge checks run on GitHub-hosted runners only for a `ready_for_review`
+event targeting `main`. Opening, reopening, synchronizing, or labeling a PR
+does not launch the suite; main pushes retain only a bounded build smoke.
+`ci-ready` is the single required aggregate, with strict up-to-date branch
+protection. Weekly CodeQL and full release gates remain automatic.
 
 Update the same-repository PR branch to contain current `main`, finish focused
-local verification and review, and capture the exact PR head/base revisions.
-Dispatch that branch, supplying the immutable revisions as inputs:
+local verification and review, and capture the exact PR head/base revisions. If
+the reviewed PR is already ready, first run `gh pr ready <number> --undo` and
+wait for it to finish. Re-read the PR and confirm that it is draft and that its
+head/base revisions are still the reviewed values before running:
 
 ```sh
-gh workflow run ci.yml --ref <pr-branch> \
-  -f pr=<number> -f head_sha=<reviewed-head-sha> -f base_sha=<current-main-sha>
+gh pr ready <number>
 ```
 
-Add `-f full=true` to widen the selected plan to every hosted gate. Callers
-cannot omit required lanes. The maintained impact owner reads the committed
-base/head policy union; the binding log records the closed plan. See
+Do not fire-and-forget or overlap the draft and ready transitions. A direct-ready
+PR creation produces no qualifying event; correct or review it as needed, then
+complete the draft-to-ready sequence. A merge conflict cannot produce admitted
+evidence; resolve and review it before another transition. The credential making
+the transition must be the coordinator's user, PAT, or GitHub App credential,
+not a workflow `GITHUB_TOKEN` trampoline whose events can be suppressed.
+
+To widen the selected plan to every hosted gate, apply the exact `ci-full` label
+before requesting ready. The event captures that label snapshot; changing labels
+later neither changes nor starts a run. Callers cannot omit required lanes. The
+maintained impact owner reads the committed base/head policy union, and the
+binding log records the closed plan. See
 [Development](development.md#select-verification-once-the-diff-is-stable) for
 the module-level contour and conservative fallback rules.
 
-The workflow checks the dispatched commit, PR branch, open PR, and exact
-head/base against current GitHub metadata before and after the gates. The base
-must be an ancestor of the checked head. This manual route requires a branch in
-the repository; a fork revision needs a reviewed same-repository branch/PR
-before dispatch. Selecting `main` and checking out another commit cannot
-produce valid PR evidence.
+The workflow requires an open, non-draft, same-repository PR and checks the
+event's exact head/base branches, synthetic merge ref, and merge checkout. The
+checkout must have the event base/head as ordered parents, the base must be an
+ancestor of the head, and the merge tree must equal the reviewed head tree. The
+same facts are read from current GitHub metadata before and after the gates.
+Fork revisions must first move to a reviewed same-repository branch and PR.
 
 `ci-ready` recomputes the committed plan, requires successful binding/contracts
 and every selected job, and accepts skips only for jobs explicitly excluded by
 that exact plan. Failed, cancelled, missing, or unexpectedly skipped work fails
-the aggregate. If head or base changes, update/review the branch as applicable
-and dispatch a fresh run. Rerunning an old event does not update its revisions.
-Before merge, reconcile the run's event, `headSha`, plan, and current PR
-head/base; strict protection guards base movement after the run completes.
+the aggregate. If the head or base changes, update and review the branch, finish
+the draft transition, re-confirm current refs, and request ready again. For a
+same-head retry, use the same completed draft-to-ready sequence; rerunning an old
+event does not update its revision or label snapshot. Because synchronization
+does not trigger the workflow, stale runs are not cancelled automatically; the
+coordinator explicitly cancels a superseded run when needed. Final current-ref
+and non-draft checks reject stale evidence. Before merge, reconcile the run's
+event, `headSha`, plan, and current PR head/base; strict protection guards base
+movement after the run completes.
 
-For the required-check migration, first merge the bootstrap and observe its
-manual aggregate on a PR head under existing protection. Add and verify
-`ci-ready` before retiring legacy contexts, then activate manual-only selection.
-Never disable required checks between updates. Configuration changes remain
-separate authorized actions; a local workflow patch does not change protection.
+For the required-check migration, first observe the native `ci-ready` aggregate
+on a PR head under existing protection. Add and verify `ci-ready` before retiring
+legacy contexts, then activate ready-event-only selection. Never disable required
+checks between updates. Configuration changes remain separate authorized
+actions; a local workflow patch does not change protection.
 
 Mark the PR ready only after focused local verification and review. Inspect hosted
 checks rather than assuming that a queued workflow passed. Never keep a watch

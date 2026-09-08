@@ -12,29 +12,13 @@ const ciCheckoutStepContract = checkoutStepContract + `
 const ciTriggerContract = `on:
   push:
     branches: [main]
-  workflow_dispatch:
-    inputs:
-      pr:
-        description: Open pull request number (same repository, targeting main)
-        required: true
-        type: string
-      head_sha:
-        description: Exact reviewed PR head SHA; dispatch its branch
-        required: true
-        type: string
-      base_sha:
-        description: Exact current main SHA, already contained in the PR head
-        required: true
-        type: string
-      full:
-        description: Widen the selected contour to every hosted gate
-        required: false
-        default: false
-        type: boolean
+  pull_request:
+    branches: [main]
+    types: [ready_for_review]
 `
 
 const bindingJobContract = `  binding:
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'pull_request'
     outputs:
       plan: ${{ steps.binding.outputs.plan }}
       product: ${{ steps.binding.outputs.product }}
@@ -55,7 +39,7 @@ const bindingJobContract = `  binding:
 `
 
 const readyJobContract = `  ci-ready:
-    if: always() && github.event_name == 'workflow_dispatch'
+    if: always() && github.event_name == 'pull_request'
     needs: [binding, contracts, test, corpus-devcontainer, agent-eval, agent-eval-platform, agent-eval-extension-windows, lint, govulncheck, codeql]
     runs-on: ubuntu-latest
     permissions:
@@ -82,7 +66,7 @@ const codeQLCallJobContract = `  codeql:
 
 const contractsJobContract = `  contracts:
     needs: binding
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
 ` + agentEvalCheckoutStepContract + "\n" + setupGoStepContract + "\n" + `      - name: Maintainer toolchain contract
@@ -99,8 +83,8 @@ const contractsJobContract = `  contracts:
         run: make check-docs-catalog
       - name: Documentation freshness
         env:
-          ATL_DOCS_BASE: ${{ inputs.base_sha }}
-          ATL_DOCS_HEAD: ${{ inputs.head_sha }}
+          ATL_DOCS_BASE: ${{ github.event.pull_request.base.sha }}
+          ATL_DOCS_HEAD: ${{ github.event.pull_request.head.sha }}
         run: make check-docs-freshness
       - name: Repository maintainer skills
         run: make check-repository-skills
@@ -299,7 +283,7 @@ func validateCITriggers(contents []byte) error {
 		return err
 	}
 	if strings.TrimSpace(string(trigger)) != strings.TrimSpace(ciTriggerContract) {
-		return fmt.Errorf("ci workflow must retain the exact pull-request and bound manual trigger contract")
+		return fmt.Errorf("ci workflow must retain the exact reviewed ready-event trigger contract")
 	}
 	return nil
 }

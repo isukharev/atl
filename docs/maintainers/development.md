@@ -126,11 +126,12 @@ the risk:
   complete applicable contour, one independent review, and any explicit
   boundary-specific oracle.
 
-Premerge CI is manually dispatched after review with exact PR head/base
-revisions. The maintained impact policy selects hosted module-level gates;
-`ci-ready` is the required aggregate under strict up-to-date protection. Focused
-local verification supports iteration. Privacy, issue-first tracking, the
-reviewed revision, and merge authority remain required for every class.
+Premerge CI is explicitly requested after review by moving the PR from draft to
+ready. The resulting event binds exact PR head/base revisions. The maintained
+impact policy selects hosted module-level gates; `ci-ready` is the required
+aggregate under strict up-to-date protection. Focused local verification
+supports iteration. Privacy, issue-first tracking, the reviewed revision, and
+merge authority remain required for every class.
 
 ## Implement by invariant
 
@@ -157,11 +158,12 @@ reviewed revision, and merge authority remain required for every class.
 
 ## Select verification once the diff is stable
 
-Iterate with the smallest focused local test, then dispatch the selected full
+Iterate with the smallest focused local test, then request the selected full
 gates once on the reviewed hosted head. Use `docs/maintainer-impact.v1.json`
 (through `check-docs-freshness`) for local and hosted selection. Keep mapped
 documentation checks, privacy review, and `git diff --check`. A changed head or
-base needs a new bound dispatch; focused local reruns cover the affected paths.
+base needs a new reviewed ready transition; focused local reruns cover the
+affected paths.
 
 Treat the stable integrated diff as one verification boundary. Do not run a
 local copy of a hosted gate against identical bytes merely to wait for CI
@@ -195,7 +197,7 @@ env -u GOROOT GOTOOLCHAIN=auto GOWORK=off go ...
 
 High-risk diffs finish with independent review and the complete applicable
 hosted contour. Do not duplicate root-wide or evaluator full suites locally as
-a default admission requirement. Use the bound dispatch procedure in
+a default admission requirement. Use the bound ready-event procedure in
 [Landing a change](landing-a-change.md#ci-and-merge).
 
 For a change relative to a branch or commit, ask the maintained impact map for
@@ -209,9 +211,9 @@ The same manifest annotates hosted lanes on its path rules. The hosted planner
 reads only the committed base/head policies, unions their selections for every
 changed path, and includes both sides of renames and copies plus deleted paths.
 Legacy policy, an unclassified change, or a policy-file change widens selection
-to full; invalid policy blocks the run. The optional manual `full` input only
-widens the selection. The aggregate recomputes this plan before accepting any
-intentionally skipped job.
+to full; invalid policy blocks the run. An exact `ci-full` label captured by the
+ready event only widens the selection. The aggregate recomputes this plan before
+accepting any intentionally skipped job.
 
 | Change scope | Hosted contour |
 |---|---|

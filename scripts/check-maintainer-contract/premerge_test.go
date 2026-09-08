@@ -11,8 +11,11 @@ func TestPremergeContractRejectsProtectionGaps(t *testing.T) {
 	tests := []struct {
 		name, path, old, replacement string
 	}{
-		{"missing manual head", "ci.yml", "      head_sha:\n", "      other_sha:\n"},
-		{"automatic trigger reintroduced", "ci.yml", "  workflow_dispatch:\n", "  pull_request:\n    branches: [main]\n  workflow_dispatch:\n"},
+		{"ready trigger widened to opened", "ci.yml", "    types: [ready_for_review]\n", "    types: [ready_for_review, opened]\n"},
+		{"ready trigger widened to synchronize", "ci.yml", "    types: [ready_for_review]\n", "    types: [ready_for_review, synchronize]\n"},
+		{"manual trigger reintroduced", "ci.yml", "  pull_request:\n", "  workflow_dispatch:\n  pull_request:\n"},
+		{"binding skips unexpected action", "ci.yml", bindingJobContract, strings.Replace(bindingJobContract, "github.event_name == 'pull_request'", "github.event_name == 'pull_request' && github.event.action == 'ready_for_review'", 1)},
+		{"aggregate skips unexpected action", "ci.yml", readyJobContract, strings.Replace(readyJobContract, "github.event_name == 'pull_request'", "github.event_name == 'pull_request' && github.event.action == 'ready_for_review'", 1)},
 		{"wrong binding checkout", "ci.yml", bindingJobContract, strings.Replace(bindingJobContract, "ref: ${{ github.sha }}", "ref: main", 1)},
 		{"conditional binding", "ci.yml", bindingJobContract, strings.Replace(bindingJobContract, "    runs-on:", "    continue-on-error: true\n    runs-on:", 1)},
 		{"missing aggregate dependency", "ci.yml", "lint, govulncheck, codeql]", "lint, govulncheck]"},
@@ -22,7 +25,8 @@ func TestPremergeContractRejectsProtectionGaps(t *testing.T) {
 		{"aggregate no final API permission", "ci.yml", readyJobContract, strings.Replace(readyJobContract, "      pull-requests: read\n", "", 1)},
 		{"aggregate wrong results", "ci.yml", "ATL_PREMERGE_NEEDS: ${{ toJSON(needs) }}", "ATL_PREMERGE_NEEDS: '{}'"},
 		{"codeql dependency replaced", "ci.yml", "uses: ./.github/workflows/codeql.yml", "uses: ./.github/workflows/other.yml"},
-		{"manual docs head absent", "ci.yml", "ATL_DOCS_HEAD: ${{ inputs.head_sha }}", "ATL_DOCS_HEAD: ${{ github.event.pull_request.head.sha }}"},
+		{"event docs head absent", "ci.yml", "ATL_DOCS_HEAD: ${{ github.event.pull_request.head.sha }}", "ATL_DOCS_HEAD: ${{ github.sha }}"},
+		{"event docs base absent", "ci.yml", "ATL_DOCS_BASE: ${{ github.event.pull_request.base.sha }}", "ATL_DOCS_BASE: ${{ github.sha }}"},
 		{"automatic codeql reintroduced", "codeql.yml", "  workflow_dispatch:\n", "  pull_request:\n    branches: [main]\n  workflow_dispatch:\n"},
 		{"weekly codeql removed", "codeql.yml", "  schedule:\n    - cron: '27 3 * * 1'\n", ""},
 		{"reusable codeql removed", "codeql.yml", "  workflow_call:", "  other_event:"},
