@@ -100,9 +100,9 @@ are canonical in the focused references. Do not reconstruct them from memory.
 
 ## Development and verification
 
-Start with the read-only preflight and check-selection table in
-[Development and verification](docs/maintainers/development.md). Requires the
-exact Go patch declared by the applicable module's `go.mod` (currently 1.26.6+).
+Follow [Development](docs/maintainers/development.md): read-only preflight,
+contract-preserving simplification during implementation and review, and check
+selection. Use the exact Go patch in the applicable `go.mod`.
 
 Core gates:
 

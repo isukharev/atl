@@ -62,6 +62,53 @@ interfaces, and implementations.
 Keep one implementation owner per overlapping file set. Delegated work is
 bounded by the brief; the root integrates and verifies the final diff.
 
+## Simplify within the contract
+
+Apply these criteria to the touched behavior during ordinary implementation
+and review, without requiring a separate simplification request. The outcome
+is fewer independently maintained mechanisms and clearer ownership. Line
+counts, file counts, and one-liners are not quality targets; a clearer design
+may need more lines or files. Keep this within the task's scope and existing
+review, not an additional repository-wide audit or approval stage.
+
+- **Find the existing solution first.** Trace the actual flow and its owner
+  with `rg` and source reads. Check existing helpers, ports, and service
+  patterns before adding an implementation, then consider the standard library
+  and already-installed dependencies. Reuse requires matching semantics and
+  the permitted dependency direction. For example, `internal/jiramap` shares
+  Jira field mapping between REST and offline consumers without importing an
+  adapter into the app layer.
+- **Fix the cause at its owner.** Inspect affected callers before changing a
+  shared helper; use a `go/ast` oracle when completeness must be demonstrated.
+  Consolidate behavior only when its contract is shared. Similar-looking code
+  with different retry, authorization, or recovery rules is not automatically
+  duplication, and a scenario-specific condition need not move into a common
+  helper.
+- **Justify new mechanisms by current needs.** A new abstraction, dependency,
+  configuration option, cache, or mode should serve a current consumer,
+  contract, necessary boundary, or measured limitation. Defer speculative
+  flexibility, not requested functionality. One implementation or caller does
+  not make a port redundant: read/write capability separation and dependency
+  isolation are current purposes. Before deleting apparently unused code or
+  configuration, check supported external contracts as well as local callers.
+- **Compare guarantees before replacing code.** A shorter library call must
+  preserve relevant input handling, errors, cancellation, concurrency,
+  durability, and platform behavior. For example, replacing
+  `safepath.WriteFileAtomic` with `os.WriteFile` would lose atomic replacement;
+  reuse the appropriate safe-path primitive instead. Consolidating guards must
+  retain coverage of each entry path and failure outcome they protect.
+- **Record real limits, not routine simplicity.** When a deliberate tradeoff
+  has a known ceiling, explain why it fits the current bounds and name a
+  measurable trigger for revisiting it in the owning code or existing issue.
+  Ordinary reuse needs no special marker or separate debt ledger.
+- **Review the simplification with its evidence.** For a proposed removal or
+  replacement, identify the location, mechanism removed, replacement (if any),
+  preserved guarantees, and focused verification. Prioritize reduced duplicate
+  logic, state, and dependencies over deleted lines. Keep the risk- and
+  impact-selected checks below; a smoke test alone does not establish safety,
+  compatibility, or equivalence. If no justified simplification remains,
+  continue the task without manufacturing a refactor.
+
 ## Classify the process contour
 
 State one class in the public issue plan and escalate only when evidence expands
