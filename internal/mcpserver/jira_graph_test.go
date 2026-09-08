@@ -79,6 +79,15 @@ func TestJiraIssueGraphToolRejectsInvalidInputBeforeJiraConstruction(t *testing.
 		{"key": "PROJ-1", "projection": "compact", "select": []string{"none", "urls"}},
 		{"key": "PROJ-1", "projection": "compact", "select": []string{"scm"}},
 		{"key": "PROJ-1", "resolve_confluence": true},
+		{"key": "PROJ-1", "include_sources": []string{}},
+		{"key": "PROJ-1", "exclude_sources": []string{}},
+		{"key": "PROJ-1", "include_sources": nil},
+		{"key": "PROJ-1", "include_sources": "comments"},
+		{"key": "PROJ-1", "include_sources": []string{"unknown"}},
+		{"key": "PROJ-1", "include_sources": []string{" comments"}},
+		{"key": "PROJ-1", "include_sources": []string{"development"}},
+		{"key": "PROJ-1", "include_sources": []string{"comments"}, "exclude_sources": []string{"comments"}},
+		{"key": "PROJ-1", "include_development": true, "exclude_sources": []string{"development"}},
 	}
 	for _, args := range tests {
 		result, err := client.CallTool(context.Background(), &mcp.CallToolParams{Name: "jira_issue_graph", Arguments: args})
@@ -661,6 +670,13 @@ func validMCPGraphResult(key string, opts app.JiraIssueGraphOptions, label strin
 	if opts.IncludeDevelopment {
 		kinds = append(kinds, "development")
 	}
+	selection, err := app.NormalizeJiraIssueGraphSources(opts.IncludeSources, opts.ExcludeSources, opts.IncludeDevelopment)
+	if err != nil {
+		panic(err)
+	}
+	if selection != nil {
+		kinds = selection.Selected
+	}
 	sources := make([]domain.ArtifactGraphSource, 0, len(kinds))
 	for _, kind := range kinds {
 		stability := domain.ArtifactStabilityPublicAPI
@@ -677,6 +693,7 @@ func validMCPGraphResult(key string, opts app.JiraIssueGraphOptions, label strin
 	}
 	return &app.JiraIssueGraphResult{
 		SchemaVersion: 2, RootID: "jira:issue:" + key, Complete: true,
+		SourceSelection: selection,
 		Bounds: app.JiraIssueGraphBounds{
 			RequestedDepth: opts.Depth, MaxNodes: opts.MaxNodes, MaxEdges: opts.MaxEdges,
 			MaxEvidence: opts.MaxEvidence, MaxSourceBytes: 1 << 20,

@@ -12,6 +12,7 @@ Keep the whole investigation read-only and begin at depth zero:
 export ATL_READ_ONLY=1
 atl jira issue graph DEMO-1
 atl jira issue graph DEMO-1 --projection compact
+atl jira issue graph DEMO-1 --include-sources issue_links,hierarchy
 ```
 
 Depth zero expands only `DEMO-1`. Related Jira issues, Confluence page ids,
@@ -26,6 +27,16 @@ Before using the graph, check:
 - reconciliation counts for nodes, edges, and evidence;
 - `bounds` request/response usage;
 - the bounded `frontier` when expansion stopped early.
+
+Use `--include-sources` to choose collectors before reads, or `--exclude-sources`
+to subtract from the default source set. Check `source_selection.selected` and
+`source_selection.omitted`: omitted sources never establish absence.
+Only selected sources contribute to completeness at every depth. The snapshot
+projection also discloses supporting reads: hierarchy may require all fields
+for dynamic Epic Link discovery without inspecting omitted narrative evidence.
+`--include-development` remains a required opt-in, even when explicitly naming
+the Development source. Without source selectors the graph keeps its existing
+output and request sequence.
 
 An empty or absent relation is evidence of absence only when the source and the
 whole relevant selection are complete.
@@ -92,12 +103,18 @@ Use the smallest depth that answers the question:
 ```sh
 atl jira issue graph DEMO-1 --depth 1
 atl jira issue graph DEMO-1 --depth 2 --strict
+atl jira issue children DEMO-1 --epic-field parent
 ```
 
 CLI depth may be `0..3`. Traversal is canonical breadth-first and follows only
 structured Jira links or hierarchy. A key mentioned in description, comment,
 worklog, or a text custom field is recorded as evidence but never followed as
 if it were an authoritative relationship.
+
+For inverse parent membership, use the existing bounded `jira issue children`
+page, discoverable through `jira/graph-evidence`. Its source records the parent
+and relation, completeness, truncation and continuation. Board and Structure
+routes remain available for portfolio membership and hierarchy.
 
 `--strict` still emits the qualified graph, then exits `8` when requested
 evidence is incomplete. Use it in CI or an agent workflow that must not proceed

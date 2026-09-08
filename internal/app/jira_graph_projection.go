@@ -107,17 +107,18 @@ type JiraIssueGraphCompactSummary struct {
 // JiraIssueGraphCompactResult is the schema-v1 qualified projection of an
 // already collected and validated schema-v2 Jira graph.
 type JiraIssueGraphCompactResult struct {
-	SchemaVersion int                             `json:"schema_version"`
-	Projection    JiraIssueGraphCompactProjection `json:"projection"`
-	RootID        string                          `json:"root_id"`
-	Complete      bool                            `json:"complete"`
-	Truncated     bool                            `json:"truncated,omitempty"`
-	Bounds        JiraIssueGraphBounds            `json:"bounds"`
-	Summary       JiraIssueGraphCompactSummary    `json:"summary"`
-	Facts         []JiraIssueGraphCompactFact     `json:"facts"`
-	Sources       []domain.ArtifactGraphSource    `json:"sources"`
-	Frontier      []JiraIssueGraphFrontierItem    `json:"frontier,omitempty"`
-	Warnings      []string                        `json:"warnings,omitempty"`
+	SchemaVersion   int                             `json:"schema_version"`
+	Projection      JiraIssueGraphCompactProjection `json:"projection"`
+	RootID          string                          `json:"root_id"`
+	Complete        bool                            `json:"complete"`
+	Truncated       bool                            `json:"truncated,omitempty"`
+	Bounds          JiraIssueGraphBounds            `json:"bounds"`
+	Summary         JiraIssueGraphCompactSummary    `json:"summary"`
+	Facts           []JiraIssueGraphCompactFact     `json:"facts"`
+	Sources         []domain.ArtifactGraphSource    `json:"sources"`
+	Frontier        []JiraIssueGraphFrontierItem    `json:"frontier,omitempty"`
+	Warnings        []string                        `json:"warnings,omitempty"`
+	SourceSelection *JiraIssueGraphSourceSelection  `json:"source_selection,omitempty"`
 }
 
 // NormalizeJiraIssueGraphProjection validates and canonicalizes the closed
@@ -258,16 +259,17 @@ func ProjectJiraIssueGraphCompact(full *JiraIssueGraphResult, opts JiraIssueGrap
 	}
 
 	result := &JiraIssueGraphCompactResult{
-		SchemaVersion: jiraIssueGraphCompactSchemaVersion,
-		Projection:    projection,
-		RootID:        full.RootID,
-		Complete:      full.Complete,
-		Truncated:     full.Truncated,
-		Bounds:        full.Bounds,
-		Facts:         facts,
-		Sources:       sources,
-		Frontier:      append([]JiraIssueGraphFrontierItem(nil), full.Frontier...),
-		Warnings:      append([]string(nil), full.Warnings...),
+		SchemaVersion:   jiraIssueGraphCompactSchemaVersion,
+		Projection:      projection,
+		RootID:          full.RootID,
+		Complete:        full.Complete,
+		Truncated:       full.Truncated,
+		Bounds:          full.Bounds,
+		Facts:           facts,
+		Sources:         sources,
+		Frontier:        append([]JiraIssueGraphFrontierItem(nil), full.Frontier...),
+		Warnings:        append([]string(nil), full.Warnings...),
+		SourceSelection: cloneJiraGraphSourceSelection(full.SourceSelection),
 	}
 	result.Summary = jiraIssueGraphCompactSummary(full, result)
 	return result, nil

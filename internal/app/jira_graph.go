@@ -80,17 +80,18 @@ type JiraIssueGraphSummary struct {
 
 // JiraIssueGraphResult is the authoritative transient bounded graph.
 type JiraIssueGraphResult struct {
-	SchemaVersion int                          `json:"schema_version"`
-	RootID        string                       `json:"root_id"`
-	Complete      bool                         `json:"complete"`
-	Truncated     bool                         `json:"truncated,omitempty"`
-	Bounds        JiraIssueGraphBounds         `json:"bounds"`
-	Summary       JiraIssueGraphSummary        `json:"summary"`
-	Nodes         []domain.ArtifactGraphNode   `json:"nodes"`
-	Edges         []domain.ArtifactGraphEdge   `json:"edges"`
-	Sources       []domain.ArtifactGraphSource `json:"sources"`
-	Frontier      []JiraIssueGraphFrontierItem `json:"frontier,omitempty"`
-	Warnings      []string                     `json:"warnings,omitempty"`
+	SchemaVersion   int                            `json:"schema_version"`
+	RootID          string                         `json:"root_id"`
+	Complete        bool                           `json:"complete"`
+	Truncated       bool                           `json:"truncated,omitempty"`
+	Bounds          JiraIssueGraphBounds           `json:"bounds"`
+	Summary         JiraIssueGraphSummary          `json:"summary"`
+	Nodes           []domain.ArtifactGraphNode     `json:"nodes"`
+	Edges           []domain.ArtifactGraphEdge     `json:"edges"`
+	Sources         []domain.ArtifactGraphSource   `json:"sources"`
+	Frontier        []JiraIssueGraphFrontierItem   `json:"frontier,omitempty"`
+	Warnings        []string                       `json:"warnings,omitempty"`
+	SourceSelection *JiraIssueGraphSourceSelection `json:"source_selection,omitempty"`
 }
 
 type jiraGraphBuilder struct {
@@ -102,8 +103,7 @@ type jiraGraphBuilder struct {
 	sourceKinds   []string
 }
 
-func newJiraGraphBuilderWithSources(rootID string, includeDevelopment bool) *jiraGraphBuilder {
-	sourceKinds := jiraGraphSourceKinds(includeDevelopment)
+func newJiraGraphBuilderWithSources(rootID string, sourceKinds []string) *jiraGraphBuilder {
 	result := &JiraIssueGraphResult{
 		RootID: rootID,
 	}
@@ -321,100 +321,6 @@ func (b *jiraGraphBuilder) collectAttachments(snapshot *domain.QualifiedIssueSna
 		}, source)
 	}
 	b.completeSource(source)
-}
-
-func (b *jiraGraphBuilder) collectSnapshotText(snapshot *domain.QualifiedIssueSnapshot, jiraBase, confluenceBase string) {
-	fieldsSource := b.sources["issue_fields"]
-	propertiesSource := b.sources["issue_properties"]
-	fieldsSource.Count = len(snapshot.Fields)
-	propertiesSource.Count = len(snapshot.Properties)
-	fieldsBudget := &graphExtractBudget{MaxBytes: jiraGraphMaxSourceBytes}
-	fieldIDs := graphSortedSourceKeys(snapshot.Fields, fieldsBudget, graphWalkMaxFields)
-	type fieldInspection struct {
-		id        string
-		allowBare bool
-	}
-	inspections := make([]fieldInspection, 0, len(fieldIDs))
-	for _, fieldID := range fieldIDs {
-		if graphSkippedPathKeys[strings.ToLower(fieldID)] {
-			continue
-		}
-		switch fieldID {
-		case "issuelinks", "parent", "subtasks", "attachment", "comment", "worklog":
-			continue
-		}
-		if !graphValueMayContainReferences(snapshot.Fields[fieldID]) {
-			continue
-		}
-		schema, schemaPresent := snapshot.Schema[fieldID]
-		if !schemaPresent {
-			b.markMalformed(fieldsSource)
-			continue
-		}
-		custom := graphCustomFieldIDPattern.MatchString(fieldID)
-		schema, schemaValid := graphNormalizeFieldSchema(schema, custom)
-		if !schemaValid {
-			b.markMalformed(fieldsSource)
-			continue
-		}
-		knownSystem := graphKnownSystemFieldID(fieldID) || schema.System != "" && strings.EqualFold(schema.System, fieldID)
-		if custom && schema.System != "" || knownSystem && schema.Custom != "" {
-			b.markMalformed(fieldsSource)
-			continue
-		}
-		if !custom && !knownSystem {
-			b.markMalformed(fieldsSource)
-		}
-		if knownSystem && schema.System != "" && !strings.EqualFold(schema.System, fieldID) {
-			b.markMalformed(fieldsSource)
-			continue
-		}
-		if graphSchemaIsIdentity(schema) {
-			continue
-		}
-		name, namePresent := snapshot.Names[fieldID]
-		allowBare := false
-		if custom || knownSystem {
-			allowBare = graphFieldAllowsBareReferences(fieldID, name, schema)
-		}
-		if custom && (!namePresent || strings.TrimSpace(name) == "") {
-			b.markMalformed(fieldsSource)
-			allowBare = false
-		}
-		inspections = append(inspections, fieldInspection{id: fieldID, allowBare: allowBare})
-	}
-	for _, inspection := range inspections {
-		if fieldsBudget.Clipped {
-			break
-		}
-		fieldID := inspection.id
-		safeFieldID := graphSafeFieldToken(fieldID)
-		walkGraphValue(snapshot.Fields[fieldID], "/fields/"+escapeJSONPointer(safeFieldID), inspection.allowBare, fieldsBudget,
-			func(value any, pointer string, bare bool) {
-				b.addValueReferences(value, pointer, "issue_fields", "field", safeFieldID, bare, jiraBase, confluenceBase, fieldsSource)
-			})
-	}
-	if fieldsBudget.Clipped {
-		b.markInspectionLimit(fieldsSource)
-	}
-	b.completeSource(fieldsSource)
-
-	propertiesBudget := &graphExtractBudget{MaxBytes: jiraGraphMaxSourceBytes}
-	propertyKeys := graphSortedSourceKeys(snapshot.Properties, propertiesBudget, graphWalkMaxObject)
-	for _, property := range propertyKeys {
-		if propertiesBudget.Clipped {
-			break
-		}
-		safeProperty := "opaque-" + graphHash(property)
-		walkGraphValue(snapshot.Properties[property], "/properties/"+escapeJSONPointer(safeProperty), true, propertiesBudget,
-			func(value any, pointer string, bare bool) {
-				b.addValueReferences(value, pointer, "issue_properties", "property", safeProperty, bare, jiraBase, confluenceBase, propertiesSource)
-			})
-	}
-	if propertiesBudget.Clipped {
-		b.markInspectionLimit(propertiesSource)
-	}
-	b.completeSource(propertiesSource)
 }
 
 func (b *jiraGraphBuilder) collectComments(ctx context.Context, tracker domain.Tracker, key, jiraBase, confluenceBase string) error {
@@ -920,6 +826,14 @@ func JiraIssueGraphMarkdown(result *JiraIssueGraphResult) string {
 		result.Bounds.ResponseBytesUsed, result.Bounds.MaxResponseBytes)
 	fmt.Fprintf(&out, "- Nodes: `%d`; edges: `%d`; evidence: `%d`; sources: `%d`\n\n",
 		result.Summary.NodeCount, result.Summary.EdgeCount, result.Summary.EvidenceCount, result.Summary.SourceCount)
+	if selection := result.SourceSelection; selection != nil {
+		fmt.Fprintf(&out, "- Selected sources: `%s`\n- Omitted sources: `%s`\n", strings.Join(selection.Selected, ","), strings.Join(selection.Omitted, ","))
+		fmt.Fprintf(&out, "- Snapshot fields: `%s`; properties: `%t`\n", strings.Join(selection.Snapshot.Fields, ","), selection.Snapshot.Properties)
+		if selection.Snapshot.SupportingFieldsReason != "" {
+			fmt.Fprintf(&out, "- Supporting fields: `%s`\n", selection.Snapshot.SupportingFieldsReason)
+		}
+		out.WriteString("\n")
+	}
 
 	sourceRows := make([][]string, 0, len(result.Sources))
 	for _, source := range result.Sources {

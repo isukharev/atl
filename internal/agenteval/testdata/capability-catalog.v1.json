@@ -6,7 +6,7 @@
     "stop": "stop expanding the route when sufficient complete evidence is available"
   },
   "selection": {
-    "count": 69
+    "count": 70
   },
   "capabilities": [
     {
@@ -995,6 +995,28 @@
       ],
       "evidence": "qualified",
       "completeness": "per-source-and-traversal",
+      "skill": "jira",
+      "reference": "reference/evidence-workflow.md"
+    },
+    {
+      "id": "jira.issue.children",
+      "task_class": "jira/graph-evidence",
+      "service": "jira",
+      "role": "expand",
+      "priority": 20,
+      "summary": "Read one bounded inverse hierarchy page with explicit parent and relation qualification",
+      "command": "jira issue children",
+      "cli_command": "jira issue children",
+      "cli_only": true,
+      "access": "read-only",
+      "effect_profile": "remote-read",
+      "output_modes": [
+        "json",
+        "text",
+        "id"
+      ],
+      "evidence": "qualified",
+      "completeness": "explicit",
       "skill": "jira",
       "reference": "reference/evidence-workflow.md"
     },

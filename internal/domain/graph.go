@@ -155,6 +155,20 @@ type QualifiedIssueSnapshotReader interface {
 	ReadIssueSnapshot(ctx context.Context, key string) (*QualifiedIssueSnapshot, error)
 }
 
+// IssueSnapshotProjection qualifies the fields and property section needed by
+// selected graph collectors. Names and schema accompany every projection.
+type IssueSnapshotProjection struct {
+	Fields                 []string `json:"fields"`
+	Properties             bool     `json:"properties"`
+	SupportingFieldsReason string   `json:"supporting_fields_reason,omitempty"`
+}
+
+// QualifiedIssueSnapshotProjectionReader preserves explicit read minimization;
+// callers must not fall back to the broad snapshot when it is unavailable.
+type QualifiedIssueSnapshotProjectionReader interface {
+	ReadIssueSnapshotProjection(ctx context.Context, key string, projection IssueSnapshotProjection) (*QualifiedIssueSnapshot, error)
+}
+
 // JiraRemoteLink is the supported Jira remote-link projection. It deliberately
 // omits user records and preserves only bounded graph identity/label metadata.
 // GlobalID and ApplicationType are opaque bounded backend identifiers used for

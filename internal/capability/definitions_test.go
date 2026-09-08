@@ -186,6 +186,22 @@ func TestJiraIssueGraphHasOneJiraOnlyTypedRoute(t *testing.T) {
 	}
 }
 
+func TestJiraIssueChildrenIsBoundedGraphEvidenceRoute(t *testing.T) {
+	count := 0
+	for _, definition := range Definitions() {
+		if definition.ID != "jira.issue.children" {
+			continue
+		}
+		count++
+		if definition.TaskClass != "jira/graph-evidence" || definition.Service != "jira" || definition.Role != "expand" || definition.Priority != 20 || definition.CLICommand != "jira issue children" || definition.MCPTool != "" || definition.Completeness != "explicit" || definition.Evidence != "qualified" {
+			t.Fatalf("children route=%+v", definition)
+		}
+	}
+	if count != 1 {
+		t.Fatalf("children routes=%d", count)
+	}
+}
+
 func TestJiraInverseReferenceIsOneCLIOnlyRoute(t *testing.T) {
 	count := 0
 	for _, definition := range Definitions() {

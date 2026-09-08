@@ -22,13 +22,22 @@ func jiraIssueGraphCmd() *cobra.Command {
 		includeDevelopment bool
 		projection         string
 		selectors          []string
+		includeSources     []string
+		excludeSources     []string
 	)
 	graphOptions := func(cmd *cobra.Command) (app.JiraIssueGraphOptions, app.JiraIssueGraphProjectionOptions, error) {
+		if cmd.Flags().Changed("include-sources") && includeSources == nil {
+			includeSources = []string{}
+		}
+		if cmd.Flags().Changed("exclude-sources") && excludeSources == nil {
+			excludeSources = []string{}
+		}
 		opts := app.JiraIssueGraphOptions{
 			Depth: depth, MaxNodes: maxNodes, MaxEdges: maxEdges,
 			MaxEvidence: maxEvidence, MaxRequests: maxRequests,
 			MaxResponseBytes: maxBytes, ResolveConfluence: resolve == "confluence",
 			IncludeDevelopment: includeDevelopment,
+			IncludeSources:     includeSources, ExcludeSources: excludeSources,
 		}
 		if resolve != "none" && resolve != "confluence" {
 			return opts, app.JiraIssueGraphProjectionOptions{}, usageErr("--resolve must be none or confluence")
@@ -110,6 +119,8 @@ func jiraIssueGraphCmd() *cobra.Command {
 	cmd.Flags().IntVar(&maxBytes, "max-bytes", 0, fmt.Sprintf("buffered response byte limit (default %d, max %d)", app.JiraIssueGraphDefaultResponseBytes, app.JiraIssueGraphMaxResponseBytes))
 	cmd.Flags().BoolVar(&strict, "strict", false, "emit the graph, then fail when any requested source is incomplete")
 	cmd.Flags().BoolVar(&includeDevelopment, "include-development", false, "include experimental Jira Development project/commit/branch/MR identities")
+	cmd.Flags().StringSliceVar(&includeSources, "include-sources", nil, "collect only these graph sources (repeat or comma-separated; development still requires its opt-in)")
+	cmd.Flags().StringSliceVar(&excludeSources, "exclude-sources", nil, "omit these graph sources from collection and completeness (repeat or comma-separated)")
 	cmd.Flags().StringVar(&projection, "projection", "full", "JSON projection: full|compact")
 	cmd.Flags().StringSliceVar(&selectors, "select", nil, "compact facts: urls,scm,none (repeat or comma-separated)")
 	_ = cmd.RegisterFlagCompletionFunc("resolve", fixedComp("none", "confluence"))

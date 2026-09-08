@@ -226,6 +226,13 @@ or the cross-service `knowledge/search` class, then load
 exactly the returned reference. A
 capability route does not grant write authority.
 
+For graph evidence, choose `--include-sources`/`--exclude-sources` (typed MCP
+`include_sources`/`exclude_sources`) to limit collectors before reads; compact
+`select` limits only output facts. Inspect `source_selection.selected`,
+`omitted`, and supporting snapshot fields. Omitted sources never prove absence;
+Development still requires its explicit opt-in. Use the returned existing
+`jira issue children` route for bounded inverse parent membership.
+
 Use `jira/batch-analysis` for a small qualified field matrix before expanding
 to export, `jira/create` and `jira/link` for their read-only discovery/preview
 steps before an authorized hash-bound write, and `jira/batch-edit` for guarded

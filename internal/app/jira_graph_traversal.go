@@ -42,14 +42,17 @@ const (
 // A zero limit selects its documented default. Transport request and response
 // byte enforcement is performed by the caller's read-budget context.
 type JiraIssueGraphOptions struct {
-	Depth              int  `json:"depth"`
-	MaxNodes           int  `json:"max_nodes,omitempty"`
-	MaxEdges           int  `json:"max_edges,omitempty"`
-	MaxEvidence        int  `json:"max_evidence,omitempty"`
-	MaxRequests        int  `json:"max_requests,omitempty"`
-	MaxResponseBytes   int  `json:"max_response_bytes,omitempty"`
-	ResolveConfluence  bool `json:"resolve_confluence,omitempty"`
-	IncludeDevelopment bool `json:"include_development,omitempty"`
+	Depth              int      `json:"depth"`
+	MaxNodes           int      `json:"max_nodes,omitempty"`
+	MaxEdges           int      `json:"max_edges,omitempty"`
+	MaxEvidence        int      `json:"max_evidence,omitempty"`
+	MaxRequests        int      `json:"max_requests,omitempty"`
+	MaxResponseBytes   int      `json:"max_response_bytes,omitempty"`
+	ResolveConfluence  bool     `json:"resolve_confluence,omitempty"`
+	IncludeDevelopment bool     `json:"include_development,omitempty"`
+	IncludeSources     []string `json:"include_sources,omitempty"`
+	ExcludeSources     []string `json:"exclude_sources,omitempty"`
+	sourceSelection    *JiraIssueGraphSourceSelection
 }
 
 // JiraIssueGraphFrontierItem records a canonical Jira node that was eligible
@@ -94,9 +97,9 @@ func (s *JiraService) IssueGraphWithOptions(ctx context.Context, key string, opt
 	if err := ValidateJiraIssueGraphKey(key); err != nil {
 		return nil, err
 	}
-	reader, ok := s.tr.(domain.QualifiedIssueSnapshotReader)
-	if !ok {
-		return nil, fmt.Errorf("%w: Jira graph snapshot capability is unavailable", domain.ErrCheckFailed)
+	readSnapshot, err := jiraGraphSnapshotRead(s.tr, limits.sourceSelection)
+	if err != nil {
+		return nil, err
 	}
 
 	readBudget, budgetErr := domain.NewReadBudget(limits.MaxRequests, int64(limits.MaxResponseBytes))
@@ -123,7 +126,7 @@ func (s *JiraService) IssueGraphWithOptions(ctx context.Context, key string, opt
 		}
 		attempted[item.ID] = true
 
-		snapshot, readErr := reader.ReadIssueSnapshot(ctx, item.Key)
+		snapshot, readErr := readSnapshot(ctx, item.Key)
 		if !errors.Is(readErr, domain.ErrReadAttemptBudgetExhausted) {
 			b.result.Bounds.AttemptedNodes++
 		}
@@ -171,7 +174,7 @@ func (s *JiraService) IssueGraphWithOptions(ctx context.Context, key string, opt
 			}
 		}
 
-		projection, collectErr := s.collectJiraGraphV2Node(ctx, snapshot, item.ID, item.Depth, limits.IncludeDevelopment)
+		projection, collectErr := s.collectJiraGraphV2Node(ctx, snapshot, item.ID, item.Depth, b.sourceKinds)
 		if collectErr != nil {
 			return nil, collectErr
 		}
@@ -213,6 +216,11 @@ func ValidateJiraIssueGraphKey(key string) error {
 }
 
 func NormalizeJiraIssueGraphOptions(opts JiraIssueGraphOptions) (JiraIssueGraphOptions, error) {
+	selection, selectionErr := NormalizeJiraIssueGraphSources(opts.IncludeSources, opts.ExcludeSources, opts.IncludeDevelopment)
+	if selectionErr != nil {
+		return opts, selectionErr
+	}
+	opts.sourceSelection = selection
 	if opts.Depth < 0 || opts.Depth > jiraGraphMaxDepth {
 		return opts, fmt.Errorf("%w: graph depth must be between 0 and %d", domain.ErrUsage, jiraGraphMaxDepth)
 	}
@@ -246,7 +254,7 @@ func NormalizeJiraIssueGraphOptions(opts JiraIssueGraphOptions) (JiraIssueGraphO
 
 func newJiraGraphV2Builder(rootKey string, opts JiraIssueGraphOptions) *jiraGraphV2Builder {
 	rootID := "jira:issue:" + rootKey
-	sourceKinds := jiraGraphSourceKinds(opts.IncludeDevelopment)
+	sourceKinds := jiraGraphSelectedKinds(opts.sourceSelection, opts.IncludeDevelopment)
 	return &jiraGraphV2Builder{
 		result: &JiraIssueGraphResult{
 			SchemaVersion: jiraIssueGraphSchemaVersionV2,
@@ -260,6 +268,7 @@ func newJiraGraphV2Builder(rootKey string, opts JiraIssueGraphOptions) *jiraGrap
 			},
 			Nodes: []domain.ArtifactGraphNode{}, Edges: []domain.ArtifactGraphEdge{},
 			Sources: []domain.ArtifactGraphSource{}, Frontier: []JiraIssueGraphFrontierItem{},
+			SourceSelection: cloneJiraGraphSourceSelection(opts.sourceSelection),
 		},
 		nodes: map[string]domain.ArtifactGraphNode{}, edges: map[string]domain.ArtifactGraphEdge{},
 		sources: map[string]domain.ArtifactGraphSource{}, maxNodes: opts.MaxNodes,
@@ -277,52 +286,6 @@ func validateJiraGraphV2Snapshot(snapshot *domain.QualifiedIssueSnapshot, reques
 		return "", fmt.Errorf("%w: Jira graph snapshot has no usable identity", domain.ErrCheckFailed)
 	}
 	return strings.ToUpper(snapshot.Key), nil
-}
-
-func (s *JiraService) collectJiraGraphV2Node(ctx context.Context, snapshot *domain.QualifiedIssueSnapshot, nodeID string, depth int, includeDevelopment bool) (*jiraGraphBuilder, error) {
-	temp := newJiraGraphBuilderWithSources(nodeID, includeDevelopment)
-	temp.addNode(domain.ArtifactGraphNode{
-		ID: nodeID, Kind: "jira_issue", Service: "jira", ExternalID: strings.ToUpper(snapshot.Key),
-		Label: graphBoundedLabel(snapshot.Issue.Summary), State: domain.ArtifactNodeResolved,
-		Expanded: true, Depth: depth, Stability: domain.ArtifactStabilityPublicAPI,
-	}, nil)
-	temp.collectIssueLinks(snapshot)
-	temp.collectHierarchy(snapshot)
-	temp.collectAttachments(snapshot)
-	temp.collectSnapshotText(snapshot, s.baseURL, jiraGraphConfluenceBase(s))
-	if err := temp.collectComments(ctx, s.tr, snapshot.Key, s.baseURL, jiraGraphConfluenceBase(s)); err != nil {
-		return nil, err
-	}
-	if err := temp.collectWorklogs(ctx, s.tr, snapshot.Key, s.baseURL, jiraGraphConfluenceBase(s)); err != nil {
-		return nil, err
-	}
-	if err := temp.collectRemoteLinks(ctx, s.tr, snapshot.Key, s.baseURL, jiraGraphConfluenceBase(s)); err != nil {
-		return nil, err
-	}
-	if includeDevelopment {
-		if err := temp.collectDevelopment(ctx, s.tr, snapshot.ID); err != nil {
-			return nil, err
-		}
-	}
-	for id, node := range temp.nodes {
-		if id != nodeID {
-			node.Depth = depth + 1
-			temp.nodes[id] = node
-		}
-	}
-	for kind, source := range temp.sources {
-		d := depth
-		source.NodeID = nodeID
-		source.NodeDepth = &d
-		temp.sources[kind] = source
-	}
-	for id, edge := range temp.edges {
-		for index := range edge.Evidence {
-			edge.Evidence[index].SourceNodeID = nodeID
-		}
-		temp.edges[id] = edge
-	}
-	return temp, nil
 }
 
 func (b *jiraGraphV2Builder) mergeProjection(p *jiraGraphBuilder, sourceNodeID string, depth int) {

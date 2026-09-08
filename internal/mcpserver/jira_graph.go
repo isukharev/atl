@@ -2,6 +2,7 @@ package mcpserver
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/url"
 	"reflect"
@@ -48,6 +49,8 @@ type JiraIssueGraphInput struct {
 	Key                string   `json:"key" jsonschema:"exact canonical uppercase Jira issue key; required"`
 	Depth              int      `json:"depth,omitempty" jsonschema:"exact structured Jira traversal depth from 0 to 2; default 0"`
 	IncludeDevelopment bool     `json:"include_development,omitempty" jsonschema:"include bounded experimental Jira Development SCM identities; default false"`
+	IncludeSources     []string `json:"include_sources,omitempty" jsonschema:"collect only named graph sources: issue_fields,issue_links,hierarchy,attachments,issue_properties,comments,worklogs,remote_links,development; at most nine tokens; development still requires include_development"`
+	ExcludeSources     []string `json:"exclude_sources,omitempty" jsonschema:"omit named graph sources from collection and completeness; at most nine tokens; cannot exclude development with include_development"`
 	Projection         string   `json:"projection,omitempty" jsonschema:"output projection: full or compact; default full"`
 	Select             []string `json:"select,omitempty" jsonschema:"compact facts: urls, scm, or none; valid only with projection compact; scm requires include_development"`
 	MaxNodes           int      `json:"max_nodes,omitempty" jsonschema:"node bound from 1 to 100; default 50"`
@@ -57,17 +60,18 @@ type JiraIssueGraphInput struct {
 }
 
 type JiraIssueGraphOutput struct {
-	SchemaVersion int                          `json:"schema_version"`
-	RootID        string                       `json:"root_id"`
-	Complete      bool                         `json:"complete"`
-	Truncated     bool                         `json:"truncated"`
-	Bounds        JiraIssueGraphBoundsOutput   `json:"bounds"`
-	Summary       JiraIssueGraphSummaryOutput  `json:"summary"`
-	Nodes         []JiraIssueGraphNodeOutput   `json:"nodes"`
-	Edges         []JiraIssueGraphEdgeOutput   `json:"edges"`
-	Sources       []JiraIssueGraphSourceOutput `json:"sources"`
-	Frontier      []JiraIssueGraphFrontier     `json:"frontier"`
-	Warnings      []string                     `json:"warnings"`
+	SchemaVersion   int                                `json:"schema_version"`
+	RootID          string                             `json:"root_id"`
+	Complete        bool                               `json:"complete"`
+	Truncated       bool                               `json:"truncated"`
+	Bounds          JiraIssueGraphBoundsOutput         `json:"bounds"`
+	Summary         JiraIssueGraphSummaryOutput        `json:"summary"`
+	Nodes           []JiraIssueGraphNodeOutput         `json:"nodes"`
+	Edges           []JiraIssueGraphEdgeOutput         `json:"edges"`
+	Sources         []JiraIssueGraphSourceOutput       `json:"sources"`
+	Frontier        []JiraIssueGraphFrontier           `json:"frontier"`
+	Warnings        []string                           `json:"warnings"`
+	SourceSelection *app.JiraIssueGraphSourceSelection `json:"source_selection,omitempty"`
 }
 
 type JiraIssueGraphBoundsOutput struct {
@@ -172,13 +176,26 @@ type JiraIssueGraphFrontier struct {
 }
 
 func registerJiraIssueGraphTool(server *mcp.Server, deps Dependencies) {
-	tool := readOnlyTool("jira_issue_graph", "Build a bounded Jira issue graph", "Return one provenance-qualified full schema-v2 graph (the default) or compact schema-v1 qualified fact projection from an exact canonical Jira key. Compact defaults to urls, plus scm when include_development is true. Its select accepts only urls, scm, or none; select is invalid for full, none cannot be combined, and scm requires include_development. Depth is limited to 0..2 and follows only exact structured Jira relations. The default uses stable Jira sources only. include_development explicitly adds bounded experimental GitLab SCM identities from Jira; those nodes remain unfetched stubs, compact never returns their web URLs, and ATL never contacts GitLab or follows artifact URLs. The tool performs no Confluence reads.")
+	tool := readOnlyTool("jira_issue_graph", "Build a bounded Jira issue graph", "Return one provenance-qualified full schema-v2 graph (the default) or compact schema-v1 qualified fact projection from an exact canonical Jira key. Compact defaults to urls, plus scm when include_development is true. Its select accepts only urls, scm, or none; select is invalid for full, none cannot be combined, and scm requires include_development. include_sources and exclude_sources choose collectors before reads; source_selection reports selected and omitted sources and required supporting snapshot fields. Empty selectors are invalid, omitted sources never prove absence, and development still requires include_development and cannot be excluded with that opt-in. Depth is limited to 0..2 and follows only exact structured Jira relations. The default uses stable Jira sources only. include_development explicitly adds bounded experimental GitLab SCM identities from Jira; those nodes remain unfetched stubs, compact never returns their web URLs, and ATL never contacts GitLab or follows artifact URLs. The tool performs no Confluence reads.")
 	tool.OutputSchema = oneOfOutputSchema(tool.Name,
 		reflect.TypeFor[JiraIssueGraphOutput](),
 		reflect.TypeFor[app.JiraIssueGraphCompactResult](),
 	)
 	addReadOnlyTool(server, tool,
-		func(ctx context.Context, _ *mcp.CallToolRequest, in JiraIssueGraphInput) (*mcp.CallToolResult, any, error) {
+		func(ctx context.Context, request *mcp.CallToolRequest, in JiraIssueGraphInput) (*mcp.CallToolResult, any, error) {
+			// The SDK permits JSON null for optional slices. Source selection
+			// distinguishes omission from every explicit empty form.
+			var arguments map[string]json.RawMessage
+			if request != nil && request.Params != nil {
+				if err := json.Unmarshal(request.Params.Arguments, &arguments); err != nil {
+					return nil, nil, classifiedJiraIssueGraphRead(domain.ErrUsage)
+				}
+			}
+			for _, name := range []string{"include_sources", "exclude_sources"} {
+				if raw, present := arguments[name]; present && strings.TrimSpace(string(raw)) == "null" {
+					return nil, nil, classifiedJiraIssueGraphRead(fmt.Errorf("%w: graph source selection must be a nonempty array", domain.ErrUsage))
+				}
+			}
 			key, opts, maxBytes, err := validatedJiraIssueGraphInput(in)
 			if err != nil {
 				return nil, nil, classifiedJiraIssueGraphRead(err)
@@ -241,6 +258,10 @@ func validatedJiraIssueGraphInput(in JiraIssueGraphInput) (string, app.JiraIssue
 		MaxEvidence: jiraIssueGraphFixedMaxEvidence, MaxRequests: maxRequests,
 		MaxResponseBytes: jiraIssueGraphFixedResponseBytes, ResolveConfluence: false,
 		IncludeDevelopment: in.IncludeDevelopment,
+		IncludeSources:     in.IncludeSources, ExcludeSources: in.ExcludeSources,
+	}
+	if _, err := app.NormalizeJiraIssueGraphOptions(opts); err != nil {
+		return "", app.JiraIssueGraphOptions{}, 0, err
 	}
 	return in.Key, opts, maxBytes, nil
 }
@@ -253,9 +274,16 @@ func projectJiraIssueGraph(result *app.JiraIssueGraphResult, key string, opts ap
 		return invalid()
 	}
 	bounds := result.Bounds
+	selection, selectionErr := app.NormalizeJiraIssueGraphSources(opts.IncludeSources, opts.ExcludeSources, opts.IncludeDevelopment)
+	if selectionErr != nil || !reflect.DeepEqual(result.SourceSelection, selection) {
+		return invalid()
+	}
 	sourceKinds := 8
 	if opts.IncludeDevelopment {
 		sourceKinds++
+	}
+	if selection != nil {
+		sourceKinds = len(selection.Selected)
 	}
 	if bounds.RequestedDepth != opts.Depth || bounds.MaxNodes != opts.MaxNodes || bounds.MaxEdges != opts.MaxEdges ||
 		bounds.MaxEvidence != jiraIssueGraphFixedMaxEvidence || bounds.MaxRequests != opts.MaxRequests ||
@@ -292,7 +320,8 @@ func projectJiraIssueGraph(result *app.JiraIssueGraphResult, key string, opts ap
 		},
 		Nodes: []JiraIssueGraphNodeOutput{}, Edges: []JiraIssueGraphEdgeOutput{},
 		Sources: []JiraIssueGraphSourceOutput{}, Frontier: []JiraIssueGraphFrontier{},
-		Warnings: append([]string(nil), result.Warnings...),
+		Warnings:        append([]string(nil), result.Warnings...),
+		SourceSelection: selection,
 	}
 	for _, node := range result.Nodes {
 		projected := JiraIssueGraphNodeOutput{

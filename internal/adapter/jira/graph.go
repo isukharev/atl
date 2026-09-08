@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"unicode"
@@ -24,24 +25,53 @@ const (
 // permission-relative Jira request. It does not consult the global field
 // catalog, whose visibility and applicability can differ from the issue.
 func (j *Jira) ReadIssueSnapshot(ctx context.Context, key string) (*domain.QualifiedIssueSnapshot, error) {
+	return j.readIssueSnapshot(ctx, key, domain.IssueSnapshotProjection{Fields: []string{"*all"}, Properties: true})
+}
+
+// ReadIssueSnapshotProjection uses the same qualified issue read as the legacy
+// snapshot, with explicit fields and no unselected property expansion.
+func (j *Jira) ReadIssueSnapshotProjection(ctx context.Context, key string, projection domain.IssueSnapshotProjection) (*domain.QualifiedIssueSnapshot, error) {
+	validFields := slices.Equal(projection.Fields, []string{"*all"}) ||
+		slices.Equal(projection.Fields, []string{"summary"}) ||
+		slices.Equal(projection.Fields, []string{"summary", "issuelinks"}) ||
+		slices.Equal(projection.Fields, []string{"summary", "attachment"}) ||
+		slices.Equal(projection.Fields, []string{"summary", "issuelinks", "attachment"})
+	if !validFields || projection.SupportingFieldsReason != "" &&
+		(projection.SupportingFieldsReason != "hierarchy_discovery" || !slices.Equal(projection.Fields, []string{"*all"})) {
+		return nil, fmt.Errorf("%w: Jira graph snapshot projection is invalid", domain.ErrUsage)
+	}
+	return j.readIssueSnapshot(ctx, key, projection)
+}
+
+func (j *Jira) readIssueSnapshot(ctx context.Context, key string, projection domain.IssueSnapshotProjection) (*domain.QualifiedIssueSnapshot, error) {
 	query := url.Values{}
 	query.Set("expand", "names,schema")
-	query.Set("fields", "*all")
-	query.Set("properties", "*all")
+	query.Set("fields", strings.Join(projection.Fields, ","))
+	if projection.Properties {
+		query.Set("properties", "*all")
+	}
 	var response struct {
 		ID         string                              `json:"id"`
 		Key        string                              `json:"key"`
 		Fields     *map[string]any                     `json:"fields"`
 		Names      *map[string]string                  `json:"names"`
 		Schema     *map[string]domain.IssueFieldSchema `json:"schema"`
-		Properties *map[string]any                     `json:"properties"`
+		Properties json.RawMessage                     `json:"properties"`
 	}
 	path := "/rest/api/2/issue/" + url.PathEscape(strings.TrimSpace(key)) + "?" + query.Encode()
 	if err := j.c.GetJSONUseNumber(domain.WithSingleAttempt(ctx), path, &response); err != nil {
 		return nil, err
 	}
-	if response.Fields == nil || response.Names == nil || response.Schema == nil || response.Properties == nil {
+	if response.Fields == nil || response.Names == nil || response.Schema == nil {
 		return nil, fmt.Errorf("%w: Jira issue snapshot omitted a requested section", domain.ErrCheckFailed)
+	}
+	properties := map[string]any{}
+	if projection.Properties {
+		decoder := json.NewDecoder(bytes.NewReader(response.Properties))
+		decoder.UseNumber()
+		if err := decoder.Decode(&properties); err != nil || properties == nil {
+			return nil, fmt.Errorf("%w: Jira issue snapshot omitted a requested section", domain.ErrCheckFailed)
+		}
 	}
 	issue := MapIssueFields(response.ID, response.Key, *response.Fields)
 	return &domain.QualifiedIssueSnapshot{
@@ -52,7 +82,7 @@ func (j *Jira) ReadIssueSnapshot(ctx context.Context, key string) (*domain.Quali
 		Fields:       *response.Fields,
 		Names:        *response.Names,
 		Schema:       *response.Schema,
-		Properties:   *response.Properties,
+		Properties:   properties,
 	}, nil
 }
 

@@ -21,6 +21,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   writes or recovery. Historical Jira v1 remains decodable without invented
   checkpoint facts; Confluence snapshot stays v1.
 
+- Added explicit include/exclude graph source selection across Jira CLI and
+  typed MCP, with selected-source completeness, qualified snapshot projection,
+  hierarchy supporting-field disclosure and unchanged default graph bytes.
+  Graph-evidence guidance now also discovers bounded inverse parent membership
+  through the existing issue-children command.
 - Added a separate strict Broker discovery v2 semantic schema and codec for
   operation-level structural support and current advisory access state. It
   binds request, authenticated execution, authority revision, service, schema
