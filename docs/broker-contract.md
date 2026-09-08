@@ -1,15 +1,17 @@
 # Broker semantic contract
 
-This document defines version 1 of ATL's Broker semantic and authenticated HTTP
-contracts. The current ATL CLI and MCP server still use direct composition. An
-uncomposed HTTP handler and fixed-authority adapter implement the read-only
-server core, but no listener, configuration path or client activates them and
-no gated operation is available.
+This document defines ATL's Broker semantic contracts and authenticated HTTP
+v1. Explicit Broker client mode routes the supported exact Jira issue and
+Confluence page reads through the local host; direct mode remains the default.
+Guarded writes, durable outcomes, cache reuse and discovery v2 runtime routes
+remain unavailable until their owning slices are composed.
 
 The machine-readable shapes are the semantic
 [`schemas/broker-v1.schema.json`](schemas/broker-v1.schema.json) and HTTP
-[`schemas/broker-http-v1.schema.json`](schemas/broker-http-v1.schema.json)
-schemas. The normative strict codecs and canonical vectors live in
+[`schemas/broker-http-v1.schema.json`](schemas/broker-http-v1.schema.json).
+Execution-scoped discovery has a separate, currently uncomposed
+[`schemas/broker-discovery-v2.schema.json`](schemas/broker-discovery-v2.schema.json)
+so its evolution does not redefine either v1 digest. The normative strict codecs and canonical vectors live in
 `internal/brokercontract` and `internal/brokertransport`. JSON Schema alone
 does not prove duplicate-key rejection, temporal ordering, authority provenance
 or canonical bytes.
@@ -377,11 +379,45 @@ path, credential or native body. A future server may attach only the closed
 reason and content-minimized correlation facts allowed by the caller's
 audience.
 
+## Execution-scoped discovery v2
+
+Discovery v2 is a separate strict semantic contract. Its client request carries
+one service plus Broker id, audience, authenticated-context digest, a current
+session lifetime ceiling, and execution id, epoch and authority-revision
+equality guards. An authority request binds those bytes to a complete
+authenticated context and a canonical request digest. Neither request can
+select a resource, role, policy, backend destination or grant.
+
+The response contains exactly the Broker's available operation definitions for
+the authenticated backend service. Structural support is explicit and separate
+from the current advisory access state: `allowed`,
+`access_request_required`, or `unavailable`. Only the access-request state may
+carry a printable opaque correlation reference, capped at 64 bytes. Effects,
+features and limits must exactly match the canonical registry; no project,
+space, issue, page, principal, policy rule or possible-role inventory exists in
+the shape.
+
+Request id and digest, authenticated-context digest, execution id and epoch,
+audience, Broker id, authority revision, service, registry and both schema
+digests are mandatory bindings. The lease is at most five seconds and cannot
+outlive execution, grant or credential expiry. Client validation rejects a
+late response and any mismatch with its current session. Server validation
+also binds the response to the authenticated context. A valid discovery result
+is advisory only and never enters admission or authorizes a later invocation.
+The request digest uses its own versioned domain:
+
+```text named-broker-discovery-v2-request-digest
+SHA256("atl.broker.discovery.v2/request\x00" || canonical_request_json)
+```
+
+This increment publishes the pure v2 codec and schema only. It intentionally
+does not add an HTTP route, CLI command, MCP resource, cache, polling loop or
+authority call; those require the subsequent runtime composition review.
+
 ## Dependent implementation slices
 
-This contract is the prerequisite for canonical resource qualification,
-authenticated server/PDP composition and remote clients. Those slices must
-provide the authentication provenance, current authorization, backend-supported
-consistency, durable ticket verification, revocation evidence and runtime
-isolation before advertising their operations. This document and its schemas
-are not evidence that those runtime capabilities have shipped.
+Contracts are prerequisites rather than evidence that a runtime capability has
+shipped. Each dependent slice must still provide authentication provenance,
+current authorization, backend-supported consistency, durable ticket
+verification, revocation evidence and runtime isolation before advertising its
+operations.
