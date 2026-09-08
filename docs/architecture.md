@@ -68,14 +68,17 @@ uses narrow Jira/Confluence qualification and business-read ports, an injected
 authorizer, one parent budget, and buffered request-bound results. The concrete
 adapters resolve only server-owned destinations and expose only a digest of
 their immutable configured base for binding checks. `internal/brokerserver`
-owns only the closed authenticated HTTP routes, release deadline and response
-credential guard; it imports no concrete adapter. The fixed HTTPS
+owns the closed authenticated HTTP routes, release deadline, response
+credential guard, bounded loopback TLS lifecycle, separate-audience local
+health/readiness and content-minimized audit; it imports no concrete adapter.
+`internal/brokerconfig` exclusively reads the explicit owner-private host file
+and its same-directory secret/TLS references. The fixed HTTPS
 `internal/adapter/brokerauthority` implements opaque authentication and the
-existing authorizer port without policy storage or a positive cache. No CLI or
-MCP route composes this server core yet.
-`internal/compose` alone constructs the selected concrete adapters, shares one
-request scheduler between them, loads only selected credentials, and injects
-the build's deny-all write authorizer.
+existing authorizer port without policy storage or a positive cache.
+`internal/compose` exposes the explicit `broker serve` composition, passes
+already-qualified file credentials directly to selected adapters, shares one
+request scheduler, and never uses ordinary client PAT resolution for this
+path. No MCP or remote client route composes the Broker yet.
 
 ---
 

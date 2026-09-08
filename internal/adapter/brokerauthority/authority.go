@@ -61,6 +61,12 @@ func New(config Config) (*Authority, error) {
 	return &Authority{client: client, issuerSHA256: config.IssuerSHA256, now: time.Now}, nil
 }
 
+func (a *Authority) CloseIdleConnections() {
+	if a != nil && a.client != nil {
+		a.client.CloseIdleConnections()
+	}
+}
+
 func (a *Authority) Authenticate(ctx context.Context, credential []byte, challenge brokertransport.AuthenticationChallenge) (brokertransport.Authentication, error) {
 	if a == nil || a.client == nil || a.now == nil {
 		return brokertransport.Authentication{}, authorityError(domain.ErrConfig)

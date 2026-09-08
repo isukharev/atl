@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "broker_id": "broker-1",
+  "data_audience": "broker-data",
+  "admin_audience": "broker-admin",
+  "data_listen": "127.0.0.1:8443",
+  "admin_listen": "127.0.0.1:8444",
+  "tls": {
+    "certificate_file": "server.crt",
+    "private_key_file": "server.key"
+  },
+  "authority": {
+    "base_url": "https://authority.example.invalid",
+    "issuer_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "credential_file": "authority.credential",
+    "ca_file": "authority.ca"
+  },
+  "jira": {
+    "base_url": "https://jira.example.invalid",
+    "workload_backend_id": "jira-primary",
+    "credential_file": "jira.credential",
+    "ca_file": "jira.ca"
+  }
+}

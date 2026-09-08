@@ -9,6 +9,7 @@ Offline capability routing, MCP serving, and profile review/apply contracts.
 
 - [Offline agent capability catalog](#offline-agent-capability-catalog)
 - [`atl mcp serve`](#atl-mcp-serve)
+- [`atl broker serve`](#atl-broker-serve)
 - [`atl profile`](#atl-profile)
 - [Preview and apply](#preview-and-apply)
 - [Context-efficient reads and guidance](#context-efficient-reads-and-guidance)
@@ -207,7 +208,7 @@ Profiles use closed dimensions:
 - `local_effect`: `none|read|write|download`;
 - `credential_access`: `none|possible|required`;
 - `network_bound`: `none|fixed|caller|required_internal_cap|unknown`;
-- `process_effect`: `none|launch`;
+- `process_effect`: `none|launch|server`;
 - `replay_class`: `replay_safe|non_replay_safe|mixed`;
 - `output_kind`: `data|generator|prose|protocol`;
 - additive `local_artifact`: `none|possible|required`, `configuration`:
@@ -340,6 +341,70 @@ buckets, and reconciliation facts, but omits raw reference URLs, issue
 summaries/types, and source text. JQL mode performs one paginated comment
 listing per emitted issue, so backend traffic scales with the selected limit.
 Use the CLI `jira issue refs` when the URLs themselves are required evidence.
+
+## `atl broker serve`
+
+Run the explicit local read-only Broker host:
+
+```bash named-broker-serve
+atl broker serve --config /etc/atl-broker/broker.json
+```
+
+The command requires exactly one `--config` file and starts no background
+daemon. It skips self-update and ignores ordinary `config.json`,
+`credentials.json`, PAT environment variables, `ATL_VERBOSE`, and
+`ATL_ALLOW_INSECURE`. The separate schema-versioned Broker file names one or
+both fixed HTTPS backends, one fixed HTTPS authority, distinct data/admin
+audiences, two numeric loopback listeners, and simple relative file names for
+credentials and TLS material. It accepts no inline secret, environment
+interpolation, URL path/query/fragment, proxy environment, public listener,
+system trust fallback, or hot reload.
+
+The configuration is capped at 64 KiB. Every referenced artifact must share
+its owner-private parent, be a stable regular owner-owned mode-`0600` file, and
+stay within its bound: 8 KiB credentials, 4 MiB CA bundles, 256 KiB certificate
+chain, and 64 KiB private key. Credential files contain exact visible ASCII
+bearer bytes without surrounding whitespace or a trailing newline. Files are
+pinned for the process lifetime; replacement takes effect only after restart.
+Windows hosting is refused because Go file modes cannot prove the required ACL
+ownership, while other ATL commands continue to build and run there.
+
+The data listener exposes the authenticated `/v1/execute` and `/v1/protocol`
+routes. The separate admin listener exposes authenticated `/healthz` and
+`/readyz` with its own audience. Health reports only `healthy`; readiness is
+`ready`, `draining`, or `unavailable`. Neither endpoint probes a backend or
+returns an origin, path, policy, credential fact, principal, or resource access
+claim. Authority authentication remains current and uncached for every call.
+
+The fixed local profile allows 16 TLS 1.3 HTTP/1.1 connections split 12 data
+and 4 admin, one data execution, two admin requests, data/admin admission rates
+of 4/2 requests per second with equal bursts, a 5-second header timeout,
+10-second request-read timeout, 15-second idle timeout, 60-second request
+context, 65-second server write fallback, and 5-second shutdown grace. HTTP/2,
+upgrades, streaming, browser/CORS/debug routes, public binds, and mutations are
+unavailable. SIGINT or SIGTERM marks the host draining, cancels admitted work,
+performs bounded shutdown, and force-closes the remainder.
+The single five-second budget also covers handler completion and audit close.
+If a handler does not exit within it, the command returns a closed failure and
+retains shared credential state until that handler exits or the process ends;
+cleanup never races the handler merely to report a clean stop.
+
+Content-minimized best-effort JSON audit events go to stderr. They contain only
+generated correlation, closed route/operation/outcome/reason values, a coarse
+timing bucket and bounded counters. They omit headers, selectors, caller
+request IDs, principal strings, arguments, URLs, content digests, raw errors
+and backend content. Audit is not the durable mutation journal. On clean
+shutdown stdout emits the result described in the [output
+contract](../output/agent-interfaces.md#broker-host-result).
+Credential collisions drop and count only the affected audit event. An audit
+writer failure makes readiness unavailable. Raw `net/http` TLS and panic
+diagnostics are suppressed instead of bypassing this closed channel.
+
+See the credential-free [local deployment example](../../broker-local-deployment.md)
+and the [Broker contract](../../broker-contract.md). The runtime owner must
+provide the external authority and destination-level egress controls. Starting
+the service does not activate a provider or policy and makes no authority or
+backend request until an authenticated route is called.
 
 ## `atl profile`
 

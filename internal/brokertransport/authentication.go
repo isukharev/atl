@@ -18,6 +18,7 @@ import (
 const (
 	SchemaVersion              = 1
 	AuthenticationProfileV1    = "opaque_introspection_v1"
+	MinWorkloadCredentialBytes = 8
 	MaxWorkloadCredentialBytes = 8 << 10
 	MaxAuthorityEnvelopeBytes  = 128 << 10
 	AuthenticationLeaseMillis  = int64(5_000)
@@ -148,7 +149,7 @@ func ValidateAuthenticationResponseForV1(value AuthenticationResponse, request A
 
 func validAuthenticationRequest(value AuthenticationRequest) bool {
 	return value.SchemaVersion == SchemaVersion && ValidateAuthenticationChallenge(AuthenticationChallenge{Nonce: value.Nonce, Audience: value.Audience, BrokerID: value.BrokerID}) == nil &&
-		len(value.credential) > 0 && len(value.credential) <= MaxWorkloadCredentialBytes && value.CredentialSHA256 == credentialSHA256(value.credential)
+		len(value.credential) >= MinWorkloadCredentialBytes && len(value.credential) <= MaxWorkloadCredentialBytes && value.CredentialSHA256 == credentialSHA256(value.credential)
 }
 
 func (value AuthenticationRequest) Credential() []byte { return bytes.Clone(value.credential) }

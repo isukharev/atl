@@ -75,6 +75,7 @@
     {"prefix":"docs/reference/agent-eval/","checks":["agent-eval-contract","docs-freshness"]},
     {"prefix":"docs/reference/cli/","checks":["docs-freshness","onboarding-docs","reference-split","skill-routing"]},
     {"prefix":"docs/reference/output/","checks":["reference-split","skill-routing"]},
+    {"prefix":"examples/broker-local/","checks":["context7-docs","docs-catalog","onboarding-docs","test"]},
     {"prefix":"examples/corpus-devcontainer/","checks":["corpus-devcontainer","docs-catalog"]},
     {"prefix":"hooks/","checks":["test"]},
     {"prefix":"internal/","exclude_prefixes":["internal/agenteval/"],"checks":["lint","maintainability","package-boundary","test","vet"]},

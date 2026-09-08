@@ -14,6 +14,7 @@ A content-minimized capability envelope has this stable outer shape:
 ## Navigate this reference
 
 - [Capability catalog](#capability-catalog)
+- [Broker host result](#broker-host-result)
 - [MCP tool results](#mcp-tool-results)
 <!-- reference-navigation:end -->
 
@@ -57,7 +58,7 @@ network vocabulary is `none|fixed|caller|required_internal_cap|unknown`;
 `fixed` is a static request plan, `caller` is an actual caller-supplied physical
 request budget, and `required_internal_cap` is a mandatory implementation cap
 on a data-dependent loop. `unknown` does not imply caller control. Process
-launch is `none|launch`, and
+launch is `none|launch|server`, and
 stdout/protocol kind is `data|generator|prose|protocol`. Profiles are
 informational and neither authorize commands nor replace read-only and
 guarded-write enforcement. A remote/local `write` is the dominant possible
@@ -84,6 +85,24 @@ For `confluence/comments`, the ordered additive route exposes qualified list,
 exact thread expansion, guarded preview, and guarded add as separate
 capabilities. Only list and thread map to the read-only MCP surface; preview
 and add remain CLI-only, and catalog entries do not grant write authority.
+
+## Broker host result
+
+`atl broker serve` reserves stdout until the foreground host has stopped
+cleanly. JSON mode then emits exactly:
+
+```json named-broker-host-stopped
+{
+  "status": "stopped",
+  "complete": true
+}
+```
+
+Text mode emits `Broker stopped`. Configuration, bind, TLS, listener and
+unexpected shutdown failures emit the ordinary closed CLI error on stderr and
+no success object. While the host is running, content-minimized audit JSONL is
+written to stderr; it is operational telemetry rather than protocol output or
+a durable authorization record.
 
 ## MCP tool results
 

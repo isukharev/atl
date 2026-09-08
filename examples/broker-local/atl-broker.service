@@ -1,0 +1,33 @@
+[Unit]
+Description=ATL local read-only Broker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+User=atl-broker
+Group=atl-broker
+ExecStart=/usr/local/bin/atl broker serve --config /etc/atl-broker/broker.json
+WorkingDirectory=/var/empty
+UMask=0077
+NoNewPrivileges=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+PrivateDevices=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadOnlyPaths=/etc/atl-broker
+InaccessiblePaths=/home
+RestrictAddressFamilies=AF_INET AF_INET6
+MemoryMax=2G
+CPUQuota=100%
+TasksMax=64
+LimitCORE=0
+KillMode=mixed
+TimeoutStopSec=7s
+Restart=on-failure
+RestartSec=2s
+
+[Install]
+WantedBy=multi-user.target

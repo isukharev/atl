@@ -344,6 +344,7 @@ R local-write-updatable json,text manifest create
 R stdio-server json mcp serve
 M local-write preview-apply none none apply,expected-backend-sha256,confirm pre-config-on-apply generic json,text mirror backend bind
 R local-read json,text mirror backend status
+R broker-server json,text broker serve
 M local-write dedicated-apply none none from-file,candidate-hash,expected-current-hash pre-config generic json,text profile apply
 R local-prose json,text profile guidance
 R local-read json,text profile preview
@@ -983,9 +984,8 @@ func resolveReadOnlyPolicy(cmd *cobra.Command, flagEnabled bool) (bool, error) {
 	if flagEnabled || envReadOnly() {
 		return true, nil
 	}
-	// Offline/trivial reads are incapable of backend/config mutation and are
-	// already guaranteed not to self-update. Keep them usable for diagnosis
-	// when config.json itself is malformed; every mutator and online read still
+	// Offline/trivial reads cannot mutate backend/config and do not self-update.
+	// Keep them usable when config.json is malformed; mutators and online reads
 	// decodes the policy strictly below.
 	if cmd.Annotations[accessAnnotation] == "read-only" && skipSelfUpdate(cmd) && !policyInspectionCommand(cmd) {
 		return false, nil

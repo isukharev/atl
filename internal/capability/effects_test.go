@@ -15,7 +15,7 @@ func TestEffectProfilesAreClosedSortedAndUnique(t *testing.T) {
 	local := map[string]bool{"none": true, "read": true, "write": true, "download": true}
 	credentials := map[string]bool{"none": true, "possible": true, "required": true}
 	bound := map[string]bool{"none": true, "fixed": true, "caller": true, "required_internal_cap": true, "unknown": true}
-	process := map[string]bool{"none": true, "launch": true}
+	process := map[string]bool{"none": true, "launch": true, "server": true}
 	replay := map[string]bool{"replay_safe": true, "non_replay_safe": true, "mixed": true}
 	output := map[string]bool{"data": true, "generator": true, "prose": true, "protocol": true}
 	artifact := map[string]bool{"none": true, "possible": true, "required": true}

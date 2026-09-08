@@ -27,6 +27,28 @@ import (
 	"github.com/isukharev/atl/internal/domain"
 )
 
+type closingTransport struct{ closes int }
+
+func (*closingTransport) RoundTrip(*http.Request) (*http.Response, error) {
+	return nil, errors.New("unused")
+}
+func (t *closingTransport) CloseIdleConnections() { t.closes++ }
+
+func TestClientCloseIdleConnectionsClosesOwnedPools(t *testing.T) {
+	transport := &closingTransport{}
+	scheduler, err := NewScheduler(1, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wrapped := scheduledRoundTripper{base: readBudgetTransport{base: redirectIdleTransport{base: transport}}, scheduler: scheduler}
+	client := &Client{hc: &http.Client{Transport: wrapped}, dl: &http.Client{Transport: wrapped}}
+	client.CloseIdleConnections()
+	if transport.closes != 2 {
+		t.Fatalf("close calls=%d", transport.closes)
+	}
+	(*Client)(nil).CloseIdleConnections()
+}
+
 func newDistinctTLSServer(t *testing.T, handler http.Handler) *httptest.Server {
 	t.Helper()
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
@@ -185,6 +207,11 @@ func TestQualifiedTLSOptionsBindsExactBytesAndUsesExclusiveInMemoryRoots(t *test
 	}
 	if digest != hex.EncodeToString(wantDigest[:]) || options.CABundle != "" || options.rootCAs == nil || !options.rootCAs.Equal(wantRoots) {
 		t.Fatalf("digest=%q options=%+v roots_equal=%t", digest, options, options.rootCAs != nil && options.rootCAs.Equal(wantRoots))
+	}
+	t.Setenv("HTTPS_PROXY", "http://proxy.example.invalid")
+	qualifiedTransport, err := options.transport()
+	if err != nil || qualifiedTransport.Proxy != nil {
+		t.Fatalf("exclusive transport inherited ambient proxy: transport=%+v err=%v", qualifiedTransport, err)
 	}
 	defaultTransport := http.DefaultTransport.(*http.Transport)
 	defaultTLS := defaultTransport.TLSClientConfig
