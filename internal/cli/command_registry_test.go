@@ -13,6 +13,7 @@ import (
 var reviewedTextOutputCommandPaths = reviewedOutputPathSet(`
 auth login
 auth status
+broker discover
 broker serve
 capabilities
 compatibility status
@@ -286,8 +287,8 @@ func TestCommandRegistryPreservesReviewedOutputModes(t *testing.T) {
 	}
 	walk(root)
 
-	if leafCount != 185 || textCount != 153 || idCount != 35 {
-		t.Fatalf("leaves/text/id=%d/%d/%d want=185/153/35", leafCount, textCount, idCount)
+	if leafCount != 186 || textCount != 154 || idCount != 35 {
+		t.Fatalf("leaves/text/id=%d/%d/%d want=186/154/35", leafCount, textCount, idCount)
 	}
 	for path := range reviewedTextOutputCommandPaths {
 		if !seen[path] {

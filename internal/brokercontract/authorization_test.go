@@ -212,12 +212,14 @@ func TestContractErrorsAreClosedAndContentFree(t *testing.T) {
 
 func TestBrokerReasonsMapToExistingRecoveryVocabulary(t *testing.T) {
 	tests := map[domain.BrokerReason]diagnostic.RecoveryAction{
-		domain.BrokerReasonMalformed:                 diagnostic.RecoveryAdjustRequest,
-		domain.BrokerReasonUnsupported:               diagnostic.RecoveryAdjustRequest,
-		domain.BrokerReasonDenied:                    diagnostic.RecoveryRequestAccess,
-		domain.BrokerReasonRevoked:                   diagnostic.RecoveryRequestAccess,
-		domain.BrokerReasonCredentialExpired:         diagnostic.RecoveryReauthenticate,
-		domain.BrokerReasonStaleExecution:            diagnostic.RecoveryInspectFailure,
+		domain.BrokerReasonMalformed:         diagnostic.RecoveryAdjustRequest,
+		domain.BrokerReasonUnsupported:       diagnostic.RecoveryAdjustRequest,
+		domain.BrokerReasonDenied:            diagnostic.RecoveryRequestAccess,
+		domain.BrokerReasonRevoked:           diagnostic.RecoveryRequestAccess,
+		domain.BrokerReasonCredentialExpired: diagnostic.RecoveryReauthenticate,
+		// Refresh execution/session before an explicit new operation. This does
+		// not authorize replay or alter the v1 transport recovery mapping.
+		domain.BrokerReasonStaleExecution:            diagnostic.RecoveryReauthenticate,
 		domain.BrokerReasonAuthorizationUnavailable:  diagnostic.RecoveryInspectFailure,
 		domain.BrokerReasonProposalClearanceRequired: diagnostic.RecoveryRequestHumanApproval,
 		domain.BrokerReasonOutcomeUnknown:            diagnostic.RecoveryReconcileWriteOutcome,

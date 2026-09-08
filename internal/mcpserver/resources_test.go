@@ -33,11 +33,19 @@ func TestCapabilitiesResourceIsFixedStaticAndDependencyFree(t *testing.T) {
 			closeSessions()
 			t.Fatal(err)
 		}
-		if len(listed.Resources) != 2 {
+		if len(listed.Resources) != brokerResourceCount(profile) {
 			closeSessions()
 			t.Fatalf("profile %q resources=%+v", profile, listed.Resources)
 		}
-		resource := listed.Resources[0]
+		var resource *mcp.Resource
+		for _, entry := range listed.Resources {
+			if entry.URI == CapabilitiesResourceURI {
+				resource = entry
+			}
+		}
+		if resource == nil {
+			t.Fatal("missing capabilities descriptor")
+		}
 		if resource.URI != CapabilitiesResourceURI || resource.MIMEType != capabilitiesResourceMIMEType {
 			closeSessions()
 			t.Fatalf("profile %q resource=%+v", profile, resource)
@@ -52,9 +60,6 @@ func TestCapabilitiesResourceIsFixedStaticAndDependencyFree(t *testing.T) {
 			t.Fatalf("profile %q contents=%+v", profile, result.Contents)
 		}
 		assertCapabilitiesResourceJSON(t, result.Contents[0].Text)
-		if listed.Resources[1].URI != RuntimeResourceURI {
-			t.Fatalf("profile %q second resource=%+v", profile, listed.Resources[1])
-		}
 	}
 	if dependencyCalls.Load() != 0 {
 		t.Fatalf("capability resource read %d dependencies", dependencyCalls.Load())

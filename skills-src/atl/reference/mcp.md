@@ -38,11 +38,20 @@ Read it once for a new server process before relying on profile, global-policy,
 or plugin-skew facts. Its hard read-only access is structural and distinct from
 the nested global CLI policy.
 
+Broker discovery uses `atl://broker/discovery/jira` and
+`atl://broker/discovery/confluence`: default advertises both, service profiles
+only their matching resource, and offline neither. Listing is descriptor-only.
+Each read loads the selected Broker client and refreshes discovery v2 advisory
+operation access using the existing execution session, without PATs or direct
+fallback. Read again after a grant or revocation; never reuse discovery as
+authorization. `allowed` still requires per-invocation authorization, and
+`access_request_required` does not itself submit a request or grant access.
+
 ATL remains dual-era. Modern `2026-07-28` clients use stateless
 `server/discover`; legacy `2025-11-25` clients use initialize/initialized. The
 one-page tool and resource inventories and resource reads carry `ttlMs:0` with
-`cacheScope:"public"` in both eras, except that an `atl://runtime` read is
-private. Legacy results contain only the payload plus those cache fields;
+`cacheScope:"public"` in both eras, except that `atl://runtime` and Broker
+discovery reads are private. Legacy results contain only the payload plus those cache fields;
 modern results also carry completion and server metadata. Do not share or
 reuse the private runtime result across processes. It is immutable within one
 process, and config, environment, or marker changes require restart rather

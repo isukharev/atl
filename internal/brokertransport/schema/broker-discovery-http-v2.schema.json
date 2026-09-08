@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/isukharev/atl/docs/schemas/broker-discovery-http-v2.schema.json",
+  "title": "ATL Broker discovery HTTP v2",
+  "oneOf": [{"$ref":"#/$defs/negotiation"},{"$ref":"#/$defs/negotiated"},{"$ref":"#/$defs/failure"},{"$ref":"broker-discovery-v2.schema.json#/$defs/request"},{"$ref":"broker-discovery-v2.schema.json#/$defs/authorization_request"},{"$ref":"broker-discovery-v2.schema.json#/$defs/projection"}],
+  "$defs": {
+    "identifier": {"type":"string","minLength":1,"maxLength":128,"pattern":"^[!-~]+$"},
+    "digest": {"type":"string","pattern":"^[0-9a-f]{64}$"},
+    "negotiation": {
+      "type":"object","additionalProperties":false,
+      "required":["schema_version","request_id","service","broker_id","audience","execution_id","execution_epoch","authority_revision","not_after_millis"],
+      "properties": {
+        "schema_version":{"const":2}, "request_id":{"$ref":"#/$defs/identifier"},
+        "service":{"enum":["jira","confluence"]}, "broker_id":{"$ref":"#/$defs/identifier"},
+        "audience":{"$ref":"#/$defs/identifier"}, "execution_id":{"$ref":"#/$defs/identifier"},
+        "execution_epoch":{"$ref":"#/$defs/identifier"}, "authority_revision":{"$ref":"#/$defs/identifier"},
+        "not_after_millis":{"type":"integer","minimum":1}
+      }
+    },
+    "negotiated": {
+      "type":"object","additionalProperties":false,"required":["schema_version","transport_schema_sha256","request"],
+      "properties":{"schema_version":{"const":2},"transport_schema_sha256":{"$ref":"#/$defs/digest"},"request":{"$ref":"broker-discovery-v2.schema.json#/$defs/request"}}
+    },
+    "failure": {
+      "type":"object","additionalProperties":false,"required":["schema_version","status","reason","recovery","retry_safe","complete"],
+      "properties": {
+        "schema_version":{"const":2},"status":{"const":"rejected"},
+        "reason":{"enum":["unsupported","malformed","denied","revoked","grant_expired","credential_expired","stale_execution","stale_authority","decision_expired","authorization_unavailable","unsupported_consistency","proposal_clearance_required","outcome_unknown"]},
+        "recovery":{"enum":["adjust_request","inspect_failure","reauthenticate","request_access","reread_then_reselect","request_human_approval","reconcile_write_outcome"]},
+        "retry_safe":{"const":false},"complete":{"const":true}
+      }
+    }
+  }
+}

@@ -66,6 +66,6 @@ func newBrokerCommand() *cobra.Command {
 		},
 	}
 	serve.Flags().Var(config, "config", "owner-private Broker host configuration file")
-	group.AddCommand(serve)
+	group.AddCommand(serve, newBrokerDiscoverCommand())
 	return group
 }

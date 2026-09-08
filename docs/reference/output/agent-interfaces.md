@@ -14,6 +14,7 @@ A content-minimized capability envelope has this stable outer shape:
 ## Navigate this reference
 
 - [Capability catalog](#capability-catalog)
+- [Broker discovery result](#broker-discovery-result)
 - [Broker host result](#broker-host-result)
 - [MCP tool results](#mcp-tool-results)
 <!-- reference-navigation:end -->
@@ -86,6 +87,27 @@ exact thread expansion, guarded preview, and guarded add as separate
 capabilities. Only list and thread map to the read-only MCP surface; preview
 and add remain CLI-only, and catalog entries do not grant write authority.
 
+## Broker discovery result
+
+`atl broker discover --service jira|confluence` and the matching MCP
+`atl://broker/discovery/jira|confluence` resource emit the strict
+[discovery v2 projection schema](../../schemas/broker-discovery-v2.schema.json).
+The closed envelope contains `schema_version:2`, request/context binding
+digests, execution id/epoch, Broker id/audience, authority revision, service,
+registry/contract/discovery schema digests, issue/expiry timestamps,
+`operations`, and `complete:true`. Each operation contains `id`, `version`,
+`supported`, `access`, `features`, `limits`, and `effects`;
+`request_access_correlation` appears only for `access_request_required`.
+
+Access is exactly `allowed|access_request_required|unavailable`. These are
+current advisory operation facts, never an authorization decision for a later
+invocation. Fresh reads observe authority changes without restarting MCP.
+The five-second projection lease does not permit caching between reads or
+executions. Discovery negotiation is v2; operation v1 and its existing session
+format remain unchanged. Text output is one `operation-id v1: access` line
+per operation. Errors use the existing closed `kind`, `remediation`, and
+`recovery` classes and omit private provider diagnostics.
+
 ## Broker host result
 
 `atl broker serve` reserves stdout until the foreground host has stopped
@@ -134,10 +156,11 @@ legacy selected-binary path.
 The fixed `resources/list` inventory uses `ttlMs:0` and
 `cacheScope:"public"` in both eras. Every `resources/read` result also has
 `ttlMs:0`; `atl://capabilities` has `cacheScope:"public"`, while
-`atl://runtime` has `cacheScope:"private"`. Legacy results contain exactly
+`atl://runtime` and Broker discovery reads have `cacheScope:"private"`.
+Legacy results contain exactly
 `contents`, `ttlMs`, and `cacheScope`; modern results add only
 `resultType:"complete"` and server `_meta`. The discovery descriptor remains
-public even for the private runtime read.
+public even for private runtime and Broker discovery reads.
 
 The `atl://runtime` content is exactly:
 
@@ -199,6 +222,15 @@ and performs no config, credential, backend, mirror-path, or content read. The
 runtime descriptor is named `atl-runtime`, titled `atl runtime safety
 projection`, and described as `Immutable content-free startup safety and
 compatibility metadata for this atl MCP invocation.`
+
+The default profile additionally lists `atl://broker/discovery/jira` and
+`atl://broker/discovery/confluence`; the Jira and Confluence profiles list only
+their service's discovery resource, while offline lists neither. Listings are
+descriptor-only and do not load configuration or credentials. Every discovery
+read lazily loads the selected client and refreshes authentication and current
+access, without a backend PAT or direct fallback. Its content uses the
+[Broker discovery result](#broker-discovery-result) contract.
+
 For transport/API failures, `message` is deliberately coarse and omits backend
 paths, query values, and response bodies.
 

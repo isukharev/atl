@@ -112,6 +112,12 @@ func NewFailure(reason domain.BrokerReason) (Failure, error) {
 		return Failure{}, malformedError()
 	}
 	recovery := diagnostic.Recover(safe, diagnostic.OperationRead)
+	// The v1 failure contract predates discovery refresh recovery. Keep its
+	// exact mapping stable while v2 uses the current diagnostic projection.
+	switch reason {
+	case domain.BrokerReasonStaleExecution, domain.BrokerReasonStaleAuthority, domain.BrokerReasonDecisionExpired, domain.BrokerReasonUnsupportedConsistency:
+		recovery.Action = diagnostic.RecoveryInspectFailure
+	}
 	return Failure{SchemaVersion: SchemaVersion, Status: TransportStatusRejected, Reason: reason, Recovery: string(recovery.Action), RetrySafe: recovery.RetrySafe, Complete: true}, nil
 }
 

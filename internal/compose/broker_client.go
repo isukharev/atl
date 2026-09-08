@@ -14,6 +14,16 @@ func brokerMode(cfg *config.Config) bool {
 	return cfg != nil && config.EffectiveConnectionMode(cfg.ConnectionMode) == config.ConnectionModeBroker
 }
 
+// LoadBrokerDiscovery loads configuration and selects a lazy Broker session
+// reader. It cannot resolve a backend PAT or fall back to a direct adapter.
+func LoadBrokerDiscovery(service, version string) (domain.BrokerDiscoveryReader, error) {
+	cfg, err := config.Load()
+	if err != nil {
+		return nil, err
+	}
+	return newBrokerClient(cfg, service, version, nil)
+}
+
 func newBrokerClient(cfg *config.Config, service, version string, scheduler *httpx.Scheduler) (*brokerclient.Client, error) {
 	if cfg == nil || cfg.Broker == nil || !brokerMode(cfg) {
 		return nil, fmt.Errorf("%w: Broker client is not configured", domain.ErrConfig)

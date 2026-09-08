@@ -17,6 +17,7 @@ func (e *Error) Reason() domain.BrokerReason {
 	}
 	return e.reason
 }
+func (e *Error) DiagnosticBrokerReason() domain.BrokerReason { return e.Reason() }
 func (e *Error) Unwrap() error {
 	if e == nil {
 		return nil

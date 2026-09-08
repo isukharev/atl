@@ -63,6 +63,10 @@ func (h *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 		writeUnscannedFailure(writer, domain.BrokerReasonAuthorizationUnavailable)
 		return
 	}
+	if request != nil && request.URL != nil && (request.URL.Path == brokertransport.DiscoveryNegotiatePathV2 || request.URL.Path == brokertransport.DiscoveryPathV2) {
+		h.serveDiscovery(writer, request)
+		return
+	}
 	if request == nil || !h.routeValid(request) {
 		var credential []byte
 		if request != nil {
@@ -203,7 +207,7 @@ func (h *Handler) routeValid(request *http.Request) bool {
 		return false
 	}
 	switch request.URL.Path {
-	case ExecutePath:
+	case ExecutePath, brokertransport.DiscoveryNegotiatePathV2, brokertransport.DiscoveryPathV2:
 		return request.Method == http.MethodPost && len(request.Header.Values("Content-Type")) == 1 && request.Header.Get("Content-Type") == "application/json"
 	case ProtocolPath:
 		return request.Method == http.MethodGet && request.ContentLength == 0 && len(request.TransferEncoding) == 0 && len(request.Header.Values("Content-Type")) == 0
@@ -300,6 +304,11 @@ func (h *Handler) writeFailure(writer http.ResponseWriter, reason domain.BrokerR
 	if err != nil {
 		return
 	}
+	h.writeFailureBody(writer, failure.Reason, body, credential, correlation)
+}
+
+func (h *Handler) writeFailureBody(writer http.ResponseWriter, reason domain.BrokerReason, body, credential []byte, correlation string) {
+	recordAuditReason(writer, reason)
 	if h.guard.Check(app.BrokerExactReadResult{}, body, credential) != nil {
 		writer.Header().Set("Cache-Control", "no-store")
 		writer.Header().Set("Content-Length", "0")
@@ -314,8 +323,8 @@ func (h *Handler) writeFailure(writer http.ResponseWriter, reason domain.BrokerR
 	if correlation != "" && h.guard.Check(app.BrokerExactReadResult{}, []byte(correlation), credential) == nil {
 		header.Set("X-ATL-Correlation-ID", correlation)
 	}
-	writer.WriteHeader(failureHTTPStatus(failure.Reason))
-	_, _ = writer.Write(body)
+	writer.WriteHeader(failureHTTPStatus(reason))
+	_, _ = writer.Write(body) // #nosec G705 -- both callers closed-encode JSON failures; application/json and nosniff are set above.
 }
 
 func writeUnscannedFailure(writer http.ResponseWriter, reason domain.BrokerReason) {

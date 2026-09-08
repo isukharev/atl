@@ -1197,7 +1197,7 @@ func injectSyntheticMCPRuntimePreflight(body string) string {
 	body = strings.ReplaceAll(body, "IFS= read -r initialized", `IFS= read -r initialized
   IFS= read -r resources_list || exit 127
   case "$resources_list" in *'"method":"resources/list"'*) ;; *) exit 127 ;; esac
-  synthetic_mcp_resources_list
+  synthetic_mcp_resources_list "$4"
   IFS= read -r runtime_read || exit 127
   case "$runtime_read" in *'"method":"resources/read"'*'"uri":"atl://runtime"'*) ;; *) exit 127 ;; esac
   synthetic_mcp_runtime_read "$4"`)
@@ -1206,10 +1206,18 @@ func injectSyntheticMCPRuntimePreflight(body string) string {
 
 func testSyntheticMCPRuntimeResourceHandler() string {
 	var script strings.Builder
-	script.WriteString("synthetic_mcp_resources_list() {\n  printf '%s\\n' '")
-	script.WriteString(`{"jsonrpc":"2.0","id":2,"result":`)
-	script.Write(syntheticMCPResourceInventoryResultForTest())
-	script.WriteString("}'\n}\nsynthetic_mcp_runtime_read() {\n  case \"$1\" in\n")
+	script.WriteString("synthetic_mcp_resources_list() {\n  case \"$1\" in\n")
+	for _, profile := range []string{"default", "jira", "confluence", "offline"} {
+		caseLabel := profile
+		if profile == "default" {
+			caseLabel = "\"\"|default"
+		}
+		script.WriteString("    " + caseLabel + ") printf '%s\\n' '")
+		script.WriteString(`{"jsonrpc":"2.0","id":2,"result":`)
+		script.Write(syntheticMCPResourceInventoryResultForTest(profile))
+		script.WriteString("}' ;;\n")
+	}
+	script.WriteString("    *) exit 127 ;;\n  esac\n}\nsynthetic_mcp_runtime_read() {\n  case \"$1\" in\n")
 	for _, profile := range []string{"default", "jira", "confluence", "offline"} {
 		caseLabel := profile
 		if profile == "default" {
