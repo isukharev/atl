@@ -29,10 +29,10 @@ func TestTransportResponsibilityOwnersStayClosed(t *testing.T) {
 			"newDownloadStream", "newReadBudgetStream", "readBudgetStream",
 		},
 		"client.go": {
-			"(*Client).Base", "(*Client).CloseIdleConnections", "(*Client).Do", "(*Client).DoStream", "(*Client).DoStreamSized", "(*Client).DoWithBodyLimit",
+			"(*Client).Base", "(*Client).ClearCredential", "(*Client).CloseIdleConnections", "(*Client).Do", "(*Client).DoBoundedResponse", "(*Client).DoStream", "(*Client).DoStreamSized", "(*Client).DoWithBodyLimit",
 			"(*Client).GetJSON", "(*Client).GetJSONUseNumber", "(*Client).ResolveGET", "(*Client).SendJSON",
-			"(*Client).do", "Client", "New", "NewWithScheduler", "NewWithSchedulerTLS", "defaultTimeout", "newWithScheduler",
-			"maxRedirects", "unmarshal", "userAgent",
+			"(*Client).do", "BoundedResponse", "Client", "New", "NewWithScheduler", "NewWithSchedulerTLS", "defaultTimeout", "newWithScheduler",
+			"maxRedirects", "maxReviewedResponseBody", "unmarshal", "userAgent",
 		},
 		"download.go": {
 			"(*Client).GetStream", "validateNoReplayReadBudget",

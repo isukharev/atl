@@ -70,6 +70,15 @@ func TestTransportFailureAndProtocolAreClosed(t *testing.T) {
 	if err != nil || decodeErr != nil || !reflect.DeepEqual(decoded, protocol) || len(decoded.Operations) != 2 {
 		t.Fatalf("protocol=%+v errors=%v/%v", decoded, err, decodeErr)
 	}
+	bound, err := ProtocolV1("broker-secondary", "workload-audience")
+	boundWire, encodeErr := EncodeProtocolV1(bound)
+	boundDecoded, decodeErr := DecodeProtocolV1(boundWire)
+	if err != nil || encodeErr != nil || decodeErr != nil || boundDecoded.BrokerID != "broker-secondary" || boundDecoded.Audience != "workload-audience" {
+		t.Fatalf("bound protocol=%+v errors=%v/%v/%v", boundDecoded, err, encodeErr, decodeErr)
+	}
+	if _, err := ProtocolV1("", "workload-audience"); !errors.Is(err, domain.ErrUsage) {
+		t.Fatalf("empty Broker id err=%v", err)
+	}
 }
 
 func TestAdminStatusIsClosed(t *testing.T) {

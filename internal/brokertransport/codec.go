@@ -13,6 +13,8 @@ import (
 )
 
 const (
+	ExecutePath              = "/v1/execute"
+	ProtocolPath             = "/v1/protocol"
 	MaxTransportFailureBytes = int64(4 << 10)
 	MaxProtocolBytes         = int64(64 << 10)
 	MaxAdminStatusBytes      = int64(4 << 10)
@@ -47,6 +49,8 @@ type ProtocolOperation struct {
 
 type Protocol struct {
 	SchemaVersion         int
+	BrokerID              string
+	Audience              string
 	ContractSchemaSHA256  string
 	TransportSchemaSHA256 string
 	RegistrySHA256        string
@@ -83,6 +87,8 @@ type protocolOperationWire struct {
 
 type protocolWire struct {
 	SchemaVersion         int                     `json:"schema_version"`
+	BrokerID              string                  `json:"broker_id"`
+	Audience              string                  `json:"audience"`
 	ContractSchemaSHA256  string                  `json:"contract_schema_sha256"`
 	TransportSchemaSHA256 string                  `json:"transport_schema_sha256"`
 	RegistrySHA256        string                  `json:"registry_sha256"`
@@ -130,12 +136,25 @@ func DecodeFailureV1(data []byte) (Failure, error) {
 }
 
 func StaticProtocolV1() Protocol {
+	value, err := ProtocolV1("broker-1", "atl-broker")
+	if err != nil {
+		panic("invalid static Broker protocol")
+	}
+	return value
+}
+
+// ProtocolV1 returns the immutable protocol contract bound to one configured
+// Broker identity and workload audience.
+func ProtocolV1(brokerID, audience string) (Protocol, error) {
+	if !validIdentifier(brokerID) || !validIdentifier(audience) {
+		return Protocol{}, malformedError()
+	}
 	definitions := brokercontract.AvailableDefinitions()
 	operations := make([]ProtocolOperation, len(definitions))
 	for index, definition := range definitions {
 		operations[index] = ProtocolOperation{definition.ID, definition.Version, append([]string{}, definition.RequiredFeatures...), definition.Limits.MaxRequestBytes, definition.Limits.MaxResponseBytes}
 	}
-	return Protocol{SchemaVersion: SchemaVersion, ContractSchemaSHA256: brokercontract.SchemaSHA256(), TransportSchemaSHA256: SchemaSHA256(), RegistrySHA256: brokercontract.RegistrySHA256(), AuthenticationProfile: AuthenticationProfileV1, ExecutionProfile: "exact_reads_v1", ConsistencyProfile: domain.BrokerReadConsistencyIdentitySnapshotV1, Operations: operations, Complete: true}
+	return Protocol{SchemaVersion: SchemaVersion, BrokerID: brokerID, Audience: audience, ContractSchemaSHA256: brokercontract.SchemaSHA256(), TransportSchemaSHA256: SchemaSHA256(), RegistrySHA256: brokercontract.RegistrySHA256(), AuthenticationProfile: AuthenticationProfileV1, ExecutionProfile: "exact_reads_v1", ConsistencyProfile: domain.BrokerReadConsistencyIdentitySnapshotV1, Operations: operations, Complete: true}, nil
 }
 
 func EncodeProtocolV1(value Protocol) ([]byte, error) {
@@ -146,7 +165,7 @@ func EncodeProtocolV1(value Protocol) ([]byte, error) {
 	for index, operation := range value.Operations {
 		operations[index] = protocolOperationWire{string(operation.ID), operation.Version, append([]string{}, operation.Features...), operation.MaxRequestBytes, operation.MaxResponseBytes}
 	}
-	wire := protocolWire{value.SchemaVersion, value.ContractSchemaSHA256, value.TransportSchemaSHA256, value.RegistrySHA256, value.AuthenticationProfile, value.ExecutionProfile, value.ConsistencyProfile, operations, value.Complete}
+	wire := protocolWire{value.SchemaVersion, value.BrokerID, value.Audience, value.ContractSchemaSHA256, value.TransportSchemaSHA256, value.RegistrySHA256, value.AuthenticationProfile, value.ExecutionProfile, value.ConsistencyProfile, operations, value.Complete}
 	return marshalBounded(wire, MaxProtocolBytes)
 }
 
@@ -159,7 +178,7 @@ func DecodeProtocolV1(data []byte) (Protocol, error) {
 	for index, operation := range wire.Operations {
 		operations[index] = ProtocolOperation{domain.BrokerOperationID(operation.ID), operation.Version, append([]string{}, operation.Features...), operation.MaxRequestBytes, operation.MaxResponseBytes}
 	}
-	value := Protocol{wire.SchemaVersion, wire.ContractSchemaSHA256, wire.TransportSchemaSHA256, wire.RegistrySHA256, wire.AuthenticationProfile, wire.ExecutionProfile, wire.ConsistencyProfile, operations, wire.Complete}
+	value := Protocol{wire.SchemaVersion, wire.BrokerID, wire.Audience, wire.ContractSchemaSHA256, wire.TransportSchemaSHA256, wire.RegistrySHA256, wire.AuthenticationProfile, wire.ExecutionProfile, wire.ConsistencyProfile, operations, wire.Complete}
 	if !validProtocol(value) {
 		return Protocol{}, malformedError()
 	}
@@ -191,7 +210,8 @@ func validFailure(value Failure) bool {
 }
 
 func validProtocol(value Protocol) bool {
-	return reflect.DeepEqual(value, StaticProtocolV1())
+	want, err := ProtocolV1(value.BrokerID, value.Audience)
+	return err == nil && reflect.DeepEqual(value, want)
 }
 
 func validAdminStatus(value AdminStatus) bool {

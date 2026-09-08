@@ -103,9 +103,11 @@
     "protocol": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["schema_version", "contract_schema_sha256", "transport_schema_sha256", "registry_sha256", "authentication_profile", "execution_profile", "consistency_profile", "operations", "complete"],
+      "required": ["schema_version", "broker_id", "audience", "contract_schema_sha256", "transport_schema_sha256", "registry_sha256", "authentication_profile", "execution_profile", "consistency_profile", "operations", "complete"],
       "properties": {
         "schema_version": {"const": 1},
+        "broker_id": {"$ref": "#/$defs/id"},
+        "audience": {"$ref": "#/$defs/id"},
         "contract_schema_sha256": {"$ref": "#/$defs/digest"},
         "transport_schema_sha256": {"$ref": "#/$defs/digest"},
         "registry_sha256": {"$ref": "#/$defs/digest"},
