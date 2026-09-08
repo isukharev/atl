@@ -1,4 +1,4 @@
-//go:build linux
+//go:build linux || darwin
 
 package brokerjournal
 
@@ -8,6 +8,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -61,7 +62,18 @@ func newFixture(t *testing.T, limits Limits) fixture {
 	t.Helper()
 	clock := &atomic.Int64{}
 	clock.Store(testMillis)
-	path := filepath.Join(t.TempDir(), "journal")
+	temp := t.TempDir()
+	if runtime.GOOS == "darwin" {
+		// The Darwin system temporary directory is commonly reported beneath
+		// /var even though /var is a root-level symlink. Resolve only this
+		// synthetic fixture; production paths retain strict no-follow traversal.
+		var err error
+		temp, err = filepath.EvalSymlinks(temp)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	path := filepath.Join(temp, "journal")
 	if err := os.Chmod(filepath.Dir(path), 0o700); err != nil {
 		t.Fatal(err)
 	}
