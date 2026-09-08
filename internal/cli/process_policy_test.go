@@ -248,7 +248,7 @@ func TestEveryRemoteJiraMutatorUsesTheProcessPolicyBeforeBackendAccess(t *testin
 		{"jira", "issue", "link", "delete", "1", "--from", "DOC-1", "--to", "OPS-1", "--type", "Blocks"},
 		{"jira", "issue", "link-epic", "DOC-1"},
 		{"jira", "issue", "transition", "DOC-1"},
-		{"jira", "issue", "update", "DOC-1"},
+		{"jira", "issue", "update", "DOC-1", "--summary", "reviewed"},
 		{"jira", "issue", "watchers", "add", "DOC-1"},
 		{"jira", "issue", "watchers", "remove", "DOC-1"},
 		{"jira", "issue", "worklog", "add", "DOC-1"},

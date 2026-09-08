@@ -65,7 +65,7 @@
     },
     {
       "path": "atl/reference/dev-loop.md",
-      "sha256": "cf45a926b843d2e80821985df937663db53f36363c980dcf1e496c61da5ef829"
+      "sha256": "7734a5d4d8608feb513c5ef10ac56df48fbaf7b41bf83d7a6a07243e32f17ef6"
     },
     {
       "path": "atl/reference/exit-codes.md",
@@ -145,11 +145,11 @@
     },
     {
       "path": "jira/reference/commands.md",
-      "sha256": "a64d13a3d777b7d38be1510d41373d56afb32ffb3513618335b4ef4051c8faed"
+      "sha256": "e73ca5600829c9020b1c483524b8de9d34d6b0e8404e759487e324695e74aeef"
     },
     {
       "path": "jira/reference/editing.md",
-      "sha256": "f04791074be575e2e60abe609ec6032741da0ed413a967e898b45398b8409d82"
+      "sha256": "ac2c89d3f6351d356b4238eca82416cd6769e05e0437925a2f473aca000d92f7"
     },
     {
       "path": "jira/reference/errors.md",
@@ -165,7 +165,7 @@
     },
     {
       "path": "jira/reference/fields.md",
-      "sha256": "d2a4fe63b0d4237c9d4357f54c19af18f910eaa797f685824f1e5d3f2ec180b9"
+      "sha256": "129dee3dcb1c428a1fa90c55723243f75142a4fff306aebb3c8739f092864b0b"
     },
     {
       "path": "jira/reference/jql.md",

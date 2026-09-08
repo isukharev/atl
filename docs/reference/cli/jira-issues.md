@@ -399,27 +399,52 @@ Flags:
 
 ## `atl jira issue update`
 
-Update summary, description, or arbitrary fields. This replaces the whole
-description; for a small targeted change prefer `jira issue edit` below.
+Preview or atomically apply an exact update of the summary, whole description,
+and catalog-qualified custom fields. The parent is mutation-classified and
+previews by default. The separate `update preview` child is read-only and works
+with `ATL_READ_ONLY=1`. For a small targeted description change, prefer
+`jira issue edit` below.
 
 ```bash
-atl jira issue update PROJ-1 --summary "Crash on empty input (critical)"
-atl jira issue update PROJ-1 --from-file updated-desc.wiki
-atl jira issue update PROJ-1 --from-md updated-desc.md
-atl jira issue update PROJ-1 --field 'priority={"name":"Highest"}'
-atl jira issue update PROJ-1 --field-json customfield_10001=5
+ATL_READ_ONLY=1 atl jira issue update preview PROJ-1 \
+  --summary "Crash on empty input (critical)" \
+  --from-md updated-desc.md \
+  --field-json customfield_10001=5
+
+env -u ATL_READ_ONLY atl jira issue update PROJ-1 \
+  --summary "Crash on empty input (critical)" \
+  --from-md updated-desc.md \
+  --field-json customfield_10001=5 \
+  --apply --expected-proposal-hash '<reviewed hash>'
 ```
+
+Preview emits content-free current/desired projections, the exact source and
+prepared-payload digests, immutable issue identity, Jira `updated`, fixed
+bounds, usage, and `proposal_hash`. Startup self-update is disabled so its
+network and local effects cannot escape those bounds. The result never emits
+submitted or current field values. Apply repeats the complete qualification by numeric issue id before one
+single-attempt PUT. A successful or ambiguous response is reconciled through
+one exact advancing readback; `outcome_unknown` must not be replayed.
+
+Only fields marked `custom:true` by the complete bounded Jira field catalog are
+accepted through `--field` and `--field-json`. Known system fields, project or
+issue-type changes, labels, and assignee updates are outside this command; use
+their dedicated surfaces. Jira provides no conditional version header for this
+general PUT, so the final GET proves the observed end state, not authorship or
+prevention of a simultaneous lost update.
 
 Flags:
 
 | flag | description |
 |---|---|
 | `PROJ-1` | issue key (positional, required) |
-| `--summary` | new summary |
+| `--summary` | new non-empty summary |
 | `--from-file` | new description file (wiki markup) or `-` for stdin |
 | `--from-md` | new markdown description file or `-` for stdin; converted to wiki, fail-closed (exit 8) |
-| `--field key=value` | extra field (repeatable); objects/arrays are decoded, other values remain strings |
-| `--field-json key=JSON` | extra explicitly typed JSON field (repeatable), including number, boolean, or `null` |
+| `--field key=value` | qualified custom field (repeatable); strict objects/arrays are decoded, other values remain strings |
+| `--field-json key=JSON` | qualified custom field with explicit strict JSON, including number, boolean, or `null` |
+| `--apply` | perform the reviewed update; omission is preview only |
+| `--expected-proposal-hash` | exact hash emitted by the reviewed preview; required with `--apply` |
 
 ## `atl jira issue field preview` / `field set`
 

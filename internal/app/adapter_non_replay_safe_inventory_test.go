@@ -46,6 +46,7 @@ func TestAdapterNonReplaySafeRequestInventory(t *testing.T) {
 		"jira/guarded_comments.go:WriteGuardedComment:SendJSON:POST":                mutatingCleared,
 		"jira/guarded_labels.go:WriteGuardedLabelDelta:SendJSON:PUT":                mutatingCleared,
 		"jira/guarded_links.go:DeleteGuardedLink:SendJSON:DELETE":                   mutatingCleared,
+		"jira/guarded_update.go:WriteGuardedUpdate:DoWithBodyLimit:PUT":             mutatingCleared,
 		"jira/jira.go:AddComment:SendJSON:POST":                                     mutatingCleared,
 		"jira/jira.go:Assign:SendJSON:PUT":                                          mutatingCleared,
 		"jira/jira.go:Create:Do:POST":                                               mutatingCleared,
@@ -83,11 +84,11 @@ func TestAdapterNonReplaySafeRequestInventory(t *testing.T) {
 		dispositions[classification.Disposition]++
 		markers[classification.Marker]++
 	}
-	if len(got) != 38 || dispositions[mutating] != 37 || dispositions[readIntent] != 1 {
-		t.Fatalf("inventory counts = total %d, mutating %d, read-intent %d; want 38/37/1", len(got), dispositions[mutating], dispositions[readIntent])
+	if len(got) != 39 || dispositions[mutating] != 38 || dispositions[readIntent] != 1 {
+		t.Fatalf("inventory counts = total %d, mutating %d, read-intent %d; want 39/38/1", len(got), dispositions[mutating], dispositions[readIntent])
 	}
-	if markers["write_clearance"] != 37 || markers[readIntent] != 1 || markers[noMarker] != 0 {
-		t.Fatalf("marker counts = clearance %d, read-intent %d, none %d; want 37/1/0", markers["write_clearance"], markers[readIntent], markers[noMarker])
+	if markers["write_clearance"] != 38 || markers[readIntent] != 1 || markers[noMarker] != 0 {
+		t.Fatalf("marker counts = clearance %d, read-intent %d, none %d; want 38/1/0", markers["write_clearance"], markers[readIntent], markers[noMarker])
 	}
 }
 

@@ -260,6 +260,39 @@ at most one description-only PUT and then requires exact advancing readback.
 `recovered` proves the intended bytes after an ambiguous response;
 `outcome_unknown` is terminal and must never be replayed automatically.
 
+## Jira: guarded whole-issue updates
+
+Use the independent read-only child for a summary, complete description, or
+small atomic set of custom fields:
+
+```sh
+ATL_READ_ONLY=1 atl jira issue update preview EXAMPLE-1 \
+  --summary 'Reviewed summary' --from-md description.md \
+  --field-json customfield_10050=5
+env -u ATL_READ_ONLY atl jira issue update EXAMPLE-1 \
+  --summary 'Reviewed summary' --from-md description.md \
+  --field-json customfield_10050=5 \
+  --apply --expected-proposal-hash '<reviewed hash>'
+```
+
+Review the content-free source/current/desired/prepared digests, immutable
+numeric id, canonical key/project, exact `updated`, backend identity, bounds,
+usage, and proposal hash. The description source bytes and converted native
+wiki candidate are both bound: changing a Markdown source that converts to the
+same wiki still requires a new preview. Generic fields must be `custom:true` in
+the complete bounded catalog. Known system fields and dedicated operations are
+refused before dispatch.
+
+The apply path performs the same complete qualification twice, with the second
+read addressed by immutable numeric id, then sends at most one numeric-id PUT.
+A successful or ambiguous response receives one bounded readback. Only the
+exact desired values with a strictly advancing `updated` produce `applied` or
+`recovered`; `outcome_unknown` is terminal. A definitive 4xx rejection is
+`not_applied` without an unnecessary readback. Jira's general update API has no
+conditional version gate, so an advancing exact readback proves the observed
+end state, not which actor wrote it or that a concurrent lost update was
+prevented.
+
 ## Jira: guarded custom fields
 
 Use the dedicated GET-only child for review; do not use the mutation-classified

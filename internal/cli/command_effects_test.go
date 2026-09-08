@@ -21,7 +21,7 @@ func TestCommandEffectCatalogClassifiesEveryExecutableLeaf(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if catalog.SchemaVersion != commandEffectCatalogSchemaVersion || catalog.Enforcement != "informational" || catalog.Selection.Count != 183 {
+	if catalog.SchemaVersion != commandEffectCatalogSchemaVersion || catalog.Enforcement != "informational" || catalog.Selection.Count != 184 {
 		t.Fatalf("catalog metadata=%+v", catalog)
 	}
 	profiles := capabilitydef.EffectProfiles()
@@ -359,6 +359,8 @@ func TestGuardedMutationEffectProfilesDisableStartupUpdateExactly(t *testing.T) 
 		"jira issue create preview": capabilitydef.EffectGuardedCreatePreview,
 		"jira issue field preview":  capabilitydef.EffectGuardedFieldPreview,
 		"jira issue field set":      capabilitydef.EffectGuardedFieldApply,
+		"jira issue update":         capabilitydef.EffectGuardedUpdateApply,
+		"jira issue update preview": capabilitydef.EffectGuardedUpdatePreview,
 	}
 	for commandPath, profileID := range wants {
 		catalog, err := buildCommandEffectCatalog(commandEffectSelection{Command: commandPath})
@@ -390,6 +392,8 @@ func TestReviewedEffectDimensionsKeepCredentialAndRequestBoundsHonest(t *testing
 		{command: "jira issue attachment get", remote: "read", local: "download", credential: "required", network: "unknown", process: "none", output: "data"},
 		{command: "jira issue field preview", remote: "read", local: "read", credential: "required", network: "fixed", process: "none", output: "data"},
 		{command: "jira issue field set", remote: "write", local: "read", credential: "required", network: "fixed", process: "none", output: "data"},
+		{command: "jira issue update preview", remote: "read", local: "read", credential: "required", network: "fixed", process: "none", output: "data"},
+		{command: "jira issue update", remote: "write", local: "read", credential: "required", network: "fixed", process: "none", output: "data"},
 		{command: "jira issue get", remote: "read", local: "none", credential: "required", network: "unknown", process: "none", output: "data"},
 		{command: "jira issue graph", remote: "read", local: "none", credential: "required", network: "caller", process: "none", output: "data"},
 		{command: "jira issue reference search", remote: "read", local: "none", credential: "required", network: "caller", process: "none", output: "data"},

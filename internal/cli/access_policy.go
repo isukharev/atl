@@ -84,23 +84,6 @@ const (
 	mutationGuardPreConfigOnApply
 )
 
-type mutationGuardFamily uint8
-
-const (
-	mutationGuardGeneric mutationGuardFamily = iota + 1
-	mutationGuardConfluenceAttachmentDelete
-	mutationGuardConfluencePageCopy
-	mutationGuardConfluencePageDelete
-	mutationGuardJiraIssueDelete
-	mutationGuardJiraDescriptionEdit
-	mutationGuardJiraGuardedLink
-	mutationGuardJiraGuardedCreate
-	mutationGuardJiraGuardedLabels
-	mutationGuardJiraGuardedComment
-	mutationGuardJiraGuardedField
-	mutationGuardJiraPlan
-)
-
 type mutationGuardSpec struct {
 	requirements []mutationGuardRequirement
 	phase        mutationGuardPhase
@@ -320,7 +303,8 @@ M remote-write preview-apply transition,comment? jira-issue-arg apply,expected-p
 R remote-read json,text jira issue transition preview
 R remote-read json,text jira issue tree
 R remote-read json,text,id jira issue types
-M remote-write-with-local remote-direct update,move? jira-issue-arg - json jira issue update
+M guarded-update-apply preview-apply update jira-issue-arg apply,expected-proposal-hash pre-config jira-guarded-update json jira issue update
+R guarded-update-preview json jira issue update preview
 R remote-read json,text jira issue view
 M remote-write preview-apply update jira-issue-arg apply,expected-proposal-hash command generic json,text jira issue watchers add
 R remote-read json,text jira issue watchers list
@@ -723,6 +707,8 @@ func validateMutationGuardFamily(cmd *cobra.Command, family mutationGuardFamily,
 		return validateJiraGuardedCommentInvocation(cmd, applyRequested)
 	case mutationGuardJiraGuardedField:
 		return validateJiraGuardedFieldInvocation(cmd, applyRequested)
+	case mutationGuardJiraGuardedUpdate:
+		return validateJiraGuardedUpdateInvocation(cmd, applyRequested)
 	case mutationGuardJiraPlan:
 		return validateJiraPlanApplyInvocation(cmd)
 	default:
