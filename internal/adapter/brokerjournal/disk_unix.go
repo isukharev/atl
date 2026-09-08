@@ -1,4 +1,4 @@
-//go:build linux
+//go:build linux || darwin
 
 package brokerjournal
 
@@ -53,15 +53,7 @@ func openDisk(path string, create bool) (disk, error) {
 	if err != nil || !privateDirectory(d.rootInfo) || d.checkPaths() != nil {
 		return nil, errUnavailable
 	}
-	// Qualify only known local filesystem types. Overlay backing storage must
-	// also be local; mount topology remains a trusted deployment prerequisite.
-	var fs unix.Statfs_t
-	if unix.Fstatfs(fd, &fs) != nil {
-		return nil, errUnavailable
-	}
-	switch fs.Type {
-	case unix.EXT4_SUPER_MAGIC, unix.XFS_SUPER_MAGIC, unix.BTRFS_SUPER_MAGIC, unix.OVERLAYFS_SUPER_MAGIC:
-	default:
+	if platformQualifyFilesystem(fd) != nil {
 		return nil, errUnavailable
 	}
 	flags := unix.O_RDWR
@@ -77,11 +69,12 @@ func openDisk(path string, create bool) (disk, error) {
 		return nil, errUnavailable
 	}
 	if create {
-		if unix.Fallocate(int(d.lock.Fd()), 0, 0, slotBytes) != nil || d.lock.Sync() != nil || d.root.Sync() != nil || d.parent.Sync() != nil {
+		if platformAllocate(d.lock, slotBytes) != nil || platformSyncFile(d.lock) != nil ||
+			platformSyncDirectory(d.root) != nil || platformSyncDirectory(d.parent) != nil {
 			return nil, errUnavailable
 		}
 	}
-	if d.check() != nil || d.root.Sync() != nil || d.parent.Sync() != nil {
+	if d.check() != nil || platformSyncDirectory(d.root) != nil || platformSyncDirectory(d.parent) != nil {
 		return nil, errUnavailable
 	}
 	ok = true
@@ -163,7 +156,7 @@ func (d *localDisk) check() error {
 		return errUnavailable
 	}
 	info, err := d.lock.Stat()
-	if err != nil || info.Size() != slotBytes {
+	if err != nil || info.Size() != slotBytes || platformAllocated(d.lock, slotBytes) != nil {
 		return errUnavailable
 	}
 	return d.sameNamed("identity", d.lock)
@@ -209,9 +202,10 @@ func (d *localDisk) allocate(name string, size int64) error {
 		return errUnavailable
 	}
 	defer func() { _ = f.Close() }()
-	if d.checkpoint("allocate") != nil || unix.Fallocate(int(f.Fd()), 0, 0, size) != nil ||
-		d.checkpoint("file_sync") != nil || f.Sync() != nil || d.sameNamed(name, f) != nil ||
-		d.checkpoint("directory_sync") != nil || d.root.Sync() != nil || d.check() != nil {
+	if d.checkpoint("allocate") != nil || platformAllocate(f, size) != nil ||
+		d.checkpoint("file_sync") != nil || platformSyncFile(f) != nil || platformAllocated(f, size) != nil ||
+		d.sameNamed(name, f) != nil || d.checkpoint("directory_sync") != nil ||
+		platformSyncDirectory(d.root) != nil || d.check() != nil {
 		return errUnavailable
 	}
 	return nil
@@ -227,13 +221,14 @@ func (d *localDisk) read(name string, size int64) ([]byte, error) {
 	}
 	defer func() { _ = f.Close() }()
 	info, err := f.Stat()
-	if err != nil || info.Size() != size {
+	if err != nil || info.Size() != size || platformAllocated(f, size) != nil {
 		return nil, errUnavailable
 	}
 	data := make([]byte, size)
 	// Stabilize a valid surviving write whose previous fsync acknowledgement
 	// was lost. Reopen must not report a terminal result from dirty cache alone.
-	if _, err := io.ReadFull(f, data); err != nil || f.Sync() != nil || d.sameNamed(name, f) != nil || d.check() != nil {
+	if _, err := io.ReadFull(f, data); err != nil || platformSyncFile(f) != nil ||
+		d.sameNamed(name, f) != nil || d.check() != nil {
 		return nil, errUnavailable
 	}
 	return data, nil
@@ -249,15 +244,17 @@ func (d *localDisk) write(name string, offset int64, data []byte) error {
 	}
 	defer func() { _ = f.Close() }()
 	info, err := f.Stat()
-	if err != nil || offset < 0 || offset > info.Size() || int64(len(data)) > info.Size()-offset {
+	if err != nil || offset < 0 || offset > info.Size() || int64(len(data)) > info.Size()-offset ||
+		platformAllocated(f, info.Size()) != nil {
 		return errUnavailable
 	}
 	if d.checkpoint("before_write") != nil {
 		return errUnavailable
 	}
 	n, err := f.WriteAt(data, offset)
-	if err != nil || n != len(data) || d.checkpoint("file_sync") != nil || f.Sync() != nil ||
-		d.checkpoint("after_file_sync") != nil || d.sameNamed(name, f) != nil || d.check() != nil {
+	if err != nil || n != len(data) || d.checkpoint("file_sync") != nil || platformSyncFile(f) != nil ||
+		platformAllocated(f, info.Size()) != nil || d.checkpoint("after_file_sync") != nil ||
+		d.sameNamed(name, f) != nil || d.check() != nil {
 		return errUnavailable
 	}
 	return nil

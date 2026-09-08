@@ -1,7 +1,7 @@
-//go:build !linux
+//go:build !linux && !darwin
 
 package brokerjournal
 
-// Darwin durability/locking qualification is required before supported Broker
-// journal enablement. The storage foundation never silently weakens its gates.
+// Unqualified platforms never receive a generic filesystem fallback. The
+// storage foundation does not silently weaken its allocation or sync gates.
 func openDisk(_ string, _ bool) (disk, error) { return nil, errUnavailable }

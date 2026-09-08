@@ -337,20 +337,23 @@ parent; reopening requires the existing root, exact deployment identity and
 unchanged limits. A caller must never fall back from reopening missing or
 invalid state to creating fresh state. One held advisory writer lock lasts
 until close. Parent/root identity, current ownership, exact private modes,
-single-link regular files and no-symlink paths are checked through held Linux
+single-link regular files and no-symlink paths are checked through held Unix
 directory descriptors. File sync and directory sync use those same handles.
 Filesystem errors have closed diagnostics without paths or underlying text.
 
-The initial adapter qualifies Linux ext-family, XFS, Btrfs and OverlayFS
-filesystems with working allocation and sync primitives; OverlayFS backing
-storage must also be local. It does not support shared/network coordination or
-volatile temporary filesystems. Darwin durability and locking qualification is
-required follow-up before final supported Broker journal enablement. The
-current platform restriction is a foundation limit, not a permanent change to
-the complete product support contract. Allocation and sync cannot guarantee
-against every storage, copy-on-write or hardware failure; any ambiguous
-mutation poisons the open instance and returns no new dispatch right or
-terminal success.
+The adapter qualifies Linux ext-family, XFS, Btrfs and OverlayFS filesystems
+with working allocation and sync primitives; OverlayFS backing storage must
+also be local. On Darwin it qualifies only local, writable APFS mounts that
+enforce ownership. Darwin allocation requests all-or-none persistent
+`F_PREALLOCATE` but does not trust that advisory flag alone: it proves the
+returned allocation, establishes the logical file size, then verifies the
+allocated block count. Later opens revalidate physical allocation. Regular-file
+commitments use `F_FULLFSYNC`; directory commitments retain descriptor
+`fsync`. It does not support shared/network coordination, other Darwin
+filesystems or volatile temporary filesystems. Allocation and sync cannot
+guarantee against every storage, copy-on-write or hardware failure; any
+ambiguous mutation poisons the open instance and returns no new dispatch right
+or terminal success.
 
 Issuance reserves a random 256-bit ID and durable storage before returning it
 to the trusted application. A separate bind step fixes the existing v1 ticket
