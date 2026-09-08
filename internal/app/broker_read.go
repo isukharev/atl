@@ -11,8 +11,9 @@ import (
 )
 
 type BrokerExactReadResult struct {
-	JiraIssue      *domain.BrokerJiraIssueReadResult
-	ConfluencePage *domain.BrokerConfluencePageReadResult
+	JiraIssue       *domain.BrokerJiraIssueReadResult
+	ConfluencePage  *domain.BrokerConfluencePageReadResult
+	ReleaseDeadline time.Time
 }
 
 type BrokerReadService struct {
@@ -35,14 +36,14 @@ type BrokerConfluencePageReader struct {
 }
 
 func NewBrokerReadService(authorizer domain.BrokerAuthorizer, jira BrokerJiraIssueReader, confluence BrokerConfluencePageReader) (*BrokerReadService, error) {
-	if authorizer == nil || jira.Reader == nil || confluence.Reader == nil || jira.Backend.Service != "jira" || confluence.Backend.Service != "confluence" {
+	if authorizer == nil || !brokerReadBindingValid(jira.Backend, jira.Reader, "jira") || !brokerReadBindingValid(confluence.Backend, confluence.Reader, "confluence") || jira.Reader == nil && confluence.Reader == nil {
 		return nil, fmt.Errorf("%w: broker exact-read dependencies are incomplete", domain.ErrUsage)
 	}
 	return &BrokerReadService{authorizer: authorizer, jira: jira, confluence: confluence, now: time.Now}, nil
 }
 
 func (s *BrokerReadService) Execute(ctx context.Context, request domain.BrokerRequest, verified domain.BrokerVerifiedContext) (BrokerExactReadResult, error) {
-	if s == nil || s.authorizer == nil || s.jira.Reader == nil || s.confluence.Reader == nil || s.now == nil {
+	if s == nil || s.authorizer == nil || s.now == nil {
 		return BrokerExactReadResult{}, brokerReadError(domain.ErrCheckFailed)
 	}
 	request, definition, err := prepareBrokerReadRequest(request)
@@ -103,15 +104,28 @@ func (s *BrokerReadService) Execute(ctx context.Context, request domain.BrokerRe
 	}
 }
 
+func brokerReadBindingValid(binding domain.BrokerBackendBinding, reader any, service string) bool {
+	if reader == nil {
+		return binding == (domain.BrokerBackendBinding{})
+	}
+	return binding.Service == service
+}
+
 func (s *BrokerReadService) backendMatches(operation domain.BrokerOperationID, verified domain.BrokerBackendBinding) (bool, error) {
 	var configured domain.BrokerBackendBinding
 	var observedOrigin string
 	var err error
 	switch operation {
 	case domain.BrokerOperationJiraIssueRead:
+		if s.jira.Reader == nil {
+			return false, nil
+		}
 		configured = s.jira.Backend
 		observedOrigin, err = s.jira.Reader.BrokerOriginSHA256()
 	case domain.BrokerOperationConfluencePageRead:
+		if s.confluence.Reader == nil {
+			return false, nil
+		}
 		configured = s.confluence.Backend
 		observedOrigin, err = s.confluence.Reader.BrokerOriginSHA256()
 	default:

@@ -218,7 +218,7 @@ func TestBrokerReadServiceExactJiraAndConfluenceAllow(t *testing.T) {
 	service := brokerReadTestService(authorizer, jira, confluence)
 	service.now = func() time.Time { return now }
 	result, err := service.Execute(t.Context(), request, verified)
-	if err != nil || result.JiraIssue == nil || result.ConfluencePage != nil || jira.backendAttempts != 2 || !reflect.DeepEqual(authorizer.calls, []domain.BrokerAuthorizationPhase{domain.BrokerPhaseAdmission, domain.BrokerPhaseQualificationAuthorization, domain.BrokerPhaseFinalAuthorization}) {
+	if err != nil || result.JiraIssue == nil || result.ConfluencePage != nil || !result.ReleaseDeadline.Equal(now.Add(5*time.Second)) || jira.backendAttempts != 2 || !reflect.DeepEqual(authorizer.calls, []domain.BrokerAuthorizationPhase{domain.BrokerPhaseAdmission, domain.BrokerPhaseQualificationAuthorization, domain.BrokerPhaseFinalAuthorization}) {
 		t.Fatalf("result=%+v err=%v attempts=%d auth=%v", result, err, jira.backendAttempts, authorizer.calls)
 	}
 
@@ -229,6 +229,27 @@ func TestBrokerReadServiceExactJiraAndConfluenceAllow(t *testing.T) {
 	result, err = service.Execute(t.Context(), request, verified)
 	if err != nil || result.ConfluencePage == nil || result.JiraIssue != nil || confluence.backendAttempts != 2 {
 		t.Fatalf("result=%+v err=%v attempts=%d", result, err, confluence.backendAttempts)
+	}
+}
+
+func TestBrokerReadServiceAllowsOneConfiguredBackend(t *testing.T) {
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	request, verified, jira, confluence := brokerReadFixture(now.UnixMilli())
+	authorizer := &brokerReadAuthorizerStub{nowMillis: now.UnixMilli()}
+	service, err := NewBrokerReadService(authorizer, BrokerJiraIssueReader{Backend: brokerJiraTestBackend(), Reader: jira}, BrokerConfluencePageReader{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	service.now = func() time.Time { return now }
+	if result, err := service.Execute(t.Context(), request, verified); err != nil || result.JiraIssue == nil || jira.backendAttempts != 2 {
+		t.Fatalf("Jira result=%+v err=%v attempts=%d", result, err, jira.backendAttempts)
+	}
+	request.Operation = domain.BrokerOperationConfluencePageRead
+	request.Arguments = domain.BrokerOperationArguments{ConfluencePageRead: &domain.BrokerConfluencePageReadArguments{PageID: "42", Projection: domain.BrokerConfluenceProjectionMetadata}}
+	verified.Backend = brokerConfluenceTestBackend()
+	authorizer.calls = nil
+	if result, err := service.Execute(t.Context(), request, verified); err == nil || result != (BrokerExactReadResult{}) || len(authorizer.calls) != 0 || confluence.backendAttempts != 0 {
+		t.Fatalf("omitted result=%+v err=%v auth=%v attempts=%d", result, err, authorizer.calls, confluence.backendAttempts)
 	}
 }
 

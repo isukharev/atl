@@ -62,7 +62,7 @@ func (s *BrokerReadService) executeJiraBrokerRead(execution *brokerReadExecution
 	if err := brokercontract.ValidateOperationDecisionForV1(decision, operation, execution.currentMillis()); err != nil {
 		return BrokerExactReadResult{}, brokerReadError(err)
 	}
-	return BrokerExactReadResult{JiraIssue: &result}, nil
+	return BrokerExactReadResult{JiraIssue: &result, ReleaseDeadline: execution.releaseDeadline(decision.ExpiresAtMillis)}, nil
 }
 
 func (s *BrokerReadService) executeConfluenceBrokerRead(execution *brokerReadExecution, request domain.BrokerRequest, qualification domain.BrokerQualificationRequest, qualificationDecision domain.BrokerQualificationDecision) (BrokerExactReadResult, error) {
@@ -120,7 +120,7 @@ func (s *BrokerReadService) executeConfluenceBrokerRead(execution *brokerReadExe
 	if err := brokercontract.ValidateOperationDecisionForV1(decision, operation, execution.currentMillis()); err != nil {
 		return BrokerExactReadResult{}, brokerReadError(err)
 	}
-	return BrokerExactReadResult{ConfluencePage: &result}, nil
+	return BrokerExactReadResult{ConfluencePage: &result, ReleaseDeadline: execution.releaseDeadline(decision.ExpiresAtMillis)}, nil
 }
 
 func sameBrokerConfluenceIdentity(left, right domain.BrokerConfluencePageIdentity) bool {

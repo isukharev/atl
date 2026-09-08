@@ -50,6 +50,10 @@ func (e *brokerReadExecution) contextError() error {
 	return e.base.Err()
 }
 
+func (e *brokerReadExecution) releaseDeadline(expiresAtMillis int64) time.Time {
+	return e.startedAt.Add(time.Duration(expiresAtMillis-e.startedAt.UnixMilli()) * time.Millisecond)
+}
+
 func (e *brokerReadExecution) qualificationContext(expiresAtMillis int64) (context.Context, context.CancelFunc, error) {
 	return e.phaseContext(e.qualification, expiresAtMillis)
 }

@@ -1,18 +1,18 @@
 # Broker semantic contract
 
-This document defines version 1 of ATL's transport-neutral Broker contract. It
-is an implementation boundary for the later authenticated server and remote
-client slices. The current ATL CLI and MCP server still use direct composition;
-no transport activates a Broker or accepts workload credentials. The exact-read
-coordinator can invoke an injected authorizer port, but this repository still
-has no configured external authorizer adapter and makes no gated operation
-available.
+This document defines version 1 of ATL's Broker semantic and authenticated HTTP
+contracts. The current ATL CLI and MCP server still use direct composition. An
+uncomposed HTTP handler and fixed-authority adapter implement the read-only
+server core, but no listener, configuration path or client activates them and
+no gated operation is available.
 
-The machine-readable shape is
-[`schemas/broker-v1.schema.json`](schemas/broker-v1.schema.json). The normative
-semantic checks, strict decoder and canonical digest vectors live in
-`internal/brokercontract`. JSON Schema alone does not prove duplicate-key
-rejection, temporal ordering, authority provenance or canonical bytes.
+The machine-readable shapes are the semantic
+[`schemas/broker-v1.schema.json`](schemas/broker-v1.schema.json) and HTTP
+[`schemas/broker-http-v1.schema.json`](schemas/broker-http-v1.schema.json)
+schemas. The normative strict codecs and canonical vectors live in
+`internal/brokercontract` and `internal/brokertransport`. JSON Schema alone
+does not prove duplicate-key rejection, temporal ordering, authority provenance
+or canonical bytes.
 
 ## Trust boundary
 
@@ -21,7 +21,7 @@ state expected execution identity and authority revision, but those fields are
 equality guards only. It cannot send a principal, role, grant, backend URL,
 authorization decision, lease or proposal clearance.
 
-`BrokerVerifiedContext` enters through a future trusted authentication adapter.
+`BrokerVerifiedContext` enters through the trusted authentication adapter.
 It binds an opaque principal and workload, execution id and epoch, audience,
 Broker id, authority revision, hard lifetimes and a content-minimized backend
 identity. A structurally valid value does not prove authenticity. No codec in
@@ -35,6 +35,53 @@ Existing contracts retain their roles:
 - `WriteAuthorizer` remains the mutating adapter's last-hop clearance.
 
 A Broker authorization never replaces the final adapter clearance.
+
+## Authenticated HTTP server core
+
+The server core has two exact routes: `POST /v1/execute` for the two available
+read operations and authenticated `GET /v1/protocol` for static schema,
+registry and profile metadata. The latter is compatibility metadata, not
+execution-scoped discovery or a grant. Paths, methods, queries, content type,
+content encoding, authorization header cardinality and body shape are closed.
+There is no raw URL, method, header, JQL, CQL or MCP forwarding surface.
+
+Opaque workload credentials are introspected on every request through one
+configured HTTPS authority. Authentication binds a fresh 192-bit server nonce,
+a domain-separated credential digest, the configured issuer, audience and
+Broker id, the complete verified context and a response lease of at most five
+seconds. The credential cannot select the authority URL or provide identity in
+forwarded headers. Admission, qualification and final authorization then use
+three fixed authority routes and the existing exact decision codecs. All four
+authority calls are single-attempt, redirect-free, independently capped at
+128 KiB, bounded to five seconds and never positively cached. Proposal
+authorization remains unsupported.
+
+The handler caps parsed request headers at 16 KiB, the workload bearer at
+8 KiB and the execute body at 64 KiB before strict decode. A fixed global
+concurrency semaphore refuses overload before authentication. Successful
+payloads retain the existing Jira or Confluence result bytes without another
+wrapper. Failures use the closed HTTP schema, for example:
+
+```json named-broker-http-failure-v1
+{"schema_version":1,"status":"rejected","reason":"denied","recovery":"request_access","retry_safe":false,"complete":true}
+```
+
+The app result carries the final decision's monotonic release deadline. The
+handler encodes and checks the complete response, refuses a canceled request,
+and applies the earlier of the request deadline and final release deadline as
+the response write deadline. It rechecks cancellation and expiry before
+headers. A write that fails after headers is incomplete and never receives a
+second JSON body. Before any
+content response it also checks decoded selected fields, native storage and
+encoded bytes for the workload and configured credentials known to the server.
+A match refuses the whole response; native Jira-wiki or CSF bytes are never
+redacted or rewritten. This bounded guard does not claim to detect unknown
+secrets or arbitrary encodings.
+
+This increment supplies shared synthetic server/authority/client fixtures. TLS
+listener lifecycle, health/readiness, secret-file configuration, CLI and MCP
+composition, remote client ports and deployment examples remain disabled until
+their later slices land.
 
 ## Versioned operation registry
 

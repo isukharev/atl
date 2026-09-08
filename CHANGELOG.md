@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added the uncomposed authenticated Broker HTTP server core for exact reads,
+  with strict protocol/failure schemas, fixed HTTPS workload introspection and
+  PDP routes, per-call leases and limits, selected-backend composition support,
+  final-decision write deadlines, and whole-response credential refusal. No
+  listener, CLI/MCP route, deployment config, or remote client is activated.
 - Added service-owned semantic enforcement for the Broker exact-read profile.
   Narrow Jira issue and Confluence page readers now separate authorized
   metadata qualification from final business reads, bind immutable identity and

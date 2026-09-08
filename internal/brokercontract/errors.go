@@ -62,3 +62,21 @@ func ContentFreeError(err error) (bool, error) {
 	}
 	return true, reject(reason)
 }
+
+// ErrorForReason returns a content-free error for one closed Broker reason.
+// Transport adapters use it to preserve semantic recovery without retaining
+// private error chains.
+func ErrorForReason(reason domain.BrokerReason) (bool, error) {
+	switch reason {
+	case domain.BrokerReasonMalformed, domain.BrokerReasonUnsupported,
+		domain.BrokerReasonDenied, domain.BrokerReasonRevoked,
+		domain.BrokerReasonCredentialExpired, domain.BrokerReasonGrantExpired,
+		domain.BrokerReasonStaleExecution, domain.BrokerReasonStaleAuthority,
+		domain.BrokerReasonDecisionExpired, domain.BrokerReasonAuthorizationUnavailable,
+		domain.BrokerReasonUnsupportedConsistency, domain.BrokerReasonProposalClearanceRequired,
+		domain.BrokerReasonOutcomeUnknown:
+		return true, reject(reason)
+	default:
+		return false, nil
+	}
+}
