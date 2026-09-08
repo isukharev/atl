@@ -154,6 +154,9 @@ guarded_create.go:PrepareGuardedCreate:range:1
 guarded_create.go:PrepareGuardedCreate:range:2
 guarded_create.go:ReadGuardedCreate:range:1
 guarded_create.go:guardedCreateReadFields:range:1
+guarded_create.go:guardedCreateRejectionEvidence:range:1
+guarded_create.go:guardedCreateRejectionEvidence:range:2
+guarded_create.go:guardedCreateRejectionEvidence:range:3
 guarded_fields.go:PrepareGuardedFields:range:1
 guarded_fields.go:ReadGuardedFieldCatalog:range:1
 guarded_fields.go:ReadGuardedFieldCatalog:range:2
