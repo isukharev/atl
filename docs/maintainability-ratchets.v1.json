@@ -118,7 +118,7 @@
     {"owner":"adapter-jira","path":"internal/adapter/jira/","max_lines":6417,"rationale":"Include the narrow Broker issue reader and its explicit long-running-host idle-connection shutdown seam."},
     {"owner":"app","path":"internal/app/","max_lines":53431,"rationale":"Include explicit Broker read-purpose markers and privacy-safe doctor projection without expanding application-layer transport ownership."},
     {"owner":"cli","path":"internal/cli/","max_lines":13603,"rationale":"Include privacy-safe direct/Broker projections and pre-network refusal of browser-open in Broker mode."},
-    {"owner":"compose","path":"internal/compose/","max_lines":1141,"rationale":"Include explicit direct/Broker selection, per-service sessions, and PAT-free valid, invalid, and unsupported doctor projections."},
+    {"owner":"compose","path":"internal/compose/","max_lines":1147,"rationale":"Include explicit direct/Broker selection, per-service sessions, and PAT-free valid, malformed, invalid, and unsupported doctor projections."},
     {"owner":"contentpolicy","path":"internal/contentpolicy/","max_lines":1281,"rationale":"Keep policy parsing, resolved and deny-only evaluation, source-denial envelopes, freeze, static scope requirements, and hierarchy hazards at the reviewed public-surface total."},
     {"owner":"evaluator","path":"internal/agenteval/","max_lines":97755,"rationale":"Keep the complete evaluator tree at the exact guarded-workflow baseline, including strict recognition and contradiction checks for optional Jira create diagnostics."},
     {"owner":"httpx","path":"internal/httpx/","max_lines":1746,"rationale":"Include the bounded single-attempt response primitive and short-lived credential clearing used by the closed Broker client protocol."},

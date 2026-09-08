@@ -128,3 +128,25 @@ func TestInvalidConnectionModeDoctorDoesNotReadPATStore(t *testing.T) {
 		t.Fatalf("deps=%+v", deps)
 	}
 }
+
+func TestMalformedBrokerConfigDoctorDoesNotReadPATStore(t *testing.T) {
+	for _, body := range []string{
+		`{"connection_mode":"broker","broker":123}`,
+		`{"connection_mode":123,"broker":{"base_url":"https://broker.example.test"}}`,
+	} {
+		t.Run(body, func(t *testing.T) {
+			directory := t.TempDir()
+			t.Setenv("ATL_CONFIG_DIR", directory)
+			if err := os.Mkdir(filepath.Join(directory, "credentials.json"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(directory, "config.json"), []byte(body), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			deps := doctorDependencies(app.DoctorServiceJira, func(string) error { return nil })
+			if deps.Config.ConnectionMode != "invalid" || deps.Config.Status != "invalid" || deps.Credentials.Store.Status != "not_used" || deps.Token != nil || deps.Reader != nil {
+				t.Fatalf("deps=%+v", deps)
+			}
+		})
+	}
+}
