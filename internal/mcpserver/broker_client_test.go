@@ -12,6 +12,8 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+
 	"github.com/isukharev/atl/internal/brokercontract"
 	"github.com/isukharev/atl/internal/brokertransport"
 	"github.com/isukharev/atl/internal/domain"
@@ -67,6 +69,13 @@ func TestProductionMCPConfluenceMetadataUsesBrokerWithoutPATStore(t *testing.T) 
 	}
 	if protocolCalls.Load() != 1 || executeCalls.Load() != 1 {
 		t.Fatalf("protocol=%d execute=%d", protocolCalls.Load(), executeCalls.Load())
+	}
+	unsupported, err := client.CallTool(t.Context(), &mcp.CallToolParams{Name: "confluence_table_summary", Arguments: map[string]any{"reference": "42"}})
+	if err != nil || !unsupported.IsError {
+		t.Fatalf("unsupported result=%+v err=%v", unsupported, err)
+	}
+	if protocolCalls.Load() != 1 || executeCalls.Load() != 1 {
+		t.Fatalf("unsupported MCP read reached Broker: protocol=%d execute=%d", protocolCalls.Load(), executeCalls.Load())
 	}
 }
 

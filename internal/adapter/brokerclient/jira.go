@@ -25,6 +25,9 @@ func NewJira(client *Client) (*Jira, error) {
 }
 
 func (j *Jira) GetIssue(ctx context.Context, key string, fields []string) (*domain.Issue, error) {
+	if domain.BrokerClientReadPurposeFromContext(ctx) != domain.BrokerClientReadJiraIssue {
+		return nil, unsupported()
+	}
 	requested := make([]domain.BrokerJiraIssueField, len(fields))
 	for index, field := range fields {
 		requested[index] = domain.BrokerJiraIssueField(field)

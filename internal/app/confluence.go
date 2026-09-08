@@ -83,6 +83,9 @@ func newConfluenceSearchResult(query string, page domain.PageSearchPage) *Conflu
 }
 
 func (s *ConfluenceService) Get(ctx context.Context, id, format string) (*domain.Resource, error) {
+	if format == "csf" || format == "" {
+		ctx = domain.WithBrokerClientReadPurpose(ctx, domain.BrokerClientReadConfluencePage)
+	}
 	resolved, err := s.ResolvePageReference(ctx, id)
 	if err != nil {
 		return nil, err
@@ -106,6 +109,7 @@ func (s *ConfluenceService) Get(ctx context.Context, id, format string) (*domain
 }
 
 func (s *ConfluenceService) Meta(ctx context.Context, id string) (*domain.PageMeta, error) {
+	ctx = domain.WithBrokerClientReadPurpose(ctx, domain.BrokerClientReadConfluenceMeta)
 	resolved, err := s.ResolvePageReference(ctx, id)
 	if err != nil {
 		return nil, err

@@ -40,7 +40,7 @@ func brokerDoctorDependencies(service string, inspection config.Inspection, vali
 			JiraURL: jiraURL, JiraURLSource: jiraSource, JiraURLStatus: doctorURLStatus(jiraURL), ReadOnly: cfg != nil && cfg.ReadOnly,
 			Transport: transport,
 		},
-		Credentials: credentials,
+		Credentials: credentials, RemoteSkipReason: "broker_operation_unsupported",
 	}
 }
 

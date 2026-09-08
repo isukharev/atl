@@ -23,8 +23,15 @@ func doctorDependencies(service string, validateCABundle func(string) error, opt
 	resolved := resolveOptions(options)
 	cfgInspection := config.Inspect()
 	cfg := cfgInspection.Effective
-	if brokerMode(cfg) {
+	mode := config.EffectiveConnectionMode(cfg.ConnectionMode)
+	if mode == config.ConnectionModeBroker {
 		return brokerDoctorDependencies(service, cfgInspection, validateCABundle)
+	}
+	if mode != config.ConnectionModeDirect {
+		deps := brokerDoctorDependencies(service, cfgInspection, validateCABundle)
+		deps.Config.ConnectionMode = "invalid"
+		deps.RemoteSkipReason = "invalid_configuration"
+		return deps
 	}
 	credentialInspection := auth.Inspect()
 	transport := config.TransportProjection(cfg)

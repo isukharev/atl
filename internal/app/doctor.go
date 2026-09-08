@@ -66,10 +66,11 @@ func ProjectReadOnly(configured, flag, environment bool) ReadOnlyProjection {
 // DoctorDependencies is the transport-neutral projection supplied by the outer
 // composition owner. Effective URLs remain in-process and are never serialized.
 type DoctorDependencies struct {
-	Config      DoctorConfigInspection
-	Credentials DoctorCredentialInspection
-	Token       func(service string) (string, error)
-	Reader      func(service, rawURL, token, version string) (domain.ServerMetadataReader, error)
+	Config           DoctorConfigInspection
+	Credentials      DoctorCredentialInspection
+	Token            func(service string) (string, error)
+	Reader           func(service, rawURL, token, version string) (domain.ServerMetadataReader, error)
+	RemoteSkipReason string
 }
 
 type DoctorConfigInspection struct {
@@ -642,6 +643,10 @@ func runOneDoctorRemote(
 		return
 	}
 	if deps.Token == nil || deps.Reader == nil {
+		if deps.RemoteSkipReason != "" {
+			skipDoctorRemote(out, deps.RemoteSkipReason)
+			return
+		}
 		out.Remote.Status = "skipped"
 		out.Remote.Reason = "composition_unavailable"
 		addDoctorProblem(result, "remote."+service, "error", out.Remote.Reason, "repair_configuration")

@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/isukharev/atl/internal/app"
+	"github.com/isukharev/atl/internal/config"
 	"github.com/isukharev/atl/internal/csf"
 	"github.com/isukharev/atl/internal/domain"
 )
@@ -373,6 +374,13 @@ func confPageCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if openID == "" {
 				return usageErr("--id is required")
+			}
+			cfg, err := config.Load()
+			if err != nil {
+				return err
+			}
+			if config.EffectiveConnectionMode(cfg.ConnectionMode) == config.ConnectionModeBroker {
+				return usageErr("page open is unavailable in Broker mode")
 			}
 			svc, err := confService(cmd)
 			if err != nil {

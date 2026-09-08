@@ -4,6 +4,27 @@ import "context"
 
 const BrokerReadConsistencyIdentitySnapshotV1 = "identity_snapshot_v1"
 
+type BrokerClientReadPurpose string
+
+const (
+	BrokerClientReadJiraIssue      BrokerClientReadPurpose = "jira_issue"
+	BrokerClientReadConfluencePage BrokerClientReadPurpose = "confluence_page"
+	BrokerClientReadConfluenceMeta BrokerClientReadPurpose = "confluence_metadata"
+)
+
+type brokerClientReadPurposeKey struct{}
+
+// WithBrokerClientReadPurpose marks an application-owned use case admitted by
+// the remote Broker client. Direct adapters ignore this marker.
+func WithBrokerClientReadPurpose(ctx context.Context, purpose BrokerClientReadPurpose) context.Context {
+	return context.WithValue(ctx, brokerClientReadPurposeKey{}, purpose)
+}
+
+func BrokerClientReadPurposeFromContext(ctx context.Context) BrokerClientReadPurpose {
+	purpose, _ := ctx.Value(brokerClientReadPurposeKey{}).(BrokerClientReadPurpose)
+	return purpose
+}
+
 // BrokerJiraIssueIdentity is the content-free qualification projection for one
 // exact issue. Complete is required before it can enter final authorization.
 type BrokerJiraIssueIdentity struct {

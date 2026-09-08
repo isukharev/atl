@@ -21,7 +21,7 @@ func NewConfluence(client *Client) (*Confluence, error) {
 }
 
 func (c *Confluence) GetPage(ctx context.Context, id string, opts domain.PullOpts) (*domain.Resource, error) {
-	if opts.Format != "" && opts.Format != "csf" || opts.IncludeRestrictions {
+	if domain.BrokerClientReadPurposeFromContext(ctx) != domain.BrokerClientReadConfluencePage || opts.Format != "" && opts.Format != "csf" || opts.IncludeRestrictions {
 		return nil, unsupported()
 	}
 	result, err := c.client.ReadConfluencePage(ctx, id, domain.BrokerConfluenceProjectionStorage)
@@ -36,6 +36,9 @@ func (c *Confluence) GetPage(ctx context.Context, id string, opts domain.PullOpt
 }
 
 func (c *Confluence) GetMeta(ctx context.Context, id string) (*domain.PageMeta, error) {
+	if domain.BrokerClientReadPurposeFromContext(ctx) != domain.BrokerClientReadConfluenceMeta {
+		return nil, unsupported()
+	}
 	result, err := c.client.ReadConfluencePage(ctx, id, domain.BrokerConfluenceProjectionMetadata)
 	if err != nil {
 		return nil, err

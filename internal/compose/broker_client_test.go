@@ -108,4 +108,23 @@ func TestBrokerDoctorProjectionNeverReadsOrdinaryPATStore(t *testing.T) {
 	if deps.Token != nil || deps.Reader != nil {
 		t.Fatal("Broker doctor retained a direct PAT or backend reader path")
 	}
+	result, err := RunDoctor(t.Context(), app.DoctorOptions{Remote: true, Service: app.DoctorServiceJira})
+	if err != nil || !result.Healthy || result.Services.Jira.Remote.Status != "skipped" || result.Services.Jira.Remote.Reason != "broker_operation_unsupported" {
+		t.Fatalf("doctor=%+v err=%v", result, err)
+	}
+}
+
+func TestInvalidConnectionModeDoctorDoesNotReadPATStore(t *testing.T) {
+	directory := t.TempDir()
+	t.Setenv("ATL_CONFIG_DIR", directory)
+	if err := os.Mkdir(filepath.Join(directory, "credentials.json"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(directory, "config.json"), []byte(`{"connection_mode":"invalid-mode","jira_list_views":{}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	deps := doctorDependencies(app.DoctorServiceJira, func(string) error { return nil })
+	if deps.Config.ConnectionMode != "invalid" || deps.Credentials.Store.Status != "not_used" || deps.Token != nil || deps.Reader != nil {
+		t.Fatalf("deps=%+v", deps)
+	}
 }

@@ -148,6 +148,48 @@ func TestClientDoesNotRetryUnavailableOrMismatchedResults(t *testing.T) {
 	}
 }
 
+func TestClientBrokerBudgetRemainsChildOfCallerBudget(t *testing.T) {
+	loader := &countingSessionLoader{value: testSession()}
+	var protocolCalls, executeCalls atomic.Int32
+	server := newTestBroker(t, "broker-1", func(domain.BrokerRequest) ([]byte, error) {
+		executeCalls.Add(1)
+		return nil, errors.New("execute must not be reached")
+	}, &protocolCalls)
+	client := newTestClient(t, server, loader, "broker-1")
+	parent, err := domain.NewReadBudget(1, brokercontract.MaxReadResultWireBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := domain.WithReadBudget(t.Context(), parent)
+	if _, err := client.ReadJiraIssue(ctx, "EXAMPLE-1", []domain.BrokerJiraIssueField{domain.BrokerJiraIssueFieldSummary}); !errors.Is(err, domain.ErrReadAttemptBudgetExhausted) {
+		t.Fatalf("err=%v", err)
+	}
+	if protocolCalls.Load() != 1 || executeCalls.Load() != 0 || parent.Usage().Attempts != 1 {
+		t.Fatalf("protocol=%d execute=%d parent=%+v", protocolCalls.Load(), executeCalls.Load(), parent.Usage())
+	}
+}
+
+func TestClientBrokerResponseBudgetRemainsChildOfCallerBudget(t *testing.T) {
+	loader := &countingSessionLoader{value: testSession()}
+	var protocolCalls, executeCalls atomic.Int32
+	server := newTestBroker(t, "broker-1", func(domain.BrokerRequest) ([]byte, error) {
+		executeCalls.Add(1)
+		return nil, errors.New("execute must not be reached")
+	}, &protocolCalls)
+	client := newTestClient(t, server, loader, "broker-1")
+	parent, err := domain.NewReadBudget(2, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := domain.WithReadBudget(t.Context(), parent)
+	if _, err := client.ReadJiraIssue(ctx, "EXAMPLE-1", []domain.BrokerJiraIssueField{domain.BrokerJiraIssueFieldSummary}); !errors.Is(err, domain.ErrReadResponseBudgetExhausted) {
+		t.Fatalf("err=%v", err)
+	}
+	if protocolCalls.Load() != 1 || executeCalls.Load() != 0 || parent.Usage().ResponseBytes > 1 {
+		t.Fatalf("protocol=%d execute=%d parent=%+v", protocolCalls.Load(), executeCalls.Load(), parent.Usage())
+	}
+}
+
 func TestFileSessionLoaderRequiresStrictOwnerPrivateSnapshot(t *testing.T) {
 	directory := t.TempDir()
 	if err := os.Chmod(directory, 0o700); err != nil {

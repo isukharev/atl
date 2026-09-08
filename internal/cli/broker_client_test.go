@@ -82,6 +82,15 @@ func TestOrdinaryCLIExactReadsUseBrokerWithoutPATStore(t *testing.T) {
 	if protocolCalls.Load() != 2 || executeCalls.Load() != 2 {
 		t.Fatalf("protocol=%d execute=%d", protocolCalls.Load(), executeCalls.Load())
 	}
+	if _, _, err := executeCLIRaw(t, env, "jira", "issue", "get", "EXAMPLE-1"); err == nil {
+		t.Fatal("broad Jira read succeeded in Broker mode")
+	}
+	if _, _, err := executeCLIRaw(t, env, "conf", "page", "get", "--id", "42", "--format", "view"); err == nil {
+		t.Fatal("rendered Confluence read succeeded in Broker mode")
+	}
+	if protocolCalls.Load() != 2 || executeCalls.Load() != 2 {
+		t.Fatalf("unsupported call reached Broker: protocol=%d execute=%d", protocolCalls.Load(), executeCalls.Load())
+	}
 	stdout, _, err = executeCLIRaw(t, env, "auth", "status")
 	if err != nil || !strings.Contains(stdout, `"mode": "broker"`) || !strings.Contains(stdout, "broker_session_file") {
 		t.Fatalf("auth status=%q err=%v", stdout, err)

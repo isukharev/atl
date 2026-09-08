@@ -36,6 +36,7 @@ func (s *JiraService) IssueResolved(ctx context.Context, key string, selectors [
 	if err != nil {
 		return nil, err
 	}
+	ctx = domain.WithBrokerClientReadPurpose(ctx, domain.BrokerClientReadJiraIssue)
 	return s.tr.GetIssue(ctx, key, fieldDefIDs(defs))
 }
 

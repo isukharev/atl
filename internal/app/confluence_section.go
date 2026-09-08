@@ -214,6 +214,7 @@ type structuralHeading struct {
 }
 
 func (s *ConfluenceService) PageOutline(ctx context.Context, reference string) (*ConfluencePageOutlineResult, error) {
+	ctx = domain.WithBrokerClientReadPurpose(ctx, domain.BrokerClientReadConfluencePage)
 	parsed, err := s.loadStructuralConfluencePage(ctx, reference, 0)
 	if err != nil {
 		return nil, err
@@ -286,6 +287,7 @@ type confluenceSectionSelection struct {
 // selectors are resolved before any output is assembled, so one invalid
 // selector fails the request as a unit.
 func (s *ConfluenceService) PageSections(ctx context.Context, reference string, opts ConfluencePageSectionsOpts) (*ConfluencePageSectionsResult, error) {
+	ctx = domain.WithBrokerClientReadPurpose(ctx, domain.BrokerClientReadConfluencePage)
 	if len(opts.Selectors) == 0 {
 		return nil, fmt.Errorf("%w: at least one heading selector is required", domain.ErrUsage)
 	}

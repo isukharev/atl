@@ -96,7 +96,8 @@ values are safe for automation; configured URLs/hostnames, local paths,
 environment-variable names, credentials, identities, object ids, mirrored
 content, and raw parser/backend errors are never fields or interpolated text.
 
-`doctor.config.connection_mode` is `direct|broker`. In Broker mode service URL
+`doctor.config.connection_mode` is `direct|broker`, or `invalid` when the
+configured selector is rejected before credential inspection. In Broker mode service URL
 and credential sources are the closed categories `broker_configuration` and
 `broker_session_file`; the ordinary credential-store projection is
 `status:not_used`. No Broker endpoint, session path, credential, execution id,
