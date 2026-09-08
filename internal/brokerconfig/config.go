@@ -151,8 +151,8 @@ func directPrivateParent(target string) bool {
 		return false
 	}
 	parent := filepath.Dir(absolute)
-	resolved, err := filepath.EvalSymlinks(parent)
-	return err == nil && filepath.Clean(parent) == filepath.Clean(resolved)
+	info, err := os.Lstat(parent)
+	return err == nil && info.IsDir()
 }
 
 func (m *Material) Close() {

@@ -13,7 +13,9 @@ must be owned by the dedicated service account with mode `0700`; every file
 must be regular, owned by that account, and mode `0600`. Credential files
 contain the exact bearer bytes with no newline. The Broker refuses inline
 secrets, path traversal, ambient proxy variables, system trust fallback,
-public listeners, symlinks, special files, and loose owner permissions.
+public listeners, symlinked files or immediate config parent, special files,
+and loose owner permissions. Stable system ancestor aliases remain bound to
+the opened owner-private directory identity.
 
 Validate the example unit before activation:
 

@@ -92,6 +92,29 @@ func TestLoadRejectsSymlinkedConfigurationParent(t *testing.T) {
 	}
 }
 
+func TestLoadAllowsStableSystemStyleAncestorAlias(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Broker hosting requires POSIX owner evidence")
+	}
+	clearProxyEnvironment(t)
+	realRoot := t.TempDir()
+	private := filepath.Join(realRoot, "private")
+	if err := os.Mkdir(private, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	path := writeConfigFixture(t, private, testConfig())
+	aliasRoot := t.TempDir()
+	alias := filepath.Join(aliasRoot, "system-alias")
+	if err := os.Symlink(realRoot, alias); err != nil {
+		t.Fatal(err)
+	}
+	material, err := Load(filepath.Join(alias, "private", filepath.Base(path)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	material.Close()
+}
+
 func TestLoadRejectsLooseSymlinkSpecialAndOversizedInputs(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("POSIX file modes are required by the Broker host")
