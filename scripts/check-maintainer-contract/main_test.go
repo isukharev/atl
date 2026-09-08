@@ -619,30 +619,23 @@ product-boundary:
 full: tidy-check build race lint vet vuln contract windows product-boundary
 `,
 		"internal/agenteval/fixture_test.go": "package agenteval\n\nimport \"testing\"\n\nfunc TestFixtureWires(t *testing.T) {}\nfunc TestFixtureMirror(t *testing.T) {}\nfunc TestFixtureWrites(t *testing.T) {}\nfunc TestFixtureMCP(t *testing.T) {}\n",
-		".github/workflows/ci.yml": `name: ci
-on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
-  workflow_dispatch:
-permissions:
+		".github/workflows/ci.yml": "name: ci\n" + ciTriggerContract + `permissions:
   contents: read
 concurrency:
   group: fixture
 jobs:
-  test:
+` + bindingJobContract + readyJobContract + codeQLCallJobContract + `  test:
     if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
-` + checkoutStepContract + "\n" + setupGoStepContract + "\n" + buildStepContract + "\n" + ciProvenanceStepContract + "\n" + vetStepContract + "\n" + extensionProtocolRuntimeStepContract + "\n" + schedulerRuntimeStepContract + "\n" + coreGateStepContract + "\n" + windowsCompileStepContract + `
+` + ciCheckoutStepContract + "\n" + setupGoStepContract + "\n" + buildStepContract + "\n" + ciProvenanceStepContract + "\n" + vetStepContract + "\n" + extensionProtocolRuntimeStepContract + "\n" + schedulerRuntimeStepContract + "\n" + coreGateStepContract + "\n" + windowsCompileStepContract + `
   corpus-devcontainer:
     runs-on: ubuntu-latest
     steps:
-      - run: true
+` + ciCheckoutStepContract + "\n" + setupGoStepContract + `
   agent-eval:
     timeout-minutes: 75
     runs-on: ubuntu-latest
@@ -652,7 +645,7 @@ jobs:
     if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
     runs-on: windows-latest
     steps:
-` + checkoutStepContract + "\n" + setupGoStepContract + "\n" + extensionProtocolWindowsRuntimeStepContract + "\n" + schedulerWindowsRuntimeStepContract + `
+` + ciCheckoutStepContract + "\n" + setupGoStepContract + "\n" + extensionProtocolWindowsRuntimeStepContract + "\n" + schedulerWindowsRuntimeStepContract + `
   lint:
     if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
@@ -661,7 +654,7 @@ jobs:
   govulncheck:
     runs-on: ubuntu-latest
     steps:
-      - run: true
+` + ciCheckoutStepContract + "\n" + setupGoStepContract + `
   smoke:
     runs-on: ubuntu-latest
     steps:
@@ -716,19 +709,7 @@ jobs:
     steps:
       - run: true
 `,
-		".github/workflows/codeql.yml": `name: codeql
-on:
-  workflow_dispatch:
-jobs:
-  analyze:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/setup-go@fixture
-        with:
-          go-version-file: go.mod
-` + codeQLProductBuildStepContract + "\n" + codeQLEvaluatorBuildStepContract + "\n",
+		".github/workflows/codeql.yml": "name: codeql\n" + codeQLTriggerContract + "jobs:\n" + codeQLAnalyzeJobContract,
 		".github/dependabot.yml": `version: 2
 updates:
   - package-ecosystem: gomod

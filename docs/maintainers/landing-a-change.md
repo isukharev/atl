@@ -43,6 +43,44 @@ follow-up only when the finding or fix warrants it.
 
 ## CI and merge
 
+The premerge bootstrap retains all existing automatic checks and adds
+`ci-ready`, an aggregate of the complete hosted contour, including a reusable
+CodeQL scan. Existing required contexts and branch protection remain in force;
+the aggregate does not activate impact-based skipping or replace protection by
+itself. The standalone CodeQL PR and weekly runs remain available during this
+transition.
+
+For a manual full run, update the same-repository PR branch to contain current
+`main`, finish review, and capture the exact PR head and base revisions. Dispatch
+the PR branch, supplying those immutable revisions as inputs:
+
+```sh
+gh workflow run ci.yml --ref <pr-branch> \
+  -f pr=<number> -f head_sha=<reviewed-head-sha> -f base_sha=<current-main-sha>
+```
+
+The workflow checks the dispatched commit, PR branch, open PR, and exact
+head/base against current GitHub metadata before and after the gates. Manual
+runs require the base to be an ancestor of the checked head. Automatic PR runs
+instead validate GitHub's synthetic merge commit and its exact base/head
+parents; fork PRs retain this automatic route. Selecting `main` and merely
+checking out a different commit cannot produce valid manual PR evidence.
+
+`ci-ready` succeeds only when every premerge dependency succeeds; a skipped,
+cancelled, failed, or missing dependency fails the aggregate. The final binding
+check rejects head or base movement during the run. If either revision changes,
+update and review the branch as applicable, then dispatch a fresh run. A rerun
+of the old event does not update its bound revisions. Before merge, reconcile
+the run's event, `headSha`, and current PR head/base; retain strict up-to-date
+branch protection when migrating required contexts to the aggregate.
+
+The initial binding job deliberately does not gate the legacy jobs: a binding
+failure must not turn existing required checks into skipped jobs while the
+required-check migration is still pending. After the bootstrap is merged and
+the manual aggregate has been observed on a PR head, the separately authorized
+protection migration can add `ci-ready`, verify it, and retire old contexts.
+Do not remove old contexts first or disable required checks between updates.
+
 Mark the PR ready only after local gates and review are green. Inspect hosted
 checks rather than assuming that a queued workflow passed. Never keep a watch
 alive with model-driven waits. Take a bounded required-check snapshot at a
