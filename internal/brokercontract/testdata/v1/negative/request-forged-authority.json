@@ -1,0 +1,1 @@
+{"schema_version":1,"operation":"jira.issue.read","operation_version":1,"request_id":"request-1","features":[],"expect":{"execution_id":"execution-1","execution_epoch":"epoch-1","authority_revision":"revision-1"},"arguments":{"issue_key":"EXAMPLE-1","fields":["summary"]},"role":"administrator"}

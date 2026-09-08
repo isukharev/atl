@@ -1,0 +1,1696 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/isukharev/atl/docs/schemas/broker-v1.schema.json",
+  "title": "ATL Broker contract v1",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/request"
+    },
+    {
+      "$ref": "#/$defs/verified_context"
+    },
+    {
+      "$ref": "#/$defs/admission_request"
+    },
+    {
+      "$ref": "#/$defs/admission_decision"
+    },
+    {
+      "$ref": "#/$defs/qualification_request"
+    },
+    {
+      "$ref": "#/$defs/qualification_decision"
+    },
+    {
+      "$ref": "#/$defs/operation_authorization_request"
+    },
+    {
+      "$ref": "#/$defs/operation_decision"
+    },
+    {
+      "$ref": "#/$defs/proposal_authorization_request"
+    },
+    {
+      "$ref": "#/$defs/proposal_clearance"
+    },
+    {
+      "$ref": "#/$defs/jira_issue_read_result"
+    },
+    {
+      "$ref": "#/$defs/confluence_page_read_result"
+    },
+    {
+      "$ref": "#/$defs/jira_comment_preview_result"
+    },
+    {
+      "$ref": "#/$defs/jira_comment_apply_result"
+    },
+    {
+      "$ref": "#/$defs/discovery"
+    },
+    {
+      "$ref": "#/$defs/execution_projection"
+    },
+    {
+      "$ref": "#/$defs/operation_ticket"
+    },
+    {
+      "$ref": "#/$defs/operation_outcome"
+    },
+    {
+      "$ref": "#/$defs/cache_qualification_request"
+    },
+    {
+      "$ref": "#/$defs/cache_qualification"
+    }
+  ],
+  "$defs": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[!-~]+$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "millis": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "expect": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "execution_id",
+        "execution_epoch",
+        "authority_revision"
+      ],
+      "properties": {
+        "execution_id": {
+          "$ref": "#/$defs/id"
+        },
+        "execution_epoch": {
+          "$ref": "#/$defs/id"
+        },
+        "authority_revision": {
+          "$ref": "#/$defs/id"
+        }
+      }
+    },
+    "jira_issue_read_arguments": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "issue_key",
+        "fields"
+      ],
+      "properties": {
+        "issue_key": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9_]+-[1-9][0-9]*$"
+        },
+        "fields": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 3,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "description",
+              "summary",
+              "updated"
+            ]
+          }
+        }
+      }
+    },
+    "confluence_page_read_arguments": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "page_id",
+        "projection"
+      ],
+      "properties": {
+        "page_id": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]*$"
+        },
+        "projection": {
+          "enum": [
+            "metadata",
+            "storage"
+          ]
+        }
+      }
+    },
+    "outcome_arguments": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "operation_ticket"
+      ],
+      "properties": {
+        "operation_ticket": {
+          "$ref": "#/$defs/id"
+        }
+      }
+    },
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "operation",
+        "operation_version",
+        "request_id",
+        "features",
+        "expect",
+        "arguments"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "operation": {
+          "enum": [
+            "jira.issue.read",
+            "confluence.page.read",
+            "jira.comment.preview",
+            "jira.comment.apply",
+            "broker.operation.outcome"
+          ]
+        },
+        "operation_version": {
+          "const": 1
+        },
+        "request_id": {
+          "$ref": "#/$defs/id"
+        },
+        "expect": {
+          "$ref": "#/$defs/expect"
+        },
+        "arguments": {},
+        "features": {
+          "type": "array",
+          "maxItems": 16,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]{0,63}$"
+          }
+        }
+      },
+      "allOf": [
+        {
+          "$ref": "#/$defs/operation_arguments_binding"
+        }
+      ]
+    },
+    "jira_issue_read_field": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "field",
+        "present",
+        "null",
+        "value"
+      ],
+      "properties": {
+        "field": {
+          "enum": [
+            "description",
+            "summary",
+            "updated"
+          ]
+        },
+        "present": {
+          "const": true
+        },
+        "null": {
+          "type": "boolean"
+        },
+        "value": {
+          "type": "string"
+        }
+      }
+    },
+    "jira_issue_read_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "arguments_sha256",
+        "issue_id",
+        "key",
+        "project",
+        "updated",
+        "fields",
+        "complete"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "arguments_sha256": {
+          "$ref": "#/$defs/digest"
+        },
+        "issue_id": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]*$"
+        },
+        "key": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9_]+-[1-9][0-9]*$",
+          "maxLength": 128
+        },
+        "project": {
+          "$ref": "#/$defs/id"
+        },
+        "updated": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "fields": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 3,
+          "items": {
+            "$ref": "#/$defs/jira_issue_read_field"
+          }
+        },
+        "complete": {
+          "const": true
+        }
+      }
+    },
+    "confluence_page_read_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "arguments_sha256",
+        "page_id",
+        "type",
+        "space",
+        "version",
+        "title",
+        "updated",
+        "projection",
+        "storage_base64",
+        "storage_present",
+        "complete"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "arguments_sha256": {
+          "$ref": "#/$defs/digest"
+        },
+        "page_id": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]*$"
+        },
+        "type": {
+          "const": "page"
+        },
+        "space": {
+          "$ref": "#/$defs/id"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 65536
+        },
+        "updated": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "projection": {
+          "enum": [
+            "metadata",
+            "storage"
+          ]
+        },
+        "storage_base64": {
+          "type": "string",
+          "maxLength": 89478488
+        },
+        "storage_present": {
+          "type": "boolean"
+        },
+        "complete": {
+          "const": true
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "projection": {
+                "const": "metadata"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "storage_base64": {
+                "const": ""
+              },
+              "storage_present": {
+                "const": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "projection": {
+                "const": "storage"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "storage_present": {
+                "const": true
+              }
+            }
+          }
+        }
+      ]
+    },
+    "backend": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "service",
+        "origin_sha256",
+        "workload_backend_id"
+      ],
+      "properties": {
+        "service": {
+          "enum": [
+            "jira",
+            "confluence"
+          ]
+        },
+        "origin_sha256": {
+          "$ref": "#/$defs/digest"
+        },
+        "workload_backend_id": {
+          "$ref": "#/$defs/id"
+        }
+      }
+    },
+    "verified_context": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "principal_id",
+        "workload_id",
+        "execution_id",
+        "execution_epoch",
+        "audience",
+        "broker_id",
+        "authority_revision",
+        "execution_not_before_millis",
+        "execution_expires_millis",
+        "grant_expires_millis",
+        "credential_expires_millis",
+        "backend"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "principal_id": {
+          "$ref": "#/$defs/id"
+        },
+        "workload_id": {
+          "$ref": "#/$defs/id"
+        },
+        "execution_id": {
+          "$ref": "#/$defs/id"
+        },
+        "execution_epoch": {
+          "$ref": "#/$defs/id"
+        },
+        "audience": {
+          "$ref": "#/$defs/id"
+        },
+        "broker_id": {
+          "$ref": "#/$defs/id"
+        },
+        "authority_revision": {
+          "$ref": "#/$defs/id"
+        },
+        "execution_not_before_millis": {
+          "$ref": "#/$defs/millis"
+        },
+        "execution_expires_millis": {
+          "$ref": "#/$defs/millis"
+        },
+        "grant_expires_millis": {
+          "$ref": "#/$defs/millis"
+        },
+        "credential_expires_millis": {
+          "$ref": "#/$defs/millis"
+        },
+        "backend": {
+          "$ref": "#/$defs/backend"
+        }
+      }
+    },
+    "decision_core": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "decision_id",
+        "authority_revision",
+        "context_sha256",
+        "request_sha256",
+        "issued_at_millis",
+        "expires_at_millis"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "allowed",
+            "denied",
+            "unavailable"
+          ]
+        },
+        "reason": {
+          "enum": [
+            "denied",
+            "revoked",
+            "grant_expired",
+            "credential_expired",
+            "stale_execution",
+            "stale_authority",
+            "decision_expired",
+            "authorization_unavailable",
+            "unsupported_consistency",
+            "proposal_clearance_required"
+          ]
+        },
+        "decision_id": {
+          "$ref": "#/$defs/id"
+        },
+        "authority_revision": {
+          "$ref": "#/$defs/id"
+        },
+        "context_sha256": {
+          "$ref": "#/$defs/digest"
+        },
+        "request_sha256": {
+          "$ref": "#/$defs/digest"
+        },
+        "issued_at_millis": {
+          "$ref": "#/$defs/millis"
+        },
+        "expires_at_millis": {
+          "$ref": "#/$defs/millis"
+        }
+      }
+    },
+    "admission_decision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "decision",
+        "decision_sha256"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "decision": {
+          "$ref": "#/$defs/decision_core"
+        },
+        "decision_sha256": {
+          "$ref": "#/$defs/digest"
+        }
+      }
+    },
+    "admission_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "context",
+        "operation",
+        "operation_version",
+        "request_id",
+        "features",
+        "arguments",
+        "arguments_sha256",
+        "deadline_millis"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "context": {
+          "$ref": "#/$defs/verified_context"
+        },
+        "operation": {
+          "enum": [
+            "jira.issue.read",
+            "confluence.page.read",
+            "jira.comment.preview",
+            "jira.comment.apply",
+            "broker.operation.outcome"
+          ]
+        },
+        "operation_version": {
+          "const": 1
+        },
+        "request_id": {
+          "$ref": "#/$defs/id"
+        },
+        "arguments_sha256": {
+          "$ref": "#/$defs/digest"
+        },
+        "deadline_millis": {
+          "$ref": "#/$defs/millis"
+        },
+        "arguments": {},
+        "features": {
+          "type": "array",
+          "maxItems": 16,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]{0,63}$"
+          }
+        }
+      },
+      "allOf": [
+        {
+          "$ref": "#/$defs/operation_arguments_binding"
+        }
+      ]
+    },
+    "qualification_plan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "selector_sha256",
+        "metadata_fields",
+        "limits"
+      ],
+      "properties": {
+        "selector_sha256": {
+          "$ref": "#/$defs/digest"
+        },
+        "metadata_fields": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "limits": {
+          "$ref": "#/$defs/phase_limits"
+        }
+      }
+    },
+    "qualification_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "admission",
+        "admission_decision",
+        "plan"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "admission": {
+          "$ref": "#/$defs/admission_request"
+        },
+        "plan": {
+          "$ref": "#/$defs/qualification_plan"
+        },
+        "admission_decision": {
+          "$ref": "#/$defs/admission_decision"
+        }
+      }
+    },
+    "qualification_decision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "decision",
+        "admission_request_sha256",
+        "admission_decision_sha256",
+        "plan_sha256",
+        "decision_sha256"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "decision": {
+          "$ref": "#/$defs/decision_core"
+        },
+        "admission_request_sha256": {
+          "$ref": "#/$defs/digest"
+        },
+        "admission_decision_sha256": {
+          "$ref": "#/$defs/digest"
+        },
+        "plan_sha256": {
+          "$ref": "#/$defs/digest"
+        },
+        "decision_sha256": {
+          "$ref": "#/$defs/digest"
+        }
+      }
+    },
+    "qualified_resource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "immutable_id",
+        "key",
+        "project",
+        "space",
+        "ancestor_ids",
+        "ancestors_present",
+        "version_evidence_sha256",
+        "projection_sha256"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "jira_issue",
+            "confluence_page",
+            "operation"
+          ]
+        },
+        "immutable_id": {
+          "$ref": "#/$defs/id"
+        },
+        "key": {
+          "type": "string"
+        },
+        "project": {
+          "type": "string"
+        },
+        "space": {
+          "type": "string"
+        },
+        "ancestor_ids": {
+          "type": "array",
+          "maxItems": 16,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]*$"
+          }
+        },
+        "ancestors_present": {
+          "type": "boolean"
+        },
+        "version_evidence_sha256": {
+          "$ref": "#/$defs/digest"
+        },
+        "projection_sha256": {
+          "$ref": "#/$defs/digest"
+        }
+      }
+    },
+    "effect": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "resource",
+        "fields"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "read",
+            "comment",
+            "observe"
+          ]
+        },
+        "resource": {
+          "$ref": "#/$defs/qualified_resource"
+        },
+        "fields": {
+          "type": "array",
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        }
+      }
+    },
+    "operation_authorization_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "qualification_request",
+        "qualification_decision",
+        "qualified_resources",
+        "effects"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "qualification_decision": {
+          "$ref": "#/$defs/qualification_decision"
+        },
+        "qualified_resources": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 16,
+          "items": {
+            "$ref": "#/$defs/qualified_resource"
+          }
+        },
+        "effects": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 16,
+          "items": {
+            "$ref": "#/$defs/effect"
+          }
+        },
+        "qualification_request": {
+          "$ref": "#/$defs/qualification_request"
+        }
+      }
+    },
+    "operation_decision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "decision",
+        "qualification_decision_sha256",
+        "operation",
+        "operation_version",
+        "arguments_sha256",
+        "resources_sha256",
+        "effects_sha256",
+        "decision_sha256"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "decision": {
+          "$ref": "#/$defs/decision_core"
+        },
+        "qualification_decision_sha256": {
+          "$ref": "#/$defs/digest"
+        },
+        "operation": {
+          "enum": [
+            "jira.issue.read",
+            "confluence.page.read",
+            "jira.comment.preview",
+            "jira.comment.apply",
+            "broker.operation.outcome"
+          ]
+        },
+        "operation_version": {
+          "const": 1
+        },
+        "arguments_sha256": {
+          "$ref": "#/$defs/digest"
+        },
+        "resources_sha256": {
+          "$ref": "#/$defs/digest"
+        },
+        "effects_sha256": {
+          "$ref": "#/$defs/digest"
+        },
+        "decision_sha256": {
+          "$ref": "#/$defs/digest"
+        }
+      }
+    },
+    "proposal_authorization_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "operation_request",
+        "operation_decision",
+        "proposal_schema_version",
+        "proposal_hash",
+        "native_candidate_sha256",
+        "version_evidence_sha256"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "operation_decision": {
+          "$ref": "#/$defs/operation_decision"
+        },
+        "proposal_schema_version": {
+          "const": 1
+        },
+        "proposal_hash": {
+          "$ref": "#/$defs/digest"
+        },
+        "native_candidate_sha256": {
+          "$ref": "#/$defs/digest"
+        },
+        "version_evidence_sha256": {
+          "$ref": "#/$defs/digest"
+        },
+        "operation_request": {
+          "$ref": "#/$defs/operation_authorization_request"
+        }
+      }
+    },
+    "proposal_clearance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "decision",
+        "operation_decision_sha256",
+        "proposal_hash",
+        "native_candidate_sha256",
+        "version_evidence_sha256",
+        "clearance_sha256"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "decision": {
+          "$ref": "#/$defs/decision_core"
+        },
+        "operation_decision_sha256": {
+          "$ref": "#/$defs/digest"
+        },
+        "proposal_hash": {
+          "$ref": "#/$defs/digest"
+        },
+        "native_candidate_sha256": {
+          "$ref": "#/$defs/digest"
+        },
+        "version_evidence_sha256": {
+          "$ref": "#/$defs/digest"
+        },
+        "clearance_sha256": {
+          "$ref": "#/$defs/digest"
+        }
+      }
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "max_request_bytes",
+        "max_response_bytes",
+        "max_total_upstream_requests",
+        "max_total_upstream_response_bytes",
+        "qualification",
+        "business",
+        "max_resources",
+        "max_fields",
+        "max_native_body_bytes",
+        "max_stream_chunks",
+        "max_stream_chunk_bytes",
+        "max_operation_millis",
+        "max_decision_lease_millis"
+      ],
+      "properties": {
+        "max_request_bytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "max_response_bytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "max_total_upstream_requests": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "max_total_upstream_response_bytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "qualification": {
+          "$ref": "#/$defs/phase_limits"
+        },
+        "business": {
+          "$ref": "#/$defs/phase_limits"
+        },
+        "max_resources": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "max_fields": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "max_native_body_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "max_stream_chunks": {
+          "const": 0
+        },
+        "max_stream_chunk_bytes": {
+          "const": 0
+        },
+        "max_operation_millis": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 60000
+        },
+        "max_decision_lease_millis": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 5000
+        }
+      }
+    },
+    "discovery_operation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "version",
+        "availability",
+        "features",
+        "limits"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "version": {
+          "const": 1
+        },
+        "availability": {
+          "enum": [
+            "available",
+            "unsupported",
+            "unavailable"
+          ]
+        },
+        "limits": {
+          "$ref": "#/$defs/limits"
+        },
+        "features": {
+          "type": "array",
+          "maxItems": 16,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]{0,63}$"
+          }
+        }
+      }
+    },
+    "discovery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "execution_scope_sha256",
+        "registry_sha256",
+        "issued_at_millis",
+        "expires_at_millis",
+        "operations",
+        "complete"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "execution_scope_sha256": {
+          "$ref": "#/$defs/digest"
+        },
+        "registry_sha256": {
+          "$ref": "#/$defs/digest"
+        },
+        "issued_at_millis": {
+          "$ref": "#/$defs/millis"
+        },
+        "expires_at_millis": {
+          "$ref": "#/$defs/millis"
+        },
+        "operations": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "$ref": "#/$defs/discovery_operation"
+          }
+        },
+        "complete": {
+          "type": "boolean"
+        }
+      }
+    },
+    "operation_ticket": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "operation_id",
+        "principal_sha256",
+        "execution_sha256",
+        "audience_sha256",
+        "backend_sha256",
+        "operation",
+        "operation_version",
+        "arguments_sha256",
+        "issued_at_millis",
+        "accept_until_millis"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "operation_id": {
+          "$ref": "#/$defs/id"
+        },
+        "principal_sha256": {
+          "$ref": "#/$defs/digest"
+        },
+        "execution_sha256": {
+          "$ref": "#/$defs/digest"
+        },
+        "audience_sha256": {
+          "$ref": "#/$defs/digest"
+        },
+        "backend_sha256": {
+          "$ref": "#/$defs/digest"
+        },
+        "operation": {
+          "type": "string"
+        },
+        "operation_version": {
+          "const": 1
+        },
+        "arguments_sha256": {
+          "$ref": "#/$defs/digest"
+        },
+        "proposal_sha256": {
+          "$ref": "#/$defs/digest"
+        },
+        "issued_at_millis": {
+          "$ref": "#/$defs/millis"
+        },
+        "accept_until_millis": {
+          "$ref": "#/$defs/millis"
+        }
+      }
+    },
+    "operation_outcome": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "ticket_sha256",
+        "phase",
+        "observed_at_millis",
+        "complete",
+        "reconciled"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "ticket_sha256": {
+          "$ref": "#/$defs/digest"
+        },
+        "phase": {
+          "enum": [
+            "admitted",
+            "dispatching",
+            "applied",
+            "not_applied",
+            "outcome_unknown",
+            "retired_non_replayable"
+          ]
+        },
+        "observed_at_millis": {
+          "$ref": "#/$defs/millis"
+        },
+        "result_sha256": {
+          "$ref": "#/$defs/digest"
+        },
+        "complete": {
+          "type": "boolean"
+        },
+        "reconciled": {
+          "type": "boolean"
+        }
+      }
+    },
+    "cache_qualification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "status",
+        "issuer_sha256",
+        "target_execution_sha256",
+        "authority_revision_sha256",
+        "request_sha256",
+        "issued_at_millis",
+        "expires_at_millis"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "status": {
+          "enum": [
+            "allowed",
+            "denied",
+            "unavailable"
+          ]
+        },
+        "reason": {
+          "enum": [
+            "denied",
+            "revoked",
+            "grant_expired",
+            "credential_expired",
+            "stale_execution",
+            "stale_authority",
+            "decision_expired",
+            "authorization_unavailable",
+            "unsupported_consistency",
+            "proposal_clearance_required"
+          ]
+        },
+        "issuer_sha256": {
+          "$ref": "#/$defs/digest"
+        },
+        "target_execution_sha256": {
+          "$ref": "#/$defs/digest"
+        },
+        "authority_revision_sha256": {
+          "$ref": "#/$defs/digest"
+        },
+        "request_sha256": {
+          "$ref": "#/$defs/digest"
+        },
+        "issued_at_millis": {
+          "$ref": "#/$defs/millis"
+        },
+        "expires_at_millis": {
+          "$ref": "#/$defs/millis"
+        }
+      }
+    },
+    "jira_comment_preview_arguments": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "issue_key",
+        "native_body_base64",
+        "satisfaction_policy"
+      ],
+      "properties": {
+        "issue_key": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9_]+-[1-9][0-9]*$"
+        },
+        "native_body_base64": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 1398104
+        },
+        "satisfaction_policy": {
+          "const": "append_always"
+        }
+      }
+    },
+    "jira_comment_apply_arguments": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "issue_key",
+        "native_body_base64",
+        "satisfaction_policy",
+        "expected_proposal_hash",
+        "operation_ticket"
+      ],
+      "properties": {
+        "issue_key": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9_]+-[1-9][0-9]*$"
+        },
+        "native_body_base64": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 1398104
+        },
+        "satisfaction_policy": {
+          "const": "append_always"
+        },
+        "expected_proposal_hash": {
+          "$ref": "#/$defs/digest"
+        },
+        "operation_ticket": {
+          "$ref": "#/$defs/id"
+        }
+      }
+    },
+    "operation_arguments_binding": {
+      "oneOf": [
+        {
+          "properties": {
+            "operation": {
+              "const": "jira.issue.read"
+            },
+            "arguments": {
+              "$ref": "#/$defs/jira_issue_read_arguments"
+            },
+            "features": {
+              "const": []
+            }
+          },
+          "required": [
+            "operation",
+            "arguments",
+            "features"
+          ]
+        },
+        {
+          "properties": {
+            "operation": {
+              "const": "confluence.page.read"
+            },
+            "arguments": {
+              "$ref": "#/$defs/confluence_page_read_arguments"
+            },
+            "features": {
+              "const": []
+            }
+          },
+          "required": [
+            "operation",
+            "arguments",
+            "features"
+          ]
+        },
+        {
+          "properties": {
+            "operation": {
+              "const": "jira.comment.preview"
+            },
+            "arguments": {
+              "$ref": "#/$defs/jira_comment_preview_arguments"
+            },
+            "features": {
+              "const": [
+                "guarded_proposal_v1"
+              ]
+            }
+          },
+          "required": [
+            "operation",
+            "arguments",
+            "features"
+          ]
+        },
+        {
+          "properties": {
+            "operation": {
+              "const": "jira.comment.apply"
+            },
+            "arguments": {
+              "$ref": "#/$defs/jira_comment_apply_arguments"
+            },
+            "features": {
+              "const": [
+                "durable_outcome_v1",
+                "guarded_proposal_v1",
+                "proposal_clearance_v1"
+              ]
+            }
+          },
+          "required": [
+            "operation",
+            "arguments",
+            "features"
+          ]
+        },
+        {
+          "properties": {
+            "operation": {
+              "const": "broker.operation.outcome"
+            },
+            "arguments": {
+              "$ref": "#/$defs/outcome_arguments"
+            },
+            "features": {
+              "const": [
+                "durable_outcome_v1"
+              ]
+            }
+          },
+          "required": [
+            "operation",
+            "arguments",
+            "features"
+          ]
+        }
+      ]
+    },
+    "jira_comment_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "arguments_sha256",
+        "operation_ticket",
+        "mode",
+        "status",
+        "proposal_hash",
+        "native_candidate_sha256",
+        "version_evidence_sha256",
+        "write_attempted",
+        "complete",
+        "reconciled"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "arguments_sha256": {
+          "$ref": "#/$defs/digest"
+        },
+        "operation_ticket": {
+          "$ref": "#/$defs/id"
+        },
+        "mode": {
+          "enum": [
+            "preview",
+            "apply"
+          ]
+        },
+        "status": {
+          "enum": [
+            "proposed",
+            "applied",
+            "recovered",
+            "not_applied",
+            "outcome_unknown"
+          ]
+        },
+        "proposal_hash": {
+          "$ref": "#/$defs/digest"
+        },
+        "native_candidate_sha256": {
+          "$ref": "#/$defs/digest"
+        },
+        "version_evidence_sha256": {
+          "$ref": "#/$defs/digest"
+        },
+        "comment_id": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]*$"
+        },
+        "write_attempted": {
+          "type": "boolean"
+        },
+        "complete": {
+          "type": "boolean"
+        },
+        "reconciled": {
+          "type": "boolean"
+        }
+      }
+    },
+    "jira_comment_preview_result": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/jira_comment_result"
+        },
+        {
+          "properties": {
+            "mode": {
+              "const": "preview"
+            },
+            "status": {
+              "const": "proposed"
+            },
+            "write_attempted": {
+              "const": false
+            },
+            "complete": {
+              "const": true
+            },
+            "reconciled": {
+              "const": false
+            }
+          },
+          "not": {
+            "required": [
+              "comment_id"
+            ]
+          }
+        }
+      ]
+    },
+    "jira_comment_apply_result": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/jira_comment_result"
+        },
+        {
+          "properties": {
+            "mode": {
+              "const": "apply"
+            }
+          },
+          "oneOf": [
+            {
+              "properties": {
+                "status": {
+                  "const": "applied"
+                },
+                "write_attempted": {
+                  "const": true
+                },
+                "complete": {
+                  "const": true
+                },
+                "reconciled": {
+                  "const": true
+                }
+              },
+              "required": [
+                "comment_id"
+              ]
+            },
+            {
+              "properties": {
+                "status": {
+                  "const": "recovered"
+                },
+                "write_attempted": {
+                  "const": true
+                },
+                "complete": {
+                  "const": true
+                },
+                "reconciled": {
+                  "const": true
+                }
+              },
+              "required": [
+                "comment_id"
+              ]
+            },
+            {
+              "properties": {
+                "status": {
+                  "const": "not_applied"
+                },
+                "write_attempted": {
+                  "const": true
+                },
+                "complete": {
+                  "const": true
+                },
+                "reconciled": {
+                  "const": false
+                }
+              },
+              "not": {
+                "required": [
+                  "comment_id"
+                ]
+              }
+            },
+            {
+              "properties": {
+                "status": {
+                  "const": "outcome_unknown"
+                },
+                "write_attempted": {
+                  "const": true
+                },
+                "complete": {
+                  "const": false
+                }
+              },
+              "not": {
+                "required": [
+                  "comment_id"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "phase_limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "max_requests",
+        "max_response_bytes"
+      ],
+      "properties": {
+        "max_requests": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "max_response_bytes": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "execution_projection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "execution_id",
+        "execution_epoch",
+        "audience",
+        "authority_revision",
+        "expires_at_millis",
+        "scope_sha256"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "execution_id": {
+          "$ref": "#/$defs/id"
+        },
+        "execution_epoch": {
+          "$ref": "#/$defs/id"
+        },
+        "audience": {
+          "$ref": "#/$defs/id"
+        },
+        "authority_revision": {
+          "$ref": "#/$defs/id"
+        },
+        "expires_at_millis": {
+          "$ref": "#/$defs/millis"
+        },
+        "scope_sha256": {
+          "$ref": "#/$defs/digest"
+        }
+      }
+    },
+    "cache_qualification_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "context",
+        "source_principal_sha256",
+        "source_read_scope_sha256",
+        "operation",
+        "selector_sha256",
+        "projection_sha256",
+        "evidence_schema_sha256",
+        "generation_sha256",
+        "content_sha256",
+        "expires_at_millis"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "context": {
+          "$ref": "#/$defs/verified_context"
+        },
+        "source_principal_sha256": {
+          "$ref": "#/$defs/digest"
+        },
+        "source_read_scope_sha256": {
+          "$ref": "#/$defs/digest"
+        },
+        "operation": {
+          "enum": [
+            "jira.issue.read",
+            "confluence.page.read",
+            "jira.comment.preview",
+            "jira.comment.apply",
+            "broker.operation.outcome"
+          ]
+        },
+        "selector_sha256": {
+          "$ref": "#/$defs/digest"
+        },
+        "projection_sha256": {
+          "$ref": "#/$defs/digest"
+        },
+        "evidence_schema_sha256": {
+          "$ref": "#/$defs/digest"
+        },
+        "generation_sha256": {
+          "$ref": "#/$defs/digest"
+        },
+        "content_sha256": {
+          "$ref": "#/$defs/digest"
+        },
+        "expires_at_millis": {
+          "$ref": "#/$defs/millis"
+        }
+      }
+    }
+  }
+}

@@ -57,6 +57,7 @@ Read these when you need the model behind a workflow rather than one command.
 | [CSF and fragments](csf-and-fragments.md) | Native Confluence bytes, versioned staging views, opaque content, and resolution |
 | [Jira guarded writeback](jira-guarded-writeback.md) | Baselines, proposal hashes, drift checks, and fail-closed write behavior |
 | [Sealed corpus generations](corpus-generations.md) | Qualified on-demand capture, zero-egress export, private attempts, and atomic indexer selection |
+| [Broker semantic contract](broker-contract.md) | Versioned operation, authorization, outcome, discovery, and cache boundaries for the future remote transport |
 | [Corpus dev-container](corpus-devcontainer.md) | Pinned runtime, mounted secrets, private roots, sealed handoff, and optional semantic indexing |
 | [Project roadmap](../ROADMAP.md) | Product direction: shipped foundation, now, next, and later |
 

@@ -20,6 +20,7 @@
     {"path":"docs/agent-recipes.md","lane":"start","topic":"agent-recipes","landing_page":"docs/README.md","language":"en"},
     {"path":"docs/agent-setup.md","lane":"start","topic":"agent-setup","landing_page":"docs/README.md","language":"en"},
     {"path":"docs/architecture.md","lane":"maintainers","topic":"architecture","landing_page":"docs/README.md","language":"en"},
+    {"path":"docs/broker-contract.md","lane":"concepts","topic":"broker-semantic-contract","landing_page":"docs/README.md","language":"en"},
     {"path":"docs/compatibility.md","lane":"operations","topic":"compatibility-matrix","landing_page":"docs/README.md","language":"en"},
     {"path":"docs/confluence-comments.md","lane":"start","topic":"confluence-comments","landing_page":"docs/README.md","language":"en"},
     {"path":"docs/context7.md","lane":"maintainers","topic":"context7-indexing","landing_page":"docs/README.md","language":"en"},
