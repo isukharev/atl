@@ -9,6 +9,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"reflect"
+	"strings"
 	"unicode/utf8"
 )
 
@@ -35,6 +37,102 @@ func Decode(data []byte, out any) error {
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.UseNumber()
 	return decoder.Decode(out)
+}
+
+// DecodeExact validates and decodes one JSON value while requiring exact
+// case-sensitive struct member names and JSON value kinds. RawMessage fields
+// remain opaque so their owning codec can validate the nested contract.
+func DecodeExact(data []byte, maxDepth int, out any) error {
+	if out == nil {
+		return fmt.Errorf("exact JSON target is nil")
+	}
+	if err := ValidateNestingDepth(data, maxDepth); err != nil {
+		return err
+	}
+	if err := Validate(data); err != nil {
+		return err
+	}
+	var dynamic any
+	dynamicDecoder := json.NewDecoder(bytes.NewReader(data))
+	dynamicDecoder.UseNumber()
+	if err := dynamicDecoder.Decode(&dynamic); err != nil || !matchesExactShape(reflect.TypeOf(out), dynamic) {
+		return fmt.Errorf("JSON shape does not match the exact target")
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	decoder.UseNumber()
+	if err := decoder.Decode(out); err != nil {
+		return err
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		return fmt.Errorf("JSON has trailing data")
+	}
+	return nil
+}
+
+var rawMessageType = reflect.TypeFor[json.RawMessage]()
+
+func matchesExactShape(target reflect.Type, value any) bool {
+	for target.Kind() == reflect.Pointer {
+		target = target.Elem()
+	}
+	if target == rawMessageType {
+		return value != nil
+	}
+	switch target.Kind() {
+	case reflect.Struct:
+		object, ok := value.(map[string]any)
+		if !ok {
+			return false
+		}
+		allowed := make(map[string]reflect.StructField, target.NumField())
+		for index := range target.NumField() {
+			field := target.Field(index)
+			name, options, _ := strings.Cut(field.Tag.Get("json"), ",")
+			if name == "" {
+				name = field.Name
+			}
+			if name == "-" || !field.IsExported() {
+				continue
+			}
+			allowed[name] = field
+			member, present := object[name]
+			optional := strings.Contains(","+options+",", ",omitempty,")
+			if !present {
+				if !optional {
+					return false
+				}
+				continue
+			}
+			if optional {
+				if text, ok := member.(string); ok && text == "" {
+					return false
+				}
+			}
+			if member == nil || !matchesExactShape(field.Type, member) {
+				return false
+			}
+		}
+		for name := range object {
+			if _, ok := allowed[name]; !ok {
+				return false
+			}
+		}
+		return true
+	case reflect.Slice, reflect.Array:
+		members, ok := value.([]any)
+		if !ok {
+			return false
+		}
+		for _, member := range members {
+			if member == nil || !matchesExactShape(target.Elem(), member) {
+				return false
+			}
+		}
+		return true
+	default:
+		return value != nil
+	}
 }
 
 // DecodeValue is Decode for an open dynamic JSON value.

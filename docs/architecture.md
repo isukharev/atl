@@ -2,8 +2,8 @@
 
 `atl` follows a hexagonal (ports & adapters) design: the domain defines
 abstract interfaces; use-cases depend only on those interfaces; adapters
-implement them; the CLI and any future server tier sit at the outermost ring
-and are interchangeable transport layers.
+implement them; the CLI and server transports sit at the outermost ring and are
+interchangeable around shared use cases.
 
 See also: [../README.md](../README.md) · [CLI reference](reference/cli/README.md) ·
 [csf-and-fragments.md](csf-and-fragments.md) · [self-update.md](self-update.md) ·
@@ -15,8 +15,8 @@ See also: [../README.md](../README.md) · [CLI reference](reference/cli/README.m
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│  transport layer  (internal/cli, internal/mcpserver)     │
-│  cobra commands or typed MCP tools call shared use-cases │
+│ transport (internal/cli, mcpserver, brokerserver)        │
+│ explicit CLI, MCP, or authenticated Broker HTTP routes   │
 └───────────────┬───────────────────────────────┬──────────┘
                 │ calls                         │ assembles through
 ┌───────────────▼──────────────────────┐  ┌─────▼───────────┐
@@ -48,6 +48,8 @@ cross-cutting (no import of adapters or CLI):
   internal/diagnostic — stable transport-neutral error classes and recovery
   internal/brokercontract — strict pure wire codecs and semantic registry;
                             no server, credentials, policy store, or backend I/O
+  internal/brokertransport — strict authentication, protocol, and failure wire
+                             contracts shared by server/authority/client slices
   internal/selfupdate, internal/version
 ```
 
@@ -65,8 +67,12 @@ It also owns the transport-neutral Broker exact-read coordinator. That service
 uses narrow Jira/Confluence qualification and business-read ports, an injected
 authorizer, one parent budget, and buffered request-bound results. The concrete
 adapters resolve only server-owned destinations and expose only a digest of
-their immutable configured base for binding checks; no CLI or MCP route
-composes this path until the authenticated server/client slices land.
+their immutable configured base for binding checks. `internal/brokerserver`
+owns only the closed authenticated HTTP routes, release deadline and response
+credential guard; it imports no concrete adapter. The fixed HTTPS
+`internal/adapter/brokerauthority` implements opaque authentication and the
+existing authorizer port without policy storage or a positive cache. No CLI or
+MCP route composes this server core yet.
 `internal/compose` alone constructs the selected concrete adapters, shares one
 request scheduler between them, loads only selected credentials, and injects
 the build's deny-all write authorizer.

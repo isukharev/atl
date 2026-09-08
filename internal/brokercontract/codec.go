@@ -4,32 +4,16 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
-	"io"
 	"reflect"
 	"slices"
 	"sort"
-	"strings"
 
 	"github.com/isukharev/atl/internal/domain"
 	"github.com/isukharev/atl/internal/strictjson"
 )
 
 func strictDecode(data []byte, maximum int64, target any) error {
-	if len(data) == 0 || int64(len(data)) > maximum || strictjson.ValidateNestingDepth(data, MaxCanonicalDepth) != nil || strictjson.Validate(data) != nil {
-		return reject(domain.BrokerReasonMalformed)
-	}
-	dynamic, err := strictjson.DecodeValue(data)
-	if err != nil || !matchesExactJSONShape(reflect.TypeOf(target), dynamic) {
-		return reject(domain.BrokerReasonMalformed)
-	}
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	decoder.UseNumber()
-	if err := decoder.Decode(target); err != nil {
-		return reject(domain.BrokerReasonMalformed)
-	}
-	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+	if len(data) == 0 || int64(len(data)) > maximum || strictjson.DecodeExact(data, MaxCanonicalDepth, target) != nil {
 		return reject(domain.BrokerReasonMalformed)
 	}
 	if !wireVersionsAreCurrent(reflect.ValueOf(target)) {
@@ -47,69 +31,6 @@ func marshalEnvelope(value any, maximum int64) ([]byte, error) {
 }
 
 var rawMessageType = reflect.TypeFor[json.RawMessage]()
-
-func matchesExactJSONShape(target reflect.Type, value any) bool {
-	for target.Kind() == reflect.Pointer {
-		target = target.Elem()
-	}
-	if target == rawMessageType {
-		return value != nil
-	}
-	switch target.Kind() {
-	case reflect.Struct:
-		object, ok := value.(map[string]any)
-		if !ok {
-			return false
-		}
-		allowed := make(map[string]reflect.StructField, target.NumField())
-		for index := range target.NumField() {
-			field := target.Field(index)
-			name, options, _ := strings.Cut(field.Tag.Get("json"), ",")
-			if name == "" {
-				name = field.Name
-			}
-			if name == "-" || !field.IsExported() {
-				continue
-			}
-			allowed[name] = field
-			member, present := object[name]
-			optional := strings.Contains(","+options+",", ",omitempty,")
-			if !present {
-				if !optional {
-					return false
-				}
-				continue
-			}
-			if optional {
-				if text, ok := member.(string); ok && text == "" {
-					return false
-				}
-			}
-			if member == nil || !matchesExactJSONShape(field.Type, member) {
-				return false
-			}
-		}
-		for name := range object {
-			if _, ok := allowed[name]; !ok {
-				return false
-			}
-		}
-		return true
-	case reflect.Slice, reflect.Array:
-		members, ok := value.([]any)
-		if !ok {
-			return false
-		}
-		for _, member := range members {
-			if member == nil || !matchesExactJSONShape(target.Elem(), member) {
-				return false
-			}
-		}
-		return true
-	default:
-		return value != nil
-	}
-}
 
 func wireVersionsAreCurrent(value reflect.Value) bool {
 	for value.Kind() == reflect.Pointer {

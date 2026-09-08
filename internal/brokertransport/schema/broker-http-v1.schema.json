@@ -1,0 +1,109 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/isukharev/atl/docs/schemas/broker-http-v1.schema.json",
+  "title": "ATL Broker HTTP contract v1",
+  "oneOf": [
+    {"$ref": "#/$defs/authentication_request"},
+    {"$ref": "#/$defs/authentication_response"},
+    {"$ref": "#/$defs/failure"},
+    {"$ref": "#/$defs/protocol"}
+  ],
+  "$defs": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[!-~]+$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "nonce": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{32}$"
+    },
+    "authentication_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "nonce", "audience", "broker_id", "credential_sha256", "workload_credential_base64"],
+      "properties": {
+        "schema_version": {"const": 1},
+        "nonce": {"$ref": "#/$defs/nonce"},
+        "audience": {"$ref": "#/$defs/id"},
+        "broker_id": {"$ref": "#/$defs/id"},
+        "credential_sha256": {"$ref": "#/$defs/digest"},
+        "workload_credential_base64": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 10924,
+          "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$"
+        }
+      }
+    },
+    "authentication_response": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "nonce", "credential_sha256", "issuer_sha256", "issued_at_millis", "expires_at_millis", "context"],
+      "properties": {
+        "schema_version": {"const": 1},
+        "nonce": {"$ref": "#/$defs/nonce"},
+        "credential_sha256": {"$ref": "#/$defs/digest"},
+        "issuer_sha256": {"$ref": "#/$defs/digest"},
+        "issued_at_millis": {"type": "integer", "minimum": 1},
+        "expires_at_millis": {"type": "integer", "minimum": 1},
+        "context": {"$ref": "broker-v1.schema.json#/$defs/verified_context"}
+      }
+    },
+    "failure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "status", "reason", "recovery", "retry_safe", "complete"],
+      "properties": {
+        "schema_version": {"const": 1},
+        "status": {"const": "rejected"},
+        "reason": {
+          "enum": ["malformed", "unsupported", "denied", "revoked", "credential_expired", "grant_expired", "stale_execution", "stale_authority", "decision_expired", "authorization_unavailable", "unsupported_consistency", "proposal_clearance_required", "outcome_unknown"]
+        },
+        "recovery": {
+          "enum": ["adjust_request", "inspect_failure", "reauthenticate", "request_access", "request_human_approval", "reconcile_write_outcome"]
+        },
+        "retry_safe": {"type": "boolean"},
+        "complete": {"const": true}
+      }
+    },
+    "protocol_operation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version", "features", "max_request_bytes", "max_response_bytes"],
+      "properties": {
+        "id": {"enum": ["confluence.page.read", "jira.issue.read"]},
+        "version": {"const": 1},
+        "features": {"type": "array", "maxItems": 0},
+        "max_request_bytes": {"type": "integer", "minimum": 1, "maximum": 65536},
+        "max_response_bytes": {"type": "integer", "minimum": 1, "maximum": 135266304}
+      }
+    },
+    "protocol": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "contract_schema_sha256", "transport_schema_sha256", "registry_sha256", "authentication_profile", "execution_profile", "consistency_profile", "operations", "complete"],
+      "properties": {
+        "schema_version": {"const": 1},
+        "contract_schema_sha256": {"$ref": "#/$defs/digest"},
+        "transport_schema_sha256": {"$ref": "#/$defs/digest"},
+        "registry_sha256": {"$ref": "#/$defs/digest"},
+        "authentication_profile": {"const": "opaque_introspection_v1"},
+        "execution_profile": {"const": "exact_reads_v1"},
+        "consistency_profile": {"const": "identity_snapshot_v1"},
+        "operations": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {"$ref": "#/$defs/protocol_operation"}
+        },
+        "complete": {"const": true}
+      }
+    }
+  }
+}

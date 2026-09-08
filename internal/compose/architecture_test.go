@@ -41,6 +41,7 @@ func TestInnerEntrypointsDoNotImportAdapters(t *testing.T) {
 
 func TestHTTPClientConstructionAndImmutablePolicyInventory(t *testing.T) {
 	expectedConstructors := map[string]int{
+		"adapter/brokerauthority/authority.go:New:httpx.NewWithSchedulerTLS":             1,
 		"adapter/confluence/confluence.go:NewWithScheduler:httpx.NewWithScheduler":       1,
 		"adapter/confluence/confluence.go:NewWithSchedulerTLS:httpx.NewWithSchedulerTLS": 1,
 		"adapter/jira/jira.go:NewWithScheduler:httpx.NewWithScheduler":                   1,
@@ -211,6 +212,10 @@ func scanHTTPConstructorReferences(file *ast.File, relative string) ([]construct
 
 func validateReviewedConstructorCall(t *testing.T, key string, call *ast.CallExpr) {
 	t.Helper()
+	if key == "adapter/brokerauthority/authority.go:New:httpx.NewWithSchedulerTLS" {
+		validateBrokerAuthorityConstructorCall(t, key, call)
+		return
+	}
 	if call.Ellipsis == token.NoPos || len(call.Args) == 0 {
 		t.Errorf("%s does not spread resolved immutable policy options", key)
 		return
@@ -232,6 +237,26 @@ func validateReviewedConstructorCall(t *testing.T, key string, call *ast.CallExp
 	argument, ok := resolved.Args[0].(*ast.Ident)
 	if !ok || argument.Name != "resolved" {
 		t.Errorf("%s does not pass the resolved adapter options", key)
+	}
+}
+
+func validateBrokerAuthorityConstructorCall(t *testing.T, key string, call *ast.CallExpr) {
+	t.Helper()
+	if call.Ellipsis != token.NoPos || len(call.Args) != 5 {
+		t.Errorf("%s must pass exactly the fixed base, credential, version, scheduler and TLS configuration", key)
+		return
+	}
+	want := []string{"BaseURL", "ServerCredential", "Version", "Scheduler", "TLS"}
+	for index, argument := range call.Args {
+		selector, ok := argument.(*ast.SelectorExpr)
+		if !ok {
+			t.Errorf("%s argument %d is not config.%s", key, index, want[index])
+			continue
+		}
+		identifier, identifierOK := selector.X.(*ast.Ident)
+		if !identifierOK || identifier.Name != "config" || selector.Sel.Name != want[index] {
+			t.Errorf("%s argument %d is not config.%s", key, index, want[index])
+		}
 	}
 }
 

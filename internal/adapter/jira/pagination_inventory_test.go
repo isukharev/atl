@@ -270,6 +270,10 @@ func TestJiraProductionLoopInventoryIsClosed(t *testing.T) {
 
 func TestSharedStrictJSONLoopInventoryIsClosed(t *testing.T) {
 	want := classifiedJiraLoops([]string{
+		"strictjson.go:matchesExactShape:for:1",
+		"strictjson.go:matchesExactShape:range:1",
+		"strictjson.go:matchesExactShape:range:2",
+		"strictjson.go:matchesExactShape:range:3",
 		"strictjson.go:Validate:for:1",
 		"strictjson.go:ValidUnicodeEscapes:for:1",
 		"strictjson.go:hexEscape:range:1",
