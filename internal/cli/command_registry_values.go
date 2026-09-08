@@ -6,6 +6,24 @@ import (
 	"github.com/isukharev/atl/internal/domain"
 )
 
+type mutationGuardFamily uint8
+
+const (
+	mutationGuardGeneric mutationGuardFamily = iota + 1
+	mutationGuardConfluenceAttachmentDelete
+	mutationGuardConfluencePageCopy
+	mutationGuardConfluencePageDelete
+	mutationGuardJiraIssueDelete
+	mutationGuardJiraDescriptionEdit
+	mutationGuardJiraGuardedLink
+	mutationGuardJiraGuardedCreate
+	mutationGuardJiraGuardedLabels
+	mutationGuardJiraGuardedComment
+	mutationGuardJiraGuardedField
+	mutationGuardJiraGuardedUpdate
+	mutationGuardJiraPlan
+)
+
 // These closed value codecs keep the command-registry grammar and its public
 // annotations in one small owner without coupling it to Cobra tree assembly.
 func validMutationProfile(profile mutationProfile) bool {
@@ -187,6 +205,8 @@ func parseMutationGuardFamily(value string) (mutationGuardFamily, bool) {
 		return mutationGuardJiraGuardedComment, true
 	case "jira-guarded-field":
 		return mutationGuardJiraGuardedField, true
+	case "jira-guarded-update":
+		return mutationGuardJiraGuardedUpdate, true
 	case "jira-plan":
 		return mutationGuardJiraPlan, true
 	default:

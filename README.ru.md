@@ -196,15 +196,12 @@ env -u ATL_READ_ONLY atl conf push \
 После review запустите команду без `--dry-run`. Version conflict Confluence
 завершается с кодом `5`: используйте `conf reconcile preview`, не auto-force.
 Hash-bound записи используют выведенные gates, одну попытку и reconciliation;
-`write_attempted:true` запрещает replay. Ошибки Jira create называют безопасные
-fields без текста backend.
-Для известных issues используйте
-JSON-only `jira issue field batch` с повторяемыми `--key` и `--field`.
+`write_attempted:true` запрещает replay. Jira create не раскрывает текст backend.
+`jira issue update preview` выдаёт JSON для review; применяйте hash один раз.
+Для известных issues используйте JSON-only `jira issue field batch`.
 Для multi-issue CSV сначала выполните schema-v2
 `jira issue plan preview`, затем hash-confirmed execution-only `plan apply`;
 единый barrier предшествует всем writers. См. [руководство](docs/safe-writes.md).
-Confluence trash принимает только канонический numeric `--id`.
-
 Поля review в dry-run явные; неподтверждённый push требует reconciliation.
 
 ## Кодинг-агенты

@@ -34,6 +34,7 @@ func skipSelfUpdate(cmd *cobra.Command) bool {
 		path := commandRegistryPath(cmd.Root(), cmd)
 		if path == "jira issue create" || path == "jira issue create preview" ||
 			path == "jira issue field preview" || path == "jira issue field set" ||
+			path == "jira issue update" || path == "jira issue update preview" ||
 			path == "jira issue plan preview" || path == "jira issue plan apply" {
 			return true
 		}

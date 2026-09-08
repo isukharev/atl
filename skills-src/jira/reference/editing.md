@@ -11,8 +11,9 @@ reviewed command after approval.
 - Labels: GET-only `jira issue labels preview` with final combined
   `--add`/`--remove`, then the unchanged parent with
   `--apply --expected-proposal-hash`.
-- Summary or whole body: fresh narrow get, then `jira issue update` using
-  `--from-md` or native `--from-file`.
+- Summary, whole body, or a small atomic custom-field set: GET-only
+  `jira issue update preview`, then the unchanged parent with
+  `--apply --expected-proposal-hash`.
 - One large custom field: GET-only `jira issue field preview` with files and an
   exact allowlist; after review, guarded `jira issue field set` with the exact
   updated/proposal-hash gates and `--apply`.
@@ -22,11 +23,20 @@ reviewed command after approval.
 - Labels, links, transitions, watchers, worklogs, comments, attachments, and
   plans: use their dedicated guarded commands, not generic field mutation.
 
-Jira has no general server-side version gate. Read the narrow current state
-immediately before a last-writer-wins update unless the selected command has a
-stronger match/CAS/proposal-hash guard.
+Jira has no general server-side version gate. The guarded whole-update command
+revalidates exact current state and `updated` before one PUT, then requires an
+exact advancing readback. This proves the observed end state, not authorship or
+prevention of a simultaneous lost update.
 
 ## One-shot body edits
+
+For complete body replacement, preview the final file with `ATL_READ_ONLY=1
+atl jira issue update preview <KEY> --from-md <PATH>` (or native
+`--from-file`). Review its content-free source/current/desired/prepared hashes,
+identity, updated marker, bounds, and proposal hash. Repeat the unchanged file
+once on the parent with `--apply --expected-proposal-hash`. Use only
+catalog-qualified custom fields through its generic field flags; route system
+fields through their dedicated commands. Never replay `outcome_unknown`.
 
 Preview with `ATL_READ_ONLY=1 atl jira issue edit preview <KEY> --old ... --new ...`.
 Review its content-free identity, matcher, byte hashes/lengths, and proposal

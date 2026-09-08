@@ -98,37 +98,6 @@ func jiraIssueCmd() *cobra.Command {
 
 	create := jiraIssueCreateCmd()
 
-	var upSummary, upFile, upMD string
-	var upFieldKV, upFieldJSON []string
-	update := &cobra.Command{
-		Use:   "update <KEY>",
-		Short: "Update an issue (summary/description/fields)",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			body, err := wikiBody(cmd, upFile, upMD)
-			if err != nil {
-				return err
-			}
-			kv, err := parseJiraFieldInputs(upFieldKV, upFieldJSON, false)
-			if err != nil {
-				return err
-			}
-			svc, err := jiraService(cmd)
-			if err != nil {
-				return err
-			}
-			if err := svc.Update(cmd.Context(), args[0], upSummary, body, kv); err != nil {
-				return err
-			}
-			return emit(cmd, map[string]string{"key": args[0], "status": "updated"}, nil)
-		},
-	}
-	update.Flags().StringVar(&upSummary, "summary", "", "new summary")
-	update.Flags().StringVar(&upFile, "from-file", "", "new description (wiki) file or - for stdin")
-	update.Flags().StringVar(&upMD, "from-md", "", "new markdown description file or - for stdin (converted to wiki; unsupported constructs are refused)")
-	update.Flags().StringArrayVar(&upFieldKV, "field", nil, "field key=value (repeatable); JSON objects/arrays are sent as JSON")
-	update.Flags().StringArrayVar(&upFieldJSON, "field-json", nil, "field key=JSON (repeatable); sends an explicit JSON value including scalars")
-
 	edit := jiraDescriptionEditCmd()
 
 	var checkRequire, checkWarn string
@@ -392,7 +361,7 @@ func jiraIssueCmd() *cobra.Command {
 	tree.Flags().StringVar(&treeFields, "fields", "", "extra comma-separated fields to fetch")
 	tree.Flags().IntVar(&treeLimit, "limit", 100, "max issues (0 = all; must be non-negative)")
 
-	c.AddCommand(get, jiraIssueViewCmd(), jiraIssueFieldsCmd(), jiraIssueGraphCmd(), search, children, create, update, edit, jiraTransitionCmd(), check, del, assign, jiraIssueLabelsCmd(), jiraIssueWatchersCmd(), jiraIssueWorklogCmd(), history, refs, tree, comment, link, plan, jiraIssueFieldCmd(), linkEpic, attachment, images)
+	c.AddCommand(get, jiraIssueViewCmd(), jiraIssueFieldsCmd(), jiraIssueGraphCmd(), search, children, create, jiraIssueUpdateCmd(), edit, jiraTransitionCmd(), check, del, assign, jiraIssueLabelsCmd(), jiraIssueWatchersCmd(), jiraIssueWorklogCmd(), history, refs, tree, comment, link, plan, jiraIssueFieldCmd(), linkEpic, attachment, images)
 	return c
 }
 

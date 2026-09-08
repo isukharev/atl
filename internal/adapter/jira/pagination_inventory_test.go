@@ -165,6 +165,17 @@ guarded_fields.go:ReadGuardedFieldIssue:range:2
 guarded_fields.go:guardedFieldIDs:range:1
 guarded_fields.go:guardedFieldQualified:range:1
 guarded_fields.go:validateGuardedFieldWrite:range:1
+guarded_update.go:PrepareGuardedUpdate:range:1
+guarded_update.go:PrepareGuardedUpdate:range:2
+guarded_update.go:cloneGuardedUpdateValue:range:1
+guarded_update.go:cloneGuardedUpdateValue:range:2
+guarded_update.go:cloneGuardedUpdateValues:range:1
+guarded_update.go:decodeGuardedUpdateIssue:range:1
+guarded_update.go:guardedUpdateFieldIDs:range:1
+guarded_update.go:guardedUpdateQualified:range:1
+guarded_update.go:prepareGuardedUpdate:range:1
+guarded_update.go:validateGuardedUpdateWrite:range:1
+guarded_update.go:validateGuardedUpdateWrite:range:2
 guarded_labels.go:WriteGuardedLabelDelta:range:1
 guarded_labels.go:WriteGuardedLabelDelta:range:2
 guarded_labels.go:guardedLabelOverlap:range:1

@@ -1476,6 +1476,60 @@ Text mode is one content-free `plan` line followed by physical-row-order `row`
 lines containing only status, completion, dispatch/reconciliation booleans,
 hash, and aggregate usage.
 
+`atl jira issue update preview <KEY>` and the dry-run form of the parent emit
+the same JSON-only schema-v1 proposal. The parent is mutation-classified even
+in dry-run; the child remains available under `ATL_READ_ONLY=1`.
+
+```json
+{
+  "schema_version": 1,
+  "operation": "jira_issue_update",
+  "mode": "dry-run",
+  "status": "would_apply",
+  "backend_sha256": "<digest>",
+  "requested_key": "PROJ-1",
+  "issue_id": "10001",
+  "key": "PROJ-1",
+  "project": "PROJ",
+  "updated": "2026-01-02T03:04:05.000+0000",
+  "source": {"kind":"markdown","present":true,"bytes":42,"sha256":"<digest>"},
+  "catalog": [{"id":"customfield_10001","custom":true}],
+  "current": [{"field":"customfield_10001","present":true,"kind":"number","bytes":1,"sha256":"<digest>"}],
+  "desired": [{"field_id":"customfield_10001","input_kind":"explicit_json","normalized_json_kind":"number","normalized_bytes":1,"normalized_sha256":"<digest>"}],
+  "prepared": {"bytes":57,"sha256":"<digest>"},
+  "proposal_hash": "<digest>",
+  "bounds": {"max_fields":1024,"preview_max_requests":2,"apply_max_requests":6,"deadline_millis":60000},
+  "usage": {"requests":2,"response_bytes":512,"input_bytes":43,"desired_canonical_bytes":43,"current_canonical_bytes":32},
+  "write_attempted": false,
+  "reconciled": false,
+  "complete": true
+}
+```
+
+The full `bounds` object also publishes the field-id, key/id, input,
+current/desired/prepared, per-response, aggregate-response, and query/path
+ceilings. Arrays are present and empty when their evidence set is empty. Source,
+current, desired, catalog, and prepared members expose only identifiers,
+presence, kinds, sizes, and digests; submitted/current values, backend messages,
+paths, URLs, and response bodies are never released.
+
+The proposal hash binds the backend origin, requested and resolved identity,
+exact Jira `updated`, description source bytes, exact current and normalized
+desired projections, custom-field qualification, prepared payload, and fixed
+bounds. Apply requires the same inputs plus `--apply
+--expected-proposal-hash`. It repeats the complete snapshot by immutable numeric
+id before one single-attempt numeric-id PUT. Success and ambiguous errors get
+one bounded exact readback. `applied` and `recovered` require the exact desired
+values and a strictly advancing `updated`; otherwise the status is
+`outcome_unknown` and carries the ambiguity diagnostic. A definitive 4xx is
+`not_applied` without readback. `blocked` means no PUT was dispatched, and
+`already_satisfied` needs no PUT. Jira supplies no conditional version gate for
+this general update, so readback proves the observed end state rather than
+write authorship or lost-update prevention. `outcome_unknown` is a terminal
+check failure (exit `8`) and must not be replayed. Startup self-update is
+disabled for both leaves so every network request stays inside the published
+operation budget.
+
 `atl jira issue field preview <KEY>` and the dry-run form of
 `atl jira issue field set <KEY>` share one deterministic single-issue proposal
 result. The dedicated preview command is GET-only and available under the

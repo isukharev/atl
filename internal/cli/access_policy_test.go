@@ -159,7 +159,7 @@ delete|jira-link-endpoints|jira issue link delete
 update|jira-two-issue-args|jira issue link-epic
 update,comment|jira-plan|jira issue plan apply
 transition,comment?|jira-issue-arg|jira issue transition
-update,move?|jira-issue-arg|jira issue update
+update|jira-issue-arg|jira issue update
 update|jira-issue-arg|jira issue watchers add
 update|jira-issue-arg|jira issue watchers remove
 update|jira-issue-arg|jira issue worklog add
@@ -221,7 +221,7 @@ preview-apply|apply,expected-proposal-hash|jira issue link delete
 remote-direct|-|jira issue link-epic
 dedicated-apply|confirm,expected-proposal-hash|jira issue plan apply
 preview-apply|apply,expected-proposal-hash|jira issue transition
-remote-direct|-|jira issue update
+preview-apply|apply,expected-proposal-hash|jira issue update
 preview-apply|apply,expected-proposal-hash|jira issue watchers add
 preview-apply|apply,expected-proposal-hash|jira issue watchers remove
 preview-apply|apply,expected-proposal-hash|jira issue worklog add

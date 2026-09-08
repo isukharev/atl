@@ -52,7 +52,11 @@ version gate**; last writer wins):
 
 ```bash
 atl jira issue get PROJ-123 --fields summary,description   # drift check only — skip the comment thread
-atl jira issue update PROJ-123 --from-file PROJ-123.description.wiki
+ATL_READ_ONLY=1 atl jira issue update preview PROJ-123 \
+  --from-file PROJ-123.description.wiki
+env -u ATL_READ_ONLY atl jira issue update PROJ-123 \
+  --from-file PROJ-123.description.wiki --apply \
+  --expected-proposal-hash '<reviewed-hash>'
 ```
 
 **Time tracking, when the user asks for it, is a reviewed write.** Preview the

@@ -118,6 +118,7 @@ func TestGuardedWriteErrorCauseAdapters(t *testing.T) {
 		{name: "jira comment", err: &jiraCommentWriteError{cause: typed, closed: true}, closed: true},
 		{name: "jira transition", err: &jiraTransitionWriteError{cause: typed, closed: true}, closed: true},
 		{name: "jira description edit", err: &jiraDescriptionEditError{cause: typed, closed: true}, closed: true},
+		{name: "jira guarded update", err: &jiraGuardedUpdateError{cause: typed, closed: true}, closed: true},
 		{name: "attachment delete", err: &confluenceAttachmentDeleteWriteError{cause: typed}, closed: true},
 		{name: "jira issue delete", err: &jiraIssueDeleteWriteError{cause: typed}, closed: true},
 	}
@@ -139,17 +140,19 @@ func TestGuardedWriteErrorCauseAdapters(t *testing.T) {
 	var pageTrash *confluencePageTrashWriteError
 	var jiraComment *jiraCommentWriteError
 	var jiraTransition *jiraTransitionWriteError
+	var jiraGuardedUpdate *jiraGuardedUpdateError
 	var attachmentDelete *confluenceAttachmentDeleteWriteError
 	var issueDelete *jiraIssueDeleteWriteError
 	for name, causes := range map[string][]error{
-		"comment mutation":  commentMutation.Unwrap(),
-		"footer comment":    footerComment.Unwrap(),
-		"page copy":         pageCopy.Unwrap(),
-		"page trash":        pageTrash.Unwrap(),
-		"jira comment":      jiraComment.Unwrap(),
-		"jira transition":   jiraTransition.Unwrap(),
-		"attachment delete": attachmentDelete.Unwrap(),
-		"jira issue delete": issueDelete.Unwrap(),
+		"comment mutation":    commentMutation.Unwrap(),
+		"footer comment":      footerComment.Unwrap(),
+		"page copy":           pageCopy.Unwrap(),
+		"page trash":          pageTrash.Unwrap(),
+		"jira comment":        jiraComment.Unwrap(),
+		"jira transition":     jiraTransition.Unwrap(),
+		"jira guarded update": jiraGuardedUpdate.Unwrap(),
+		"attachment delete":   attachmentDelete.Unwrap(),
+		"jira issue delete":   issueDelete.Unwrap(),
 	} {
 		if causes != nil {
 			t.Errorf("%s nil receiver causes = %#v, want nil", name, causes)
@@ -177,6 +180,7 @@ func TestGuardedWriteErrorCauseAdapterInventory(t *testing.T) {
 		"jiraGuardedCreateError":               {file: "jira_create_guarded.go", causeArg: "e.cause", closedArg: "e.closed"},
 		"jiraGuardedLabelError":                {file: "jira_labels_guarded.go", causeArg: "e.cause", closedArg: "e.closed"},
 		"jiraGuardedFieldError":                {file: "jira_field_set.go", causeArg: "e.cause", closedArg: "e.closed"},
+		"jiraGuardedUpdateError":               {file: "jira_update_guarded.go", causeArg: "e.cause", closedArg: "e.closed"},
 	}
 
 	paths, err := filepath.Glob("*.go")

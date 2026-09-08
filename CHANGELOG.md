@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `jira issue update` now previews by default and requires an exact reviewed
+  proposal hash before applying summary, whole-description, or qualified custom
+  field changes. The independent read-only preview, immutable-id prewrite
+  revalidation, single-attempt PUT, bounded reconciliation, and content-free
+  JSON result replace the former direct last-writer-wins command.
 - Guarded Jira issue creation now reports closed local qualification checks and
   bounded definitive-rejection evidence. It identifies only qualified technical
   field ids, HTTP status, and counts; backend messages, submitted values, raw

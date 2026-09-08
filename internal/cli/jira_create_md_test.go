@@ -55,19 +55,19 @@ func TestJiraCreate_FromMD(t *testing.T) {
 
 // TestJiraUpdate_FromMD: same conversion path on update.
 func TestJiraUpdate_FromMD(t *testing.T) {
-	js := newJiraServer(t)
-	js.route(http.MethodPut, "/rest/api/2/issue/ENG-7", http.StatusNoContent, ``)
-
-	_, code := runCLI(t, jiraEnv(js.srv),
-		"jira", "issue", "update", "ENG-7", "--from-md", writeTempMD(t, jiraMD))
-	if code != exitOK {
-		t.Fatalf("jira update --from-md: exit %d", code)
+	js := newJiraGuardedUpdateCLIServer(t)
+	path := writeTempMD(t, jiraMD)
+	args := []string{"jira", "issue", "update", "PROJ-1", "--from-md", path}
+	out, code := runCLI(t, jiraEnv(js.server), args...)
+	var preview app.JiraGuardedUpdateResult
+	if code != exitOK || json.Unmarshal([]byte(out), &preview) != nil {
+		t.Fatalf("jira update --from-md preview: exit %d output=%s", code, out)
 	}
-	writes := js.writeReqsTo("/rest/api/2/issue/ENG-7")
-	if len(writes) != 1 {
-		t.Fatalf("expected 1 write, got %d", len(writes))
+	args = append(args, "--apply", "--expected-proposal-hash", preview.ProposalHash)
+	if _, code = runCLI(t, jiraEnv(js.server), args...); code != exitOK {
+		t.Fatalf("jira update --from-md apply: exit %d", code)
 	}
-	if got := jiraFields(t, writes[0].body)["description"]; got != jiraWiki {
+	if got := jiraFields(t, string(js.body))["description"]; got != jiraWiki {
 		t.Fatalf("description = %q, want %q", got, jiraWiki)
 	}
 }

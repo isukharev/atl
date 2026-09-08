@@ -77,7 +77,7 @@ func TestPreparedGuardedCoreCallAndSafetyInventory(t *testing.T) {
 		"setFieldsGuardedPreparedCore":  "SetFieldsGuarded",
 	}
 	constructors := map[string]map[string]bool{
-		"newJiraGuardedExecution": {"GuardedLink": true, "GuardedLabels": true, "AddCommentGuarded": true, "SetFieldsGuarded": true, "qualifyJiraPlanRow": true},
+		"newJiraGuardedExecution": {"GuardedLink": true, "GuardedLabels": true, "AddCommentGuarded": true, "SetFieldsGuarded": true, "UpdateIssueGuarded": true, "qualifyJiraPlanRow": true},
 	}
 	banned := map[string]bool{
 		"NewReadBudget": true, "NewChildReadBudget": true, "WithTimeout": true,

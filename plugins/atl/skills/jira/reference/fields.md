@@ -61,7 +61,7 @@ membership itself never grants write authority.
 
 ## Setting fields — value shapes matter
 
-`--field key=value` is repeatable on `create`, `update`, and `transition`. Its value is sent
+`--field key=value` is repeatable on `create`, guarded `update`, and `transition`. Its value is sent
 **as a string**, unless it starts with `{` or `[` and parses as JSON — then it is sent as that
 JSON object/array. Use `--field-json key=JSON` for an explicit typed JSON value, including
 number, boolean, or `null`. The same key cannot appear through both flags. Jira DC is strict
@@ -71,6 +71,10 @@ On create, generic field keys must not normalize to `project`, `issuetype`,
 `summary`, or `description`; use their dedicated flags/body inputs. Comparison
 removes Unicode whitespace and folds ASCII case. Every non-reserved key keeps
 its exact bytes and existing coercion behavior.
+
+On update, generic fields must be exact ids proved `custom:true` by the complete
+bounded catalog. Known system fields are refused; use dedicated commands for
+labels, assignee, transitions, epic links, and other supported system changes.
 
 | Field type | Shape Jira expects | Example |
 |---|---|---|
@@ -84,7 +88,10 @@ its exact bytes and existing coercion behavior.
 | Cascading select | nested object | `--field 'customfield_10070={"value":"Hardware","child":{"value":"Laptop"}}'` |
 
 ```bash
-atl jira issue update PROJ-1 --field 'priority={"name":"High"}'
+ATL_READ_ONLY=1 atl jira issue update preview PROJ-1 \
+  --field-json customfield_10060=5
+atl jira issue update PROJ-1 --field-json customfield_10060=5 \
+  --apply --expected-proposal-hash '<reviewed-hash>'
 atl jira issue create preview --project PROJ --type Task --summary 'X' \
   --field 'components=[{"name":"backend"}]' --field 'fixVersions=[{"name":"1.2"}]' \
   --field-json customfield_10060=5
@@ -183,10 +190,13 @@ accepts a body file. Compose it in Jira wiki markup, **not Markdown** — see
    - `atl jira issue get <KEY> --fields description` → the `description` field.
    Write that wiki text to a scratch file, e.g. `PROJ-1.description.wiki`.
 2. **Edit** `PROJ-1.description.wiki` with normal file tools (Read/Edit) — ideal for big epics.
-3. **Apply** (re-`get` first, since there's no version gate):
+3. **Preview and apply once**:
    ```bash
-   atl jira issue get PROJ-1 --fields description  # confirm it did not change since seeding
-   atl jira issue update PROJ-1 --from-file PROJ-1.description.wiki
+   ATL_READ_ONLY=1 atl jira issue update preview PROJ-1 \
+     --from-file PROJ-1.description.wiki
+   env -u ATL_READ_ONLY atl jira issue update PROJ-1 \
+     --from-file PROJ-1.description.wiki \
+     --apply --expected-proposal-hash '<reviewed-hash>'
    ```
 
 The scratch `.wiki` file is a working body file you feed to `--from-file` — it is **not** the
