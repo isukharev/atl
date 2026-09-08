@@ -80,12 +80,12 @@ export ATL_READ_ONLY=1
 atl jira issue search --jql 'order by updated DESC' --limit 5
 ```
 
-`auth login` reads PAT from hidden prompt/stdin/file—not argv. Its wizard and
-`config set` treat a bare hostname as HTTPS; explicit HTTP needs the override.
-`doctor --service jira|confluence` scopes offline health; `--remote` makes
-bounded body-free version probes. `safety` reports read-only state/source.
-JSON uses stdout; diagnostics stderr.
-`labels preview`: read-only; apply requires hash.
+`auth login` reads PAT from a hidden prompt, stdin, or file. Bare hosts become
+HTTPS; explicit HTTP needs the override. `doctor --service` scopes health and
+`--remote` adds bounded body-free probes. JSON uses stdout; diagnostics stderr.
+
+See [Broker client mode](docs/reference/cli/configuration.md#broker-client-mode)
+for its exact-read scope and owner-private sessions.
 
 For Confluence:
 

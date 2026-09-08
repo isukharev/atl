@@ -96,6 +96,58 @@ func TestClientRejectsUnsupportedArgumentsBeforeSessionOrNetwork(t *testing.T) {
 	}
 }
 
+func TestClientDoesNotRetryUnavailableOrMismatchedResults(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		respond func(http.ResponseWriter, domain.BrokerRequest)
+	}{
+		{name: "unavailable", respond: func(writer http.ResponseWriter, _ domain.BrokerRequest) {
+			failure, _ := brokertransport.NewFailure(domain.BrokerReasonAuthorizationUnavailable)
+			body, _ := brokertransport.EncodeFailureV1(failure)
+			writer.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = writer.Write(body)
+		}},
+		{name: "mismatched arguments", respond: func(writer http.ResponseWriter, _ domain.BrokerRequest) {
+			body, _ := brokercontract.EncodeJiraIssueReadResultV1(domain.BrokerJiraIssueReadResult{
+				SchemaVersion: 1, ArgumentsSHA256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+				IssueID: "10001", Key: "EXAMPLE-1", Project: "EXAMPLE", Updated: "2026-09-08T12:00:00Z",
+				Fields: []domain.BrokerJiraIssueReadField{{Field: domain.BrokerJiraIssueFieldSummary, Present: true, Value: "Synthetic summary"}}, Complete: true,
+			})
+			_, _ = writer.Write(body)
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var protocolCalls, executeCalls atomic.Int32
+			server := httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				writer.Header().Set("Content-Type", "application/json")
+				writer.Header().Set("X-ATL-Correlation-ID", "correlation-1")
+				if request.URL.Path == brokertransport.ProtocolPath {
+					protocolCalls.Add(1)
+					protocol, _ := brokertransport.ProtocolV1("broker-1", "atl-broker")
+					body, _ := brokertransport.EncodeProtocolV1(protocol)
+					_, _ = writer.Write(body)
+					return
+				}
+				executeCalls.Add(1)
+				body, _ := io.ReadAll(io.LimitReader(request.Body, 64<<10))
+				invocation, err := brokercontract.DecodeRequestV1(body)
+				if err != nil {
+					t.Fatal(err)
+				}
+				test.respond(writer, invocation)
+			}))
+			loader := &countingSessionLoader{value: testSession()}
+			client := newTestClient(t, server, loader, "broker-1")
+			if _, err := client.ReadJiraIssue(t.Context(), "EXAMPLE-1", []domain.BrokerJiraIssueField{domain.BrokerJiraIssueFieldSummary}); !errors.Is(err, domain.ErrCheckFailed) {
+				t.Fatalf("err=%v", err)
+			}
+			if protocolCalls.Load() != 1 || executeCalls.Load() != 1 || loader.calls.Load() != 1 {
+				t.Fatalf("protocol=%d execute=%d session=%d", protocolCalls.Load(), executeCalls.Load(), loader.calls.Load())
+			}
+		})
+	}
+}
+
 func TestFileSessionLoaderRequiresStrictOwnerPrivateSnapshot(t *testing.T) {
 	directory := t.TempDir()
 	if err := os.Chmod(directory, 0o700); err != nil {

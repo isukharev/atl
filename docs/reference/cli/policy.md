@@ -154,7 +154,8 @@ The launcher must build a new environment and pin all inputs that can redirect
 policy, configuration, credentials, transport, or a backend: `PATH`, `HOME`,
 `USERPROFILE`, `XDG_CONFIG_HOME`, `ATL_CONFIG_DIR`, all Jira/Confluence URL and
 PAT variants,
-`ATL_UPDATE_URL`, `ATL_INTEGRATION` and its test PAT fallbacks, upper/lowercase
+all `ATL_BROKER_*` variables plus `ATL_CONNECTION_MODE`, `ATL_UPDATE_URL`,
+`ATL_INTEGRATION` and its test PAT fallbacks, upper/lowercase
 HTTP proxy variables, `SSL_CERT_FILE`, `SSL_CERT_DIR`, `ATL_ALLOW_INSECURE`,
 `ATL_READ_ONLY`, `ATL_MIRROR_ROOT`, `ATL_NO_UPDATE`, `ATL_UPDATE_DEBUG`,
 `ATL_VERBOSE`, and all four `ATL_POLICY*` variables. Subtracting selected names

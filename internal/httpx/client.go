@@ -22,19 +22,10 @@ import (
 )
 
 const (
-	defaultTimeout          = 60 * time.Second
-	userAgent               = "atl-cli"
-	maxRedirects            = 10
-	maxReviewedResponseBody = int64(129 << 20)
+	defaultTimeout = 60 * time.Second
+	userAgent      = "atl-cli"
+	maxRedirects   = 10
 )
-
-// BoundedResponse is the content-minimized result of one reviewed transport
-// attempt. Only the Broker correlation header crosses this boundary.
-type BoundedResponse struct {
-	Status        int
-	Body          []byte
-	CorrelationID string
-}
 
 // Client is a per-backend HTTP client (one for Confluence, one for Jira).
 type Client struct {
@@ -69,14 +60,6 @@ func (c *Client) CloseIdleConnections() {
 	}
 	if c.dl != nil {
 		c.dl.CloseIdleConnections()
-	}
-}
-
-// ClearCredential releases the bearer retained by a short-lived client. The
-// caller must ensure no requests are active while clearing it.
-func (c *Client) ClearCredential() {
-	if c != nil {
-		c.token = ""
 	}
 }
 
@@ -203,50 +186,6 @@ func (c *Client) DoWithBodyLimit(ctx context.Context, method, path string, body 
 		return nil, fmt.Errorf("invalid response body limit")
 	}
 	return c.do(ctx, method, path, body, headers, maxBytes)
-}
-
-// DoBoundedResponse performs exactly one caller-classified HTTP attempt and
-// returns both success and failure bodies under separate finite bounds. It is
-// intended for closed protocols whose non-2xx body has its own strict schema.
-// The caller must mark the context single-attempt and provide read intent for
-// non-GET methods; redirects and generic retries are therefore disabled.
-func (c *Client) DoBoundedResponse(ctx context.Context, method, path string, body []byte, headers map[string]string, successLimit, failureLimit int64) (BoundedResponse, error) {
-	if !domain.SingleAttempt(ctx) || successLimit <= 0 || failureLimit <= 0 || successLimit > maxReviewedResponseBody || failureLimit > maxReviewedResponseBody {
-		return BoundedResponse{}, fmt.Errorf("%w: invalid single-attempt response bounds", domain.ErrCheckFailed)
-	}
-	if err := validateNoReplayReadBudget(ctx); err != nil {
-		return BoundedResponse{}, err
-	}
-	resolved, err := c.resolveURL(path)
-	if err != nil {
-		return BoundedResponse{}, err
-	}
-	req, err := c.newRequest(ctx, method, resolved, body, headers)
-	if err != nil {
-		return BoundedResponse{}, err
-	}
-	c.tracef("→ %s %s\n", method, traceRequestURL(ctx, req.URL))
-	resp, err := c.hc.Do(req)
-	if err != nil {
-		if resp != nil && resp.Body != nil {
-			_ = resp.Body.Close()
-		}
-		if budgetErr := readBudgetExhaustion(err); budgetErr != nil {
-			return BoundedResponse{}, budgetErr
-		}
-		return BoundedResponse{}, transportError(method, req.URL, err)
-	}
-	defer resp.Body.Close()
-	c.tracef("← %d %s\n", resp.StatusCode, traceResponsePath(ctx, req.URL.Path))
-	limit := failureLimit
-	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-		limit = successLimit
-	}
-	data, err := readResponseBody(ctx, resp.Body, limit)
-	if err != nil {
-		return BoundedResponse{}, err
-	}
-	return BoundedResponse{Status: resp.StatusCode, Body: data, CorrelationID: resp.Header.Get("X-ATL-Correlation-ID")}, nil
 }
 
 // ResolveGET follows the client's normal redirect policy for one GET and

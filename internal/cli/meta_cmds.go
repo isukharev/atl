@@ -74,14 +74,29 @@ func newAuthCmd() *cobra.Command {
 
 	status := &cobra.Command{
 		Use:   "status",
-		Short: "Show where each service's PAT is resolved from (never prints it)",
+		Short: "Show the selected credential source category (never prints it)",
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			cfg, err := config.Load()
+			if err != nil {
+				return err
+			}
+			mode := config.EffectiveConnectionMode(cfg.ConnectionMode)
 			st := map[string]string{
-				"confluence": auth.Source(auth.Confluence),
-				"jira":       auth.Source(auth.Jira),
+				"mode": mode,
+			}
+			if mode == config.ConnectionModeBroker {
+				if cfg.Broker != nil && cfg.Broker.ConfluenceSessionFile != "" {
+					st["confluence"] = "broker_session_file"
+				}
+				if cfg.Broker != nil && cfg.Broker.JiraSessionFile != "" {
+					st["jira"] = "broker_session_file"
+				}
+			} else {
+				st["confluence"] = auth.Source(auth.Confluence)
+				st["jira"] = auth.Source(auth.Jira)
 			}
 			return emit(cmd, st, func() string {
-				return fmt.Sprintf("confluence: %s\njira: %s", orNone(st["confluence"]), orNone(st["jira"]))
+				return fmt.Sprintf("mode: %s\nconfluence: %s\njira: %s", mode, orNone(st["confluence"]), orNone(st["jira"]))
 			})
 		},
 	}
@@ -131,6 +146,8 @@ func newConfigCmd() *cobra.Command {
 			render, prov := config.EffectiveRender(cfg, local)
 			readOnly := app.ProjectReadOnly(cfg.ReadOnly, invocationRuntimeFor(cmd).readOnly, envReadOnly())
 			out := configShowResult{
+				ConnectionMode:     config.EffectiveConnectionMode(cfg.ConnectionMode),
+				Broker:             config.BrokerProjection(cfg),
 				ReadOnly:           cfg.ReadOnly,
 				ConfiguredReadOnly: readOnly.ConfiguredReadOnly,
 				EffectiveReadOnly:  readOnly.EffectiveReadOnly,
@@ -393,7 +410,8 @@ func nonDefaultProvenance(prov config.Provenance) map[string]string {
 
 func configShowText(out configShowResult) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "read_only: %t\nconfigured_read_only: %t\neffective_read_only: %t\nread_only_source: %s\nconfluence_url: %s\njira_url: %s\nupdate_base_url: %s\n",
+	fmt.Fprintf(&b, "connection_mode: %s\nread_only: %t\nconfigured_read_only: %t\neffective_read_only: %t\nread_only_source: %s\nconfluence_url: %s\njira_url: %s\nupdate_base_url: %s\n",
+		out.ConnectionMode,
 		out.ReadOnly, out.ConfiguredReadOnly, out.EffectiveReadOnly, out.ReadOnlySource,
 		out.ConfluenceURL, out.JiraURL, out.UpdateBaseURL)
 	fmt.Fprintf(&b, "render_display_time_zone: %s\nrender_jira_profile: %s\nrender_confluence_profile: %s\n",
@@ -401,6 +419,8 @@ func configShowText(out configShowResult) string {
 	fmt.Fprintf(&b, "jira_ca_bundle: configured=%t source=%s\nconfluence_ca_bundle: configured=%t source=%s\n",
 		out.Transport.Jira.CABundleConfigured, out.Transport.Jira.CABundleSource,
 		out.Transport.Confluence.CABundleConfigured, out.Transport.Confluence.CABundleSource)
+	fmt.Fprintf(&b, "broker: configured=%t ca=%t jira_session=%t confluence_session=%t\n",
+		out.Broker.Configured, out.Broker.CAConfigured, out.Broker.JiraSessionConfigured, out.Broker.ConfluenceSessionConfigured)
 	viewNames := make([]string, 0, len(out.JiraListViews))
 	for name := range out.JiraListViews {
 		viewNames = append(viewNames, name)
@@ -429,6 +449,8 @@ func configShowText(out configShowResult) string {
 }
 
 type configShowResult struct {
+	ConnectionMode     string                         `json:"connection_mode"`
+	Broker             config.BrokerClientProjection  `json:"broker"`
 	ReadOnly           bool                           `json:"read_only"`
 	ConfiguredReadOnly bool                           `json:"configured_read_only"`
 	EffectiveReadOnly  bool                           `json:"effective_read_only"`
@@ -446,17 +468,20 @@ type configShowResult struct {
 }
 
 type configPersistResult struct {
-	ReadOnly      bool                           `json:"read_only,omitempty"`
-	ConfluenceURL string                         `json:"confluence_url,omitempty"`
-	JiraURL       string                         `json:"jira_url,omitempty"`
-	UpdateBaseURL string                         `json:"update_base_url,omitempty"`
-	Render        *config.RenderConfig           `json:"render,omitempty"`
-	JiraListViews map[string]config.JiraListView `json:"jira_list_views"`
-	Transport     config.TransportSummary        `json:"transport"`
+	ConnectionMode string                         `json:"connection_mode"`
+	Broker         config.BrokerClientProjection  `json:"broker"`
+	ReadOnly       bool                           `json:"read_only,omitempty"`
+	ConfluenceURL  string                         `json:"confluence_url,omitempty"`
+	JiraURL        string                         `json:"jira_url,omitempty"`
+	UpdateBaseURL  string                         `json:"update_base_url,omitempty"`
+	Render         *config.RenderConfig           `json:"render,omitempty"`
+	JiraListViews  map[string]config.JiraListView `json:"jira_list_views"`
+	Transport      config.TransportSummary        `json:"transport"`
 }
 
 func configPersistProjection(cfg *config.Config) configPersistResult {
 	return configPersistResult{
+		ConnectionMode: config.EffectiveConnectionMode(cfg.ConnectionMode), Broker: config.BrokerProjection(cfg),
 		ReadOnly: cfg.ReadOnly, ConfluenceURL: cfg.ConfluenceURL, JiraURL: cfg.JiraURL,
 		UpdateBaseURL: cfg.UpdateBaseURL, Render: cfg.Render, JiraListViews: cfg.JiraListViews,
 		Transport: config.TransportProjection(cfg),

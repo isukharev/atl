@@ -73,6 +73,7 @@ type DoctorDependencies struct {
 }
 
 type DoctorConfigInspection struct {
+	ConnectionMode      string
 	Status              string
 	Reason              string
 	DirectorySource     string
@@ -138,6 +139,7 @@ type DoctorRuntime struct {
 }
 
 type DoctorConfig struct {
+	ConnectionMode      string               `json:"connection_mode"`
 	Status              string               `json:"status"`
 	Reason              string               `json:"reason,omitempty"`
 	DirectorySource     string               `json:"directory_source"`
@@ -244,6 +246,9 @@ func RunDoctor(ctx context.Context, opts DoctorOptions) (*DoctorResult, error) {
 		return nil, err
 	}
 	cfgInspection := opts.Dependencies.Config
+	if cfgInspection.ConnectionMode == "" {
+		cfgInspection.ConnectionMode = "direct"
+	}
 	authInspection := opts.Dependencies.Credentials
 	build := version.Current()
 	readOnly := ProjectReadOnly(cfgInspection.ReadOnly, opts.ReadOnlyFlag, opts.ReadOnlyEnvironment)
@@ -257,6 +262,7 @@ func RunDoctor(ctx context.Context, opts DoctorOptions) (*DoctorResult, error) {
 		CLI:           build,
 		Runtime:       DoctorRuntime{OS: runtime.GOOS, Arch: runtime.GOARCH},
 		Config: DoctorConfig{
+			ConnectionMode:      cfgInspection.ConnectionMode,
 			Status:              cfgInspection.Status,
 			Reason:              cfgInspection.Reason,
 			DirectorySource:     cfgInspection.DirectorySource,
@@ -433,6 +439,8 @@ func credentialSource(value DoctorCredential) string {
 		return "environment"
 	case "credentials_file":
 		return "credential_store"
+	case "broker_session_file":
+		return "broker_session_file"
 	default:
 		return "none"
 	}
