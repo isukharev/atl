@@ -330,6 +330,117 @@ another principal's operations and may remain unknown. Retained tombstones must
 cover the full acceptance window plus clock allowance; unresolved writes stay
 fenced or are explicitly retired as non-replayable.
 
+The storage-only foundation in `internal/adapter/brokerjournal` implements the
+domain journal port without enabling comment, outcome, server, client or CLI
+routes. Creation requires an absent root under an existing current-owner `0700`
+parent; reopening requires the existing root, exact deployment identity and
+unchanged limits. A caller must never fall back from reopening missing or
+invalid state to creating fresh state. One held advisory writer lock lasts
+until close. Parent/root identity, current ownership, exact private modes,
+single-link regular files and no-symlink paths are checked through held Linux
+directory descriptors. File sync and directory sync use those same handles.
+Filesystem errors have closed diagnostics without paths or underlying text.
+
+The initial adapter qualifies Linux ext-family, XFS, Btrfs and OverlayFS
+filesystems with working allocation and sync primitives; OverlayFS backing
+storage must also be local. It does not support shared/network coordination or
+volatile temporary filesystems. Darwin durability and locking qualification is
+required follow-up before final supported Broker journal enablement. The
+current platform restriction is a foundation limit, not a permanent change to
+the complete product support contract. Allocation and sync cannot guarantee
+against every storage, copy-on-write or hardware failure; any ambiguous
+mutation poisons the open instance and returns no new dispatch right or
+terminal success.
+
+Issuance reserves a random 256-bit ID and durable storage before returning it
+to the trusted application. A separate bind step fixes the existing v1 ticket
+after the application can hash prospective apply arguments containing that
+ID. The internal issued reservation has no public phase and grants no write
+authority. Unknown IDs are rejected. Stable ownership contains Broker, backend,
+principal, workload and audience hashes; original execution and authority
+revision hashes are separate immutable fields. An independently authorized new
+observation execution can therefore inspect its stable owner's expired writer
+ticket without reviving the original write authority. Exact semantic arguments,
+proposal, native candidate, target/effect and version evidence are immutable;
+fresh transport correlation IDs are excluded. The v1 ticket codec and digest
+remain unchanged.
+
+Each reservation preallocates eight 8 KiB metadata slots, eight independent
+256-byte state-commitment slots and its declared recovery-artifact capacity,
+between 1 byte and 16 MiB. The whole journal defaults
+to at most 1,024 IDs and 256 MiB of reserved file bytes, including identity,
+reservation index, state commitments, metadata and artifact storage; configured
+limits can only reduce those ceilings. Creation preallocates the mandatory reservation index
+with one checksummed 256-byte slot per configured ID slot. Each ordered entry
+binds the issued ID and artifact capacity. Issuance syncs all three owned files,
+then its index entry, then the initial reservation record and its independent
+state commitment before returning an ID. A crash between these steps leaves
+storage unavailable, never a fresh ID.
+These byte ceilings exclude filesystem bookkeeping. Issuance refuses capacity
+exhaustion while retaining all existing slots for closeout. No automatic
+deletion, compaction, retirement or GC is implemented. The longest legal chain
+occupies six slots: issued reservation, binding, admitted, dispatching,
+outcome unknown, then qualified applied/not-applied. Other paths are shorter;
+repeat lookup/binding/completion does not append or renew a deadline. The two
+remaining slots provide fixed margin and authorize no additional transition.
+
+Every phase transition syncs its record slot and then its independent state
+commitment before returning. Each commitment binds the exact record-slot digest,
+sequence and consumed-dispatch bit. A surviving record slot without its matching
+commitment, or a commitment without its record slot, makes storage unavailable.
+The issuance index has one immutable slot per ID; the separate fixed `.state`
+file keeps phase evidence append-only and reserves terminal capacity without
+rewriting the global reservation inventory for each transition.
+This includes zeroed consumed slots after an otherwise valid admitted prefix;
+such loss cannot be interpreted as proof that dispatch never occurred.
+
+Metadata is strictly versioned canonical JSON inside length/checksum-delimited,
+zero-padded slots. It contains hashes, fixed deadlines and durable state only,
+never credentials, backend content, response prose or approval material. Native
+recovery bytes live in a separate private, bounded artifact whose exact byte
+digest and length are fixed at admission. The future operation-specific app
+owner must restrict those bytes to the native candidate and required qualified
+baseline; an opaque storage artifact is not permission to retain credentials or
+unrelated content. Artifact durability precedes admission; the durable admitted
+record establishes a target fence before the sole durable dispatch claim.
+Current capability, proposal clearance and last-hop authorization still need
+independent checks after slow durable I/O and immediately before the single
+operation-specific send.
+
+Reopening validates the complete bounded index, its exact owned-file inventory,
+both matching slot chains and every transition before recovering any record.
+Removing an operation's record, artifact and state-commitment files while
+leaving its committed index entry therefore refuses
+readiness instead of losing an unresolved target fence. Unindexed pairs and
+missing, torn or inconsistent index entries also fail closed. A partial
+publication, torn slot, missing or altered artifact, future format or
+inconsistent binding makes storage unavailable; it is not silently repaired or
+called a recovered outcome.
+Surviving admitted records become never-dispatched `not_applied`; dispatching
+records become `outcome_unknown`. Fences for admitted, dispatching and unknown
+operations are restored before the adapter returns. The comment-dependent
+target hash must bind the backend and immutable issue identity consistently
+across principals. Unknown fences persist indefinitely; unrelated targets can
+proceed under independent authority. Only qualified positive evidence may
+resolve an unknown result; absence of readback is insufficient.
+
+Acceptance is at most 60 seconds and bounded by the fixed execution, grant,
+credential and operation deadlines. Observation has its own fixed deadline.
+Neither lookup nor retry extends either lifetime. Every sampled time advances
+an in-memory high-water mark, even on a refused expiry check. Writer and
+observation deadlines compare against that observed maximum: backward movement
+cannot revive a deadline already observed as expired in the open instance,
+including movement within the existing one-second clock allowance. Larger
+backward movement refuses new issuance/admission/dispatch until trustworthy time
+is restored. Successful durable transitions retain the high-water timestamp;
+closeout can still preserve evidence without dispatching. Observations that
+never reached a durable transition are not recoverable after process loss, so a
+cold restart still requires a trustworthy runtime clock. Local sync also cannot
+detect coordinated historical rollback of records and their matching independent
+commitments: trusted runtime execution/epoch invalidation is required before
+resuming writes after that storage rollback. This foundation provides no authority
+service, backend reconciliation or universal exactly-once delivery guarantee.
+
 Cache qualification binds issuer/backend, source principal and read-scope
 digests, target execution, authority revision, operation/selector/projection,
 evidence schema, immutable generation and exact content digest. Equal account
