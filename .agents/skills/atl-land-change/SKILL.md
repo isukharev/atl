@@ -14,12 +14,14 @@ description: Carry an ATL repository change from a shaped issue through linked b
 3. Before opening a draft, verify issue plan, branch ownership, author identity,
    dirty state, and the current coherent scope. Open it early enough to preserve
    traceability.
-4. Before marking ready, verify the final diff, class-selected local gates,
+4. Before marking ready, verify the final diff, focused local checks,
    privacy scan, issue links, and the class-required independent review.
 5. For a material fix, name changed paths and rerun only their impact-map gates;
    request a bounded follow-up only for material correctness, security, or
    design changes.
-6. Mark ready, then inspect required checks with bounded one-shot snapshots.
+6. Mark ready and manually dispatch hosted CI with exact reviewed PR head/base.
+   Reconcile its selected plan and required `ci-ready` check. A changed head or
+   base needs a new dispatch; `full` may widen the plan. Use bounded snapshots.
    Never drive a watch with model-level wait/stdin polling. Do independent work
    while checks run; when it is exhausted, use one bounded tool-internal
    blocking watch and remain on the task. Inspect mergeability only after

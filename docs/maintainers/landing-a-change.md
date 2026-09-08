@@ -43,45 +43,49 @@ follow-up only when the finding or fix warrants it.
 
 ## CI and merge
 
-The premerge bootstrap retains all existing automatic checks and adds
-`ci-ready`, an aggregate of the complete hosted contour, including a reusable
-CodeQL scan. Existing required contexts and branch protection remain in force;
-the aggregate does not activate impact-based skipping or replace protection by
-itself. The standalone CodeQL PR and weekly runs remain available during this
-transition.
+Premerge checks run on GitHub-hosted runners when the coordinator dispatches
+the reviewed PR revision. PR synchronization does not launch a full suite;
+main pushes retain only a bounded build smoke. `ci-ready` is the single required
+aggregate, with strict up-to-date branch protection. Weekly CodeQL and full
+release gates remain automatic.
 
-For a manual full run, update the same-repository PR branch to contain current
-`main`, finish review, and capture the exact PR head and base revisions. Dispatch
-the PR branch, supplying those immutable revisions as inputs:
+Update the same-repository PR branch to contain current `main`, finish focused
+local verification and review, and capture the exact PR head/base revisions.
+Dispatch that branch, supplying the immutable revisions as inputs:
 
 ```sh
 gh workflow run ci.yml --ref <pr-branch> \
   -f pr=<number> -f head_sha=<reviewed-head-sha> -f base_sha=<current-main-sha>
 ```
 
+Add `-f full=true` to widen the selected plan to every hosted gate. Callers
+cannot omit required lanes. The maintained impact owner reads the committed
+base/head policy union; the binding log records the closed plan. See
+[Development](development.md#select-verification-once-the-diff-is-stable) for
+the module-level contour and conservative fallback rules.
+
 The workflow checks the dispatched commit, PR branch, open PR, and exact
-head/base against current GitHub metadata before and after the gates. Manual
-runs require the base to be an ancestor of the checked head. Automatic PR runs
-instead validate GitHub's synthetic merge commit and its exact base/head
-parents; fork PRs retain this automatic route. Selecting `main` and merely
-checking out a different commit cannot produce valid manual PR evidence.
+head/base against current GitHub metadata before and after the gates. The base
+must be an ancestor of the checked head. This manual route requires a branch in
+the repository; a fork revision needs a reviewed same-repository branch/PR
+before dispatch. Selecting `main` and checking out another commit cannot
+produce valid PR evidence.
 
-`ci-ready` succeeds only when every premerge dependency succeeds; a skipped,
-cancelled, failed, or missing dependency fails the aggregate. The final binding
-check rejects head or base movement during the run. If either revision changes,
-update and review the branch as applicable, then dispatch a fresh run. A rerun
-of the old event does not update its bound revisions. Before merge, reconcile
-the run's event, `headSha`, and current PR head/base; retain strict up-to-date
-branch protection when migrating required contexts to the aggregate.
+`ci-ready` recomputes the committed plan, requires successful binding/contracts
+and every selected job, and accepts skips only for jobs explicitly excluded by
+that exact plan. Failed, cancelled, missing, or unexpectedly skipped work fails
+the aggregate. If head or base changes, update/review the branch as applicable
+and dispatch a fresh run. Rerunning an old event does not update its revisions.
+Before merge, reconcile the run's event, `headSha`, plan, and current PR
+head/base; strict protection guards base movement after the run completes.
 
-The initial binding job deliberately does not gate the legacy jobs: a binding
-failure must not turn existing required checks into skipped jobs while the
-required-check migration is still pending. After the bootstrap is merged and
-the manual aggregate has been observed on a PR head, the separately authorized
-protection migration can add `ci-ready`, verify it, and retire old contexts.
-Do not remove old contexts first or disable required checks between updates.
+For the required-check migration, first merge the bootstrap and observe its
+manual aggregate on a PR head under existing protection. Add and verify
+`ci-ready` before retiring legacy contexts, then activate manual-only selection.
+Never disable required checks between updates. Configuration changes remain
+separate authorized actions; a local workflow patch does not change protection.
 
-Mark the PR ready only after local gates and review are green. Inspect hosted
+Mark the PR ready only after focused local verification and review. Inspect hosted
 checks rather than assuming that a queued workflow passed. Never keep a watch
 alive with model-driven waits. Take a bounded required-check snapshot at a
 natural dependency boundary:

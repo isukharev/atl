@@ -40,6 +40,9 @@ func TestManualBindingRejectsWrongEventAndRef(t *testing.T) {
 	}{
 		{name: "exact branch", ok: true},
 		{name: "wrong event", event: "push"},
+		{name: "automatic PR", event: "pull_request"},
+		{name: "full override", edit: func(e *event) { e.Inputs["full"] = "true" }, ok: true},
+		{name: "invalid full override", edit: func(e *event) { e.Inputs["full"] = "skip" }},
 		{name: "wrong checkout", sha: testMerge},
 		{name: "tag", ref: "refs/tags/topic"},
 		{name: "merge ref", ref: "refs/pull/42/merge"},
@@ -77,23 +80,6 @@ func TestManualBindingRejectsWrongEventAndRef(t *testing.T) {
 	}
 }
 
-func TestPullRequestBindingUsesMergeCheckout(t *testing.T) {
-	e := event{Number: 42, PullRequest: currentPR()}
-	b, err := eventBinding("pull_request", "owner/repo", testMerge, "refs/pull/42/merge", encode(t, e))
-	if err != nil || b.Head != testHead || b.Checkout != testMerge || b.Manual {
-		t.Fatalf("binding = %+v, error = %v", b, err)
-	}
-	for _, ref := range []string{"refs/heads/topic", "refs/pull/43/merge"} {
-		if _, err := eventBinding("pull_request", "owner/repo", testMerge, ref, encode(t, e)); err == nil {
-			t.Fatalf("accepted wrong PR ref %q", ref)
-		}
-	}
-	e.PullRequest.Base.Repo.FullName = "other/repo"
-	if _, err := eventBinding("pull_request", "owner/repo", testMerge, "refs/pull/42/merge", encode(t, e)); err == nil {
-		t.Fatal("accepted wrong base repository")
-	}
-}
-
 func TestCurrentBindingRejectsStaleOrRetargetedPullRequest(t *testing.T) {
 	b, err := eventBinding("workflow_dispatch", "owner/repo", testHead, "refs/heads/topic", encode(t, manualEvent()))
 	if err != nil {
@@ -120,53 +106,10 @@ func TestCurrentBindingRejectsStaleOrRetargetedPullRequest(t *testing.T) {
 			}
 		})
 	}
-	// Automatic PR runs still support fork heads through GitHub's merge ref.
-	b.Manual = false
-	p := currentPR()
-	p.Head.Repo.FullName = "fork/repo"
-	if err := validateCurrent(b, p); err != nil {
-		t.Fatal(err)
-	}
+
 }
 
-func TestAggregateRequiresEveryJobToSucceed(t *testing.T) {
-	names := []string{"binding", "test", "corpus-devcontainer", "agent-eval", "agent-eval-extension-windows", "lint", "govulncheck", "codeql"}
-	all := func() map[string]map[string]string {
-		jobs := map[string]map[string]string{}
-		for _, name := range names {
-			jobs[name] = map[string]string{"result": "success"}
-		}
-		return jobs
-	}
-	if err := validateNeeds(encode(t, all())); err != nil {
-		t.Fatal(err)
-	}
-	for _, name := range names {
-		for _, result := range []string{"failure", "cancelled", "skipped", "", "neutral"} { //nolint:misspell // GitHub's job-result spelling.
-			t.Run(name+"/"+result, func(t *testing.T) {
-				jobs := all()
-				jobs[name]["result"] = result
-				if err := validateNeeds(encode(t, jobs)); err == nil {
-					t.Fatal("aggregate accepted unsuccessful dependency")
-				}
-			})
-		}
-		jobs := all()
-		delete(jobs, name)
-		if err := validateNeeds(encode(t, jobs)); err == nil {
-			t.Fatalf("accepted missing dependency %s", name)
-		}
-		jobs["unexpected"] = map[string]string{"result": "success"}
-		if err := validateNeeds(encode(t, jobs)); err == nil {
-			t.Fatalf("accepted substituted dependency %s", name)
-		}
-	}
-	if err := validateNeeds([]byte(`null`)); err == nil {
-		t.Fatal("accepted absent job results")
-	}
-}
-
-func TestCheckoutProvesAncestryAndExactMergeParents(t *testing.T) {
+func TestCheckoutProvesExactHeadAndBaseAncestry(t *testing.T) {
 	t.Chdir(t.TempDir())
 	git := func(args ...string) string {
 		t.Helper()
@@ -186,7 +129,7 @@ func TestCheckoutProvesAncestryAndExactMergeParents(t *testing.T) {
 	git("add", "fixture.txt")
 	git("commit", "-m", "head")
 	head := git("rev-parse", "HEAD")
-	b := binding{Manual: true, Base: base, Head: head, Checkout: head}
+	b := binding{Base: base, Head: head, Checkout: head}
 	if err := verifyCheckout(context.Background(), b); err != nil {
 		t.Fatal(err)
 	}
@@ -206,15 +149,5 @@ func TestCheckoutProvesAncestryAndExactMergeParents(t *testing.T) {
 	if err := verifyCheckout(context.Background(), b); err == nil {
 		t.Fatal("accepted a base outside head ancestry")
 	}
-	tree := git("rev-parse", "HEAD^{tree}")
-	merge := git("commit-tree", tree, "-p", base, "-p", head, "-m", "merge")
-	git("checkout", "--detach", merge)
-	b = binding{Base: base, Head: head, Checkout: merge}
-	if err := verifyCheckout(context.Background(), b); err != nil {
-		t.Fatal(err)
-	}
-	b.Base = advanced
-	if err := verifyCheckout(context.Background(), b); err == nil {
-		t.Fatal("accepted wrong merge parents")
-	}
+
 }

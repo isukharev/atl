@@ -55,6 +55,19 @@ func TestCorpusDevcontainerWorkflowBindsContractsToExactJob(t *testing.T) {
 	if err := validateCorpusDevcontainerWorkflow(workflow); err != nil {
 		t.Fatalf("repository workflow: %v", err)
 	}
+	for _, drift := range []struct{ old, replacement string }{
+		{"          ref: ${{ github.sha }}", "          ref: main"},
+		{"    needs: binding", "    needs: unrelated"},
+		{"    if: needs.binding.outputs.corpus == 'true'", "    if: false"},
+	} {
+		changed := bytes.ReplaceAll(workflow, []byte(drift.old), []byte(drift.replacement))
+		if bytes.Equal(changed, workflow) {
+			t.Fatal("missing corpus mutation target")
+		}
+		if err := validateCorpusDevcontainerWorkflow(changed); err == nil {
+			t.Fatal("corpus admission drift was accepted")
+		}
+	}
 	job, err := workflowJobBlock(workflow, "corpus-devcontainer")
 	if err != nil {
 		t.Fatal(err)

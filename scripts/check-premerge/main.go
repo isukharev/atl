@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/isukharev/atl/scripts/check-docs-freshness/hosted"
 )
 
 var shaPattern = regexp.MustCompile(`^[0-9a-f]{40}$`)
@@ -33,9 +35,7 @@ type pullRequest struct {
 }
 
 type event struct {
-	Number      int               `json:"number"`
-	PullRequest pullRequest       `json:"pull_request"`
-	Inputs      map[string]string `json:"inputs"`
+	Inputs map[string]string `json:"inputs"`
 }
 
 type binding struct {
@@ -45,7 +45,7 @@ type binding struct {
 	Base       string
 	Checkout   string
 	Ref        string
-	Manual     bool
+	Full       bool
 }
 
 func main() {
@@ -60,11 +60,6 @@ func run() error {
 	if len(os.Args) != 2 || (os.Args[1] != "bind" && os.Args[1] != "ready") {
 		return errors.New("expected bind or ready")
 	}
-	if os.Args[1] == "ready" {
-		if err := validateNeeds([]byte(os.Getenv("ATL_PREMERGE_NEEDS"))); err != nil {
-			return err
-		}
-	}
 	body, err := os.ReadFile(os.Getenv("GITHUB_EVENT_PATH"))
 	if err != nil {
 		return errors.New("cannot read workflow event")
@@ -74,10 +69,19 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 	if err := verifyCheckout(ctx, b); err != nil {
 		return err
+	}
+	plan, err := selectPlan(ctx, b)
+	if err != nil {
+		return err
+	}
+	if os.Args[1] == "ready" {
+		if err := validateNeeds([]byte(os.Getenv("ATL_PREMERGE_NEEDS")), plan); err != nil {
+			return err
+		}
 	}
 	// Project at the producer: PR bodies, titles and other unrelated metadata
 	// never enter diagnostics. gh retains the workflow's read-only token scope.
@@ -91,7 +95,13 @@ func run() error {
 	if err := json.Unmarshal(body, &current); err != nil {
 		return errors.New("invalid current pull request response")
 	}
-	return validateCurrent(b, current)
+	if err := validateCurrent(b, current); err != nil {
+		return err
+	}
+	if os.Args[1] == "bind" {
+		return publishPlan(plan, os.Getenv("GITHUB_OUTPUT"))
+	}
+	return nil
 }
 
 func eventBinding(name, repository, sha, ref string, body []byte) (binding, error) {
@@ -103,26 +113,24 @@ func eventBinding(name, repository, sha, ref string, body []byte) (binding, erro
 	if len(body) > 4<<20 || json.Unmarshal(body, &e) != nil {
 		return binding{}, errors.New("invalid workflow event")
 	}
-	switch name {
-	case "workflow_dispatch":
-		b.Manual = true
-		var err error
-		b.Number, err = strconv.Atoi(e.Inputs["pr"])
-		if err != nil || strconv.Itoa(b.Number) != e.Inputs["pr"] {
-			return binding{}, errors.New("manual dispatch requires a positive PR number")
-		}
-		b.Head, b.Base = e.Inputs["head_sha"], e.Inputs["base_sha"]
-		if b.Checkout != b.Head || !strings.HasPrefix(ref, "refs/heads/") {
-			return binding{}, errors.New("dispatch the PR branch at the expected head revision")
-		}
-	case "pull_request":
-		b.Number, b.Head, b.Base = e.Number, e.PullRequest.Head.SHA, e.PullRequest.Base.SHA
-		if e.PullRequest.Number != b.Number || e.PullRequest.Base.Repo.FullName != repository ||
-			e.PullRequest.Base.Ref != "main" || ref != fmt.Sprintf("refs/pull/%d/merge", b.Number) {
-			return binding{}, errors.New("pull request event does not identify the expected merge ref and base")
-		}
+	if name != "workflow_dispatch" {
+		return binding{}, errors.New("premerge binding requires manual workflow_dispatch")
+	}
+	var err error
+	b.Number, err = strconv.Atoi(e.Inputs["pr"])
+	if err != nil || strconv.Itoa(b.Number) != e.Inputs["pr"] {
+		return binding{}, errors.New("manual dispatch requires a positive PR number")
+	}
+	b.Head, b.Base = e.Inputs["head_sha"], e.Inputs["base_sha"]
+	if b.Checkout != b.Head || !strings.HasPrefix(ref, "refs/heads/") {
+		return binding{}, errors.New("dispatch the PR branch at the expected head revision")
+	}
+	switch e.Inputs["full"] {
+	case "true":
+		b.Full = true
+	case "", "false":
 	default:
-		return binding{}, errors.New("premerge binding requires a pull_request or workflow_dispatch event")
+		return binding{}, errors.New("full override must be true or false")
 	}
 	if b.Number <= 0 || !shaPattern.MatchString(b.Head) || !shaPattern.MatchString(b.Base) {
 		return binding{}, errors.New("missing or invalid PR/head/base binding")
@@ -135,7 +143,7 @@ func validateCurrent(b binding, current pullRequest) error {
 		current.Base.Repo.FullName != b.Repository || current.Head.SHA != b.Head || current.Base.SHA != b.Base {
 		return errors.New("pull request is closed or its head/base changed; update the branch and dispatch again")
 	}
-	if b.Manual && (current.Head.Repo.FullName != b.Repository || b.Ref != "refs/heads/"+current.Head.Ref) {
+	if current.Head.Repo.FullName != b.Repository || b.Ref != "refs/heads/"+current.Head.Ref {
 		return errors.New("manual dispatch must use this repository's PR head branch")
 	}
 	return nil
@@ -146,29 +154,37 @@ func verifyCheckout(ctx context.Context, b binding) error {
 	if err != nil || strings.TrimSpace(string(head)) != b.Checkout {
 		return errors.New("checkout does not match the workflow revision")
 	}
-	if b.Manual {
-		if err := exec.CommandContext(ctx, "git", "merge-base", "--is-ancestor", b.Base, b.Head).Run(); err != nil {
-			return errors.New("manual head must contain the exact current base; update the branch and dispatch again")
-		}
-		return nil
-	}
-	parents, err := exec.CommandContext(ctx, "git", "rev-list", "--parents", "-n", "1", b.Checkout).Output()
-	if err != nil || strings.TrimSpace(string(parents)) != b.Checkout+" "+b.Base+" "+b.Head {
-		return errors.New("pull request checkout is not the merge of the expected base and head")
+	if err := exec.CommandContext(ctx, "git", "merge-base", "--is-ancestor", b.Base, b.Head).Run(); err != nil {
+		return errors.New("manual head must contain the exact current base; update the branch and dispatch again")
 	}
 	return nil
 }
 
-func validateNeeds(body []byte) error {
+func validateNeeds(body []byte, plan hosted.Plan) error {
 	var needs map[string]struct {
-		Result string `json:"result"`
+		Result  string            `json:"result"`
+		Outputs map[string]string `json:"outputs"`
 	}
-	if json.Unmarshal(body, &needs) != nil || len(needs) != 8 {
+	jobs := plan.Jobs()
+	if json.Unmarshal(body, &needs) != nil || len(needs) != len(jobs) {
 		return errors.New("aggregate requires exactly the complete premerge job set")
 	}
-	for _, name := range []string{"binding", "test", "corpus-devcontainer", "agent-eval", "agent-eval-extension-windows", "lint", "govulncheck", "codeql"} {
-		if needs[name].Result != "success" {
-			return fmt.Errorf("required premerge job %s did not succeed", name)
+	expected, err := planOutputs(plan)
+	if err != nil {
+		return err
+	}
+	for key, value := range expected {
+		if needs["binding"].Outputs[key] != value {
+			return errors.New("binding outputs do not match the recomputed committed impact plan")
+		}
+	}
+	for name, selected := range jobs {
+		want := "skipped"
+		if selected {
+			want = "success"
+		}
+		if needs[name].Result != want {
+			return fmt.Errorf("premerge job %s must report %s for the selected plan", name, want)
 		}
 	}
 	return nil

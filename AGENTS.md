@@ -131,12 +131,12 @@ contact configured providers or backends.
 - Fuzz server-controlled bytes and add regression seeds/crash corpus when
   fixing parser, path, mirror, or transport ingestion bugs.
 - CLI changes update focused app/CLI tests, golden output, and the sentinel exit
-  matrix as applicable, then run `make test`.
+  matrix as applicable, then run the hosted product tests.
 - Put the runbook's low/standard/high class in the issue plan. Low-risk prose
   uses mapped docs checks only; standard/high work gets one review.
-- Select and rerun gates through `docs/maintainer-impact.v1.json`; run full gates
-  once per reviewed head. A prose/comment-only fix reruns no compiled gate only
-  when the impact map selects none; retain mapped docs, privacy, and diff checks.
+- Use `docs/maintainer-impact.v1.json` for selection. Local checks are focused;
+  dispatch selected gates on GitHub after review. Require `ci-ready` on exact
+  PR head/base with strict up-to-date protection; retain docs/privacy/diff checks.
 - Add a second review only after a material correctness/security or design fix.
 - Never derive or pin `GOROOT`; raw Go commands use
   `env -u GOROOT GOTOOLCHAIN=auto GOWORK=off go ...`.

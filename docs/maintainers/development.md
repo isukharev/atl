@@ -126,9 +126,11 @@ the risk:
   complete applicable contour, one independent review, and any explicit
   boundary-specific oracle.
 
-Hosted required CI remains unchanged for every PR. Classification selects the
-local contour; it never weakens privacy, issue-first tracking, reviewed-head CI,
-or merge authority.
+Premerge CI is manually dispatched after review with exact PR head/base
+revisions. The maintained impact policy selects hosted module-level gates;
+`ci-ready` is the required aggregate under strict up-to-date protection. Focused
+local verification supports iteration. Privacy, issue-first tracking, the
+reviewed revision, and merge authority remain required for every class.
 
 ## Implement by invariant
 
@@ -155,13 +157,11 @@ or merge authority.
 
 ## Select verification once the diff is stable
 
-Iterate with the smallest focused test, then run the full gates once. Repeat a
-full gate only after a material fix that can affect it. Before rerunning, name
-the paths changed since the last green invocation and use
-`docs/maintainer-impact.v1.json` (through `check-docs-freshness`) to select only
-their mapped gates. A prose/comment/changelog-only fix reruns no compiled or
-tested gate only when the impact map selects none; always retain its mapped
-documentation checks, privacy scan, and `git diff --check`.
+Iterate with the smallest focused local test, then dispatch the selected full
+gates once on the reviewed hosted head. Use `docs/maintainer-impact.v1.json`
+(through `check-docs-freshness`) for local and hosted selection. Keep mapped
+documentation checks, privacy review, and `git diff --check`. A changed head or
+base needs a new bound dispatch; focused local reruns cover the affected paths.
 
 Treat the stable integrated diff as one verification boundary. Do not run a
 local copy of a hosted gate against identical bytes merely to wait for CI
@@ -180,8 +180,8 @@ env -u GOROOT GOTOOLCHAIN=auto GOWORK=off go ...
 |---|---|
 | App or CLI behavior | `go test ./internal/app ./internal/cli -count=1` |
 | One Go package | `go test ./path/to/package -count=1` |
-| Evaluator module or corpus | `make agent-eval-contract`, then `make agent-eval-full` once stable |
-| Concurrency or shared state | focused `go test -race`, then `make race` |
+| Evaluator module or corpus | focused evaluator tests, then hosted `make agent-eval-full` once stable |
+| Concurrency or shared state | focused `go test -race`, then the hosted race lane |
 | Generated client skills | `make gen-plugins && make check-plugins` |
 | Repository runbooks or `.agents/skills/` | `make check-repository-skills && make check-docs-catalog` |
 | Public documentation | `make check-docs-catalog && make check-context7-docs` |
@@ -193,14 +193,10 @@ env -u GOROOT GOTOOLCHAIN=auto GOWORK=off go ...
 | Production hotspot allowances or timing observations | `make check-maintainability` |
 | Package ownership | `make check-package-boundary` |
 
-High-risk diffs normally finish with:
-
-```sh
-make test
-make lint
-make vet
-git diff --check
-```
+High-risk diffs finish with independent review and the complete applicable
+hosted contour. Do not duplicate root-wide or evaluator full suites locally as
+a default admission requirement. Use the bound dispatch procedure in
+[Landing a change](landing-a-change.md#ci-and-merge).
 
 For a change relative to a branch or commit, ask the maintained impact map for
 the applicable existing gates:
@@ -208,6 +204,30 @@ the applicable existing gates:
 ```sh
 ATL_DOCS_BASE=origin/main make check-docs-freshness
 ```
+
+The same manifest annotates hosted lanes on its path rules. The hosted planner
+reads only the committed base/head policies, unions their selections for every
+changed path, and includes both sides of renames and copies plus deleted paths.
+Legacy policy, an unclassified change, or a policy-file change widens selection
+to full; invalid policy blocks the run. The optional manual `full` input only
+widens the selection. The aggregate recomputes this plan before accepting any
+intentionally skipped job.
+
+| Change scope | Hosted contour |
+|---|---|
+| Prose | Maintainer, generated-tree, documentation, and package contracts |
+| Generated/client skill bytes | Contracts and evaluator compatibility |
+| Product module | Contracts, complete Ubuntu/macOS product race and coverage, lint, evaluator compatibility, vulnerability and CodeQL scans |
+| Published product schemas | Product contour, including published/embedded schema parity tests |
+| Evaluator module/corpus | Contracts, evaluator full, Ubuntu/macOS/Windows runtime checks, vulnerability and CodeQL scans |
+| Devcontainer example | Contracts and pinned devcontainer smoke |
+| Shared tooling/toolchains/workflows or unknown effects | Complete contour |
+
+Product selection retains all root packages and the existing cross-package
+coverage denominator. Package-level reverse-dependency selection is deferred
+until an exhaustive oracle covers both modules, test imports, build tags,
+platform files, embedded data, and generated inputs. Releases keep their full
+gates; weekly CodeQL and the bounded main-push build smoke remain automatic.
 
 Set `ATL_DOCS_HEAD` only when checking two committed endpoints instead of the
 current index and working tree. An owner may also set

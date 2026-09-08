@@ -20,9 +20,10 @@ description: Implement or review changes in the ATL repository with the correct 
    client skill trees directly. Apply
    [Simplify within the contract](../../../docs/maintainers/development.md#simplify-within-the-contract)
    before implementation and during the existing integrated review.
-6. Iterate with focused tests. Once stable, run only impact-mapped gates plus
-   the class-required privacy/review contour. Raw Go uses the runbook's automatic
-   toolchain environment; never derive or pin `GOROOT`.
+6. Iterate with focused local tests and the class-required privacy/review
+   contour. Once stable, use the landing workflow to dispatch impact-selected
+   hosted gates on exact PR head/base; do not duplicate full suites locally.
+   Raw Go uses the runbook's automatic toolchain; never derive or pin `GOROOT`.
 7. Use `$atl-land-change` when a coherent planned slice is ready for a draft PR
    or when an existing PR needs review, CI, and merge handling.
 

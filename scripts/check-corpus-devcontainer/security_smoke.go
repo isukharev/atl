@@ -82,7 +82,8 @@ func validateLockedDevcontainersCLI(root string) error {
 
 var corpusDevcontainerJobContract = []string{
 	"  corpus-devcontainer:",
-	"    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'",
+	"    needs: binding",
+	"    if: needs.binding.outputs.corpus == 'true'",
 	"    runs-on: ubuntu-latest",
 	"    steps:",
 	"      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1",
@@ -92,6 +93,8 @@ var corpusDevcontainerJobContract = []string{
 	"        with:",
 	"          go-version-file: go.mod",
 	"          check-latest: true",
+	"      - name: Private corpus devcontainer contract",
+	"        run: make check-corpus-devcontainer",
 	"      - name: Build exact runtime smoke binaries",
 	"        run: |",
 	"          make build",
