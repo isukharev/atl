@@ -15,7 +15,17 @@ import (
 const (
 	MaxTransportFailureBytes = int64(4 << 10)
 	MaxProtocolBytes         = int64(64 << 10)
+	MaxAdminStatusBytes      = int64(4 << 10)
 	TransportStatusRejected  = "rejected"
+)
+
+const (
+	AdminKindHealth        = "health"
+	AdminKindReadiness     = "readiness"
+	AdminStatusHealthy     = "healthy"
+	AdminStatusReady       = "ready"
+	AdminStatusDraining    = "draining"
+	AdminStatusUnavailable = "unavailable"
 )
 
 type Failure struct {
@@ -47,6 +57,13 @@ type Protocol struct {
 	Complete              bool
 }
 
+type AdminStatus struct {
+	SchemaVersion int
+	Kind          string
+	Status        string
+	Complete      bool
+}
+
 type failureWire struct {
 	SchemaVersion int    `json:"schema_version"`
 	Status        string `json:"status"`
@@ -74,6 +91,13 @@ type protocolWire struct {
 	ConsistencyProfile    string                  `json:"consistency_profile"`
 	Operations            []protocolOperationWire `json:"operations"`
 	Complete              bool                    `json:"complete"`
+}
+
+type adminStatusWire struct {
+	SchemaVersion int    `json:"schema_version"`
+	Kind          string `json:"kind"`
+	Status        string `json:"status"`
+	Complete      bool   `json:"complete"`
 }
 
 func NewFailure(reason domain.BrokerReason) (Failure, error) {
@@ -142,6 +166,25 @@ func DecodeProtocolV1(data []byte) (Protocol, error) {
 	return value, nil
 }
 
+func EncodeAdminStatusV1(value AdminStatus) ([]byte, error) {
+	if !validAdminStatus(value) {
+		return nil, malformedError()
+	}
+	return marshalBounded(adminStatusWire(value), MaxAdminStatusBytes)
+}
+
+func DecodeAdminStatusV1(data []byte) (AdminStatus, error) {
+	var wire adminStatusWire
+	if !decodeExact(data, MaxAdminStatusBytes, &wire) {
+		return AdminStatus{}, malformedError()
+	}
+	value := AdminStatus(wire)
+	if !validAdminStatus(value) {
+		return AdminStatus{}, malformedError()
+	}
+	return value, nil
+}
+
 func validFailure(value Failure) bool {
 	want, err := NewFailure(value.Reason)
 	return err == nil && reflect.DeepEqual(value, want)
@@ -149,6 +192,20 @@ func validFailure(value Failure) bool {
 
 func validProtocol(value Protocol) bool {
 	return reflect.DeepEqual(value, StaticProtocolV1())
+}
+
+func validAdminStatus(value AdminStatus) bool {
+	if value.SchemaVersion != SchemaVersion || !value.Complete {
+		return false
+	}
+	switch value.Kind {
+	case AdminKindHealth:
+		return value.Status == AdminStatusHealthy
+	case AdminKindReadiness:
+		return value.Status == AdminStatusReady || value.Status == AdminStatusDraining || value.Status == AdminStatusUnavailable
+	default:
+		return false
+	}
 }
 
 func decodeExact(data []byte, maximum int64, target any) bool {

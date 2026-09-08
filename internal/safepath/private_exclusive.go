@@ -38,19 +38,41 @@ func ReadFilePrivateOutsideRoot(protectedRoot, target string, max int64) ([]byte
 	if strings.TrimSpace(protectedRoot) == "" || max < 0 {
 		return nil, fmt.Errorf("%w: protected root and finite read bound are required", ErrUnsafePrivatePath)
 	}
-	protectedAbs, protectedErr := filepath.Abs(protectedRoot)
-	resolvedProtected, resolveProtectedErr := filepath.EvalSymlinks(protectedAbs)
+	return readFilePrivate(protectedRoot, target, max, false)
+}
+
+// ReadFilePrivate reads one exact owner-only artifact through its held
+// owner-private parent. It refuses final symlinks, special files, mode or owner
+// drift, replacement races, and allocations above max.
+func ReadFilePrivate(target string, max int64) ([]byte, error) {
+	if max < 0 {
+		return nil, fmt.Errorf("%w: finite read bound is required", ErrUnsafePrivatePath)
+	}
+	return readFilePrivate("", target, max, true)
+}
+
+func readFilePrivate(protectedRoot, target string, max int64, requireOwner bool) ([]byte, error) {
+	return readFilePrivateWithHook(protectedRoot, target, max, requireOwner, nil)
+}
+
+func readFilePrivateWithHook(protectedRoot, target string, max int64, requireOwner bool, beforeOpen func() error) ([]byte, error) {
 	targetAbs, targetErr := filepath.Abs(target)
 	parentAbs, base := filepath.Dir(targetAbs), filepath.Base(targetAbs)
 	resolvedParent, resolveParentErr := filepath.EvalSymlinks(parentAbs)
-	if protectedErr != nil || resolveProtectedErr != nil || targetErr != nil || resolveParentErr != nil ||
+	if targetErr != nil || resolveParentErr != nil ||
 		base == "." || base == ".." || strings.ContainsAny(base, `/\`) {
 		return nil, fmt.Errorf("%w: artifact path could not be resolved", ErrUnsafePrivatePath)
 	}
 	resolvedParentInfo, err := os.Lstat(resolvedParent)
-	if err != nil || !resolvedParentInfo.IsDir() || resolvedParentInfo.Mode().Perm()&0o077 != 0 ||
-		Within(resolvedProtected, filepath.Join(resolvedParent, base)) {
+	if err != nil || !resolvedParentInfo.IsDir() || resolvedParentInfo.Mode().Perm()&0o077 != 0 || requireOwner && !ownedByCurrentUser(resolvedParentInfo) {
 		return nil, fmt.Errorf("%w: artifact path is not independent and owner-private", ErrUnsafePrivatePath)
+	}
+	if protectedRoot != "" {
+		protectedAbs, protectedErr := filepath.Abs(protectedRoot)
+		resolvedProtected, resolveProtectedErr := filepath.EvalSymlinks(protectedAbs)
+		if protectedErr != nil || resolveProtectedErr != nil || Within(resolvedProtected, filepath.Join(resolvedParent, base)) {
+			return nil, fmt.Errorf("%w: artifact path is not independent and owner-private", ErrUnsafePrivatePath)
+		}
 	}
 	root, err := os.OpenRoot(parentAbs)
 	if err != nil {
@@ -58,20 +80,25 @@ func ReadFilePrivateOutsideRoot(protectedRoot, target string, max int64) ([]byte
 	}
 	defer func() { _ = root.Close() }()
 	openedParent, err := root.Stat(".")
-	if err != nil || !os.SameFile(resolvedParentInfo, openedParent) || !openedParent.IsDir() || openedParent.Mode().Perm()&0o077 != 0 {
+	if err != nil || !os.SameFile(resolvedParentInfo, openedParent) || !openedParent.IsDir() || openedParent.Mode().Perm()&0o077 != 0 || requireOwner && !ownedByCurrentUser(openedParent) {
 		return nil, fmt.Errorf("%w: artifact parent changed during validation", ErrUnsafePrivatePath)
 	}
 	before, err := root.Lstat(base)
-	if err != nil || !before.Mode().IsRegular() || before.Mode().Perm() != 0o600 {
+	if err != nil || !before.Mode().IsRegular() || before.Mode().Perm() != 0o600 || requireOwner && !ownedByCurrentUser(before) {
 		return nil, fmt.Errorf("%w: artifact must be a regular 0600 file", ErrUnsafePrivatePath)
 	}
-	file, err := root.Open(base)
+	if beforeOpen != nil {
+		if err := beforeOpen(); err != nil {
+			return nil, err
+		}
+	}
+	file, err := openPrivateFile(root, base)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = file.Close() }()
 	opened, err := file.Stat()
-	if err != nil || !os.SameFile(before, opened) || !opened.Mode().IsRegular() || opened.Mode().Perm() != 0o600 {
+	if err != nil || !os.SameFile(before, opened) || !opened.Mode().IsRegular() || opened.Mode().Perm() != 0o600 || requireOwner && !ownedByCurrentUser(opened) {
 		return nil, fmt.Errorf("%w: artifact changed before read", ErrUnsafePrivatePath)
 	}
 	data, err := io.ReadAll(io.LimitReader(file, max+1))
@@ -82,7 +109,7 @@ func ReadFilePrivateOutsideRoot(protectedRoot, target string, max int64) ([]byte
 		return nil, fmt.Errorf("%w: artifact exceeds the read bound", ErrUnsafePrivatePath)
 	}
 	after, err := root.Lstat(base)
-	if err != nil || !os.SameFile(before, after) || !after.Mode().IsRegular() || after.Mode().Perm() != 0o600 {
+	if err != nil || !os.SameFile(before, after) || !after.Mode().IsRegular() || after.Mode().Perm() != 0o600 || requireOwner && !ownedByCurrentUser(after) {
 		return nil, fmt.Errorf("%w: artifact changed during read", ErrUnsafePrivatePath)
 	}
 	return data, nil

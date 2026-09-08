@@ -99,7 +99,8 @@ func collectAdapterNonReplaySafeRequests(t *testing.T) (map[string]adapterReques
 		"DoWithBodyLimit": true, "SendJSON": true,
 	}
 	clientMethods := map[string]bool{
-		"Do": true, "DoStream": true, "DoStreamSized": true,
+		"CloseIdleConnections": true,
+		"Do":                   true, "DoStream": true, "DoStreamSized": true,
 		"DoWithBodyLimit": true, "GetJSON": true, "GetJSONUseNumber": true,
 		"GetStream": true, "ResolveGET": true, "SendJSON": true,
 	}

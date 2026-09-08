@@ -78,10 +78,25 @@ A match refuses the whole response; native Jira-wiki or CSF bytes are never
 redacted or rewritten. This bounded guard does not claim to detect unknown
 secrets or arbitrary encodings.
 
-This increment supplies shared synthetic server/authority/client fixtures. TLS
-listener lifecycle, health/readiness, secret-file configuration, CLI and MCP
-composition, remote client ports and deployment examples remain disabled until
-their later slices land.
+The explicit `atl broker serve --config ...` host composes this server without
+consulting ordinary ATL client configuration or credentials. It reads one
+bounded owner-private file and same-directory credential/TLS references before
+opening two numeric loopback TLS listeners. Data and admin use distinct
+audiences; authenticated health/readiness return only local lifecycle state and
+make no backend probe. The fixed TLS 1.3/HTTP 1.1 host bounds connections,
+admission rate, reads, request lifetime and shutdown, cancels admitted work on
+SIGINT/SIGTERM, and emits only closed content-minimized audit events to stderr.
+One five-second shutdown deadline covers server drain, complete hosted-handler
+lifetime and audit closure. A handler that misses it causes a closed failure;
+its credential state is retained until the handler exits or process teardown.
+Ambient proxies, public binds, inline secrets, system trust fallback, hot
+reload, HTTP/2, upgrades and response streams are refused. See the
+[CLI contract](reference/cli/agent-interfaces.md#atl-broker-serve) and
+[credential-free deployment example](broker-local-deployment.md).
+
+Remote client ports and ordinary CLI/MCP Broker composition remain disabled
+until #1487. Discovery, comments, journals, streams and caches remain separate
+later increments.
 
 ## Versioned operation registry
 

@@ -1,10 +1,8 @@
 package httpx
 
 import (
-	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
-	"encoding/hex"
 	"fmt"
 	"io"
 	"net/http"
@@ -38,12 +36,7 @@ func QualifiedTLSOptions(path string) (TLSOptions, string, error) {
 	if err != nil {
 		return TLSOptions{}, "", err
 	}
-	pool, err := exclusiveCertPool(bundle)
-	if err != nil {
-		return TLSOptions{}, "", err
-	}
-	digest := sha256.Sum256(bundle)
-	return TLSOptions{rootCAs: pool}, hex.EncodeToString(digest[:]), nil
+	return QualifiedTLSOptionsBytes(bundle)
 }
 
 func (options TLSOptions) configured() bool {
@@ -81,6 +74,9 @@ func transportWithCertPool(pool *x509.CertPool, exclusive bool) *http.Transport 
 	tlsConfig.RootCAs = pool
 	tlsConfig.MinVersion = tls.VersionTLS12
 	transport.TLSClientConfig = tlsConfig
+	if exclusive {
+		transport.Proxy = nil
+	}
 	return transport
 }
 

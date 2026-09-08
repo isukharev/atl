@@ -67,7 +67,7 @@ func invocationCompositionOptions(cmd *cobra.Command) []compose.Option {
 
 // Execute builds and runs the root command, mapping errors to exit codes.
 func Execute() {
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	ctx, stop := signal.NotifyContext(context.Background(), terminationSignals()...)
 	defer stop()
 
 	root := newRoot()
@@ -186,7 +186,7 @@ func newRoot() *cobra.Command {
 	root.SetFlagErrorFunc(func(cmd *cobra.Command, e error) error {
 		return closeCorpusBuildCLIError(cmd, usageErr("%v", e))
 	})
-	root.AddCommand(newConfCmd(), newJiraCmd(), newCorpusCmd(), newMirrorCmd(), newCapabilitiesCmd(), newCompatibilityCmd(), newDoctorCmd(), newEnvironmentCmd(), newMCPCommand(), newAuthCmd(), newConfigCmd(), newProfileCmd(), newManifestCmd(), newPolicyCmd(), newVersionCmd())
+	root.AddCommand(newConfCmd(), newJiraCmd(), newCorpusCmd(), newMirrorCmd(), newCapabilitiesCmd(), newCompatibilityCmd(), newDoctorCmd(), newEnvironmentCmd(), newMCPCommand(), newBrokerCommand(), newAuthCmd(), newConfigCmd(), newProfileCmd(), newManifestCmd(), newPolicyCmd(), newVersionCmd())
 	// Validate the global output format, then run a best-effort self-update check
 	// within its total startup budget. Update failures never fail the command.
 	root.PersistentPreRunE = func(cmd *cobra.Command, args []string) (retErr error) {

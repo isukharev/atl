@@ -29,7 +29,7 @@ func TestTransportResponsibilityOwnersStayClosed(t *testing.T) {
 			"newDownloadStream", "newReadBudgetStream", "readBudgetStream",
 		},
 		"client.go": {
-			"(*Client).Base", "(*Client).Do", "(*Client).DoStream", "(*Client).DoStreamSized", "(*Client).DoWithBodyLimit",
+			"(*Client).Base", "(*Client).CloseIdleConnections", "(*Client).Do", "(*Client).DoStream", "(*Client).DoStreamSized", "(*Client).DoWithBodyLimit",
 			"(*Client).GetJSON", "(*Client).GetJSONUseNumber", "(*Client).ResolveGET", "(*Client).SendJSON",
 			"(*Client).do", "Client", "New", "NewWithScheduler", "NewWithSchedulerTLS", "defaultTimeout", "newWithScheduler",
 			"maxRedirects", "unmarshal", "userAgent",
@@ -57,9 +57,11 @@ func TestTransportResponsibilityOwnersStayClosed(t *testing.T) {
 		"tls.go": {
 			"(TLSOptions).configured", "(TLSOptions).transport", "QualifiedTLSOptions", "TLSOptions", "ValidateCABundle", "caBundleMaxSize", "dlHeaderTimeout", "exclusiveCertPool", "readCABundle", "transportWithCABundle", "transportWithCertPool",
 		},
+		"tls_qualified.go": {"QualifiedTLSOptionsBytes"},
 		"transport.go": {
 			"(*Client).newRequest", "(*Client).newRequestReader", "(*Client).resolveURL", "(readBudgetTransport).RoundTrip", "readBudgetTransport",
 		},
+		"lifecycle.go": {"(readBudgetTransport).CloseIdleConnections", "(redirectIdleTransport).CloseIdleConnections", "(scheduledRoundTripper).CloseIdleConnections", "closeIdleConnections", "idleConnectionCloser"},
 	}
 
 	actual := map[string][]string{}

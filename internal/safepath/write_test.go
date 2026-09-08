@@ -856,6 +856,30 @@ func TestReadFilePrivateOutsideRootRequiresStableOwnerOnlyArtifact(t *testing.T)
 	}
 }
 
+func TestReadFilePrivateRequiresStableOwnerOnlyArtifact(t *testing.T) {
+	directory := t.TempDir()
+	if err := os.Chmod(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(directory, "broker.json")
+	if err := os.WriteFile(target, []byte("exact"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ReadFilePrivate(target, 5)
+	if err != nil || string(got) != "exact" {
+		t.Fatalf("got=%q err=%v", got, err)
+	}
+	if _, err := ReadFilePrivate(target, 4); !errors.Is(err, ErrUnsafePrivatePath) {
+		t.Fatalf("oversize err=%v", err)
+	}
+	if err := os.Chmod(target, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ReadFilePrivate(target, 16); !errors.Is(err, ErrUnsafePrivatePath) {
+		t.Fatalf("loose mode err=%v", err)
+	}
+}
+
 func TestReadFilePrivateOutsideRootRejectsAliasesAndSpecialFiles(t *testing.T) {
 	protected := t.TempDir()
 	outside := t.TempDir()

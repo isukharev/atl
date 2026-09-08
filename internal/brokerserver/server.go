@@ -64,14 +64,21 @@ func (h *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 		return
 	}
 	if request == nil || !h.routeValid(request) {
-		h.writeFailure(writer, domain.BrokerReasonMalformed, nil, "")
+		var credential []byte
+		if request != nil {
+			credential, _ = workloadBearer(request)
+		}
+		h.writeFailure(writer, domain.BrokerReasonMalformed, credential, "")
+		clear(credential)
 		return
 	}
 	select {
 	case h.permits <- struct{}{}:
 		defer func() { <-h.permits }()
 	default:
-		h.writeFailure(writer, domain.BrokerReasonAuthorizationUnavailable, nil, "")
+		credential, _ := workloadBearer(request)
+		h.writeFailure(writer, domain.BrokerReasonAuthorizationUnavailable, credential, "")
+		clear(credential)
 		return
 	}
 	credential, err := workloadBearer(request)
@@ -79,6 +86,7 @@ func (h *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 		h.writeFailure(writer, brokerFailureReason(err, domain.BrokerReasonCredentialExpired), nil, "")
 		return
 	}
+	recordAuditCredential(writer, credential)
 	defer clear(credential)
 	var operation domain.BrokerRequest
 	if request.URL.Path == ExecutePath {
@@ -92,12 +100,14 @@ func (h *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 			h.writeFailure(writer, brokerFailureReason(err, domain.BrokerReasonMalformed), credential, "")
 			return
 		}
+		recordAuditOperation(writer, operation.Operation)
 	}
 	nonce, err := h.nonce()
 	if err != nil {
 		h.writeFailure(writer, domain.BrokerReasonAuthorizationUnavailable, credential, "")
 		return
 	}
+	recordAuditCorrelation(writer, nonce)
 	authentication, err := h.authenticator.Authenticate(request.Context(), credential, brokertransport.AuthenticationChallenge{Nonce: nonce, Audience: h.config.Audience, BrokerID: h.config.BrokerID})
 	if err != nil || !h.validAuthentication(authentication) {
 		h.writeFailure(writer, brokerFailureReason(err, domain.BrokerReasonCredentialExpired), credential, nonce)
@@ -202,12 +212,10 @@ func (h *Handler) routeValid(request *http.Request) bool {
 }
 
 func (h *Handler) nonce() (string, error) {
-	buffer := make([]byte, 24)
-	if _, err := io.ReadFull(h.random, buffer); err != nil {
-		return "", err
-	}
-	return base64.RawURLEncoding.EncodeToString(buffer), nil
+	return nonceFrom(h.random)
 }
+
+func encodeNonce(value []byte) string { return base64.RawURLEncoding.EncodeToString(value) }
 
 func workloadBearer(request *http.Request) ([]byte, error) {
 	values := request.Header.Values("Authorization")
@@ -215,7 +223,7 @@ func workloadBearer(request *http.Request) ([]byte, error) {
 		return nil, domain.ErrAuth
 	}
 	token := strings.TrimPrefix(values[0], "Bearer ")
-	if len(token) == 0 || len(token) > brokertransport.MaxWorkloadCredentialBytes || strings.ContainsAny(token, " \t\r\n,") {
+	if len(token) < brokertransport.MinWorkloadCredentialBytes || len(token) > brokertransport.MaxWorkloadCredentialBytes || strings.ContainsAny(token, " \t\r\n,") {
 		return nil, domain.ErrAuth
 	}
 	for _, current := range []byte(token) {
@@ -268,8 +276,11 @@ func brokerFailureReason(err error, fallback domain.BrokerReason) domain.BrokerR
 }
 
 func (h *Handler) validAuthentication(authentication brokertransport.Authentication) bool {
-	now := h.now()
-	if _, err := brokercontract.EncodeVerifiedContextV1(authentication.Context); err != nil || authentication.Context.Audience != h.config.Audience || authentication.Context.BrokerID != h.config.BrokerID ||
+	return validAuthenticationFor(authentication, h.config.Audience, h.config.BrokerID, h.now())
+}
+
+func validAuthenticationFor(authentication brokertransport.Authentication, audience, brokerID string, now time.Time) bool {
+	if _, err := brokercontract.EncodeVerifiedContextV1(authentication.Context); err != nil || authentication.Context.Audience != audience || authentication.Context.BrokerID != brokerID ||
 		authentication.ReleaseDeadline.IsZero() || !now.Before(authentication.ReleaseDeadline) || authentication.ReleaseDeadline.Sub(now) > time.Duration(brokertransport.AuthenticationLeaseMillis)*time.Millisecond ||
 		now.UnixMilli() < authentication.Context.ExecutionNotBeforeMillis-domain.BrokerClockAllowanceMillis ||
 		authentication.ReleaseDeadline.UnixMilli() > authentication.Context.ExecutionExpiresMillis || authentication.ReleaseDeadline.UnixMilli() > authentication.Context.GrantExpiresMillis || authentication.ReleaseDeadline.UnixMilli() > authentication.Context.CredentialExpiresMillis {
@@ -279,6 +290,7 @@ func (h *Handler) validAuthentication(authentication brokertransport.Authenticat
 }
 
 func (h *Handler) writeFailure(writer http.ResponseWriter, reason domain.BrokerReason, credential []byte, correlation string) {
+	recordAuditReason(writer, reason)
 	failure, err := brokertransport.NewFailure(reason)
 	if err != nil {
 		failure, _ = brokertransport.NewFailure(domain.BrokerReasonAuthorizationUnavailable)

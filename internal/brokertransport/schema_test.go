@@ -53,6 +53,9 @@ func TestPublishedHTTPBrokerSchemaValidatesWireVectors(t *testing.T) {
 		mustTransport(EncodeAuthenticationResponseV1(response)),
 		mustTransport(EncodeFailureV1(failure)),
 		mustTransport(EncodeProtocolV1(StaticProtocolV1())),
+		mustTransport(EncodeAdminStatusV1(AdminStatus{SchemaVersion: 1, Kind: AdminKindReadiness, Status: AdminStatusReady, Complete: true})),
+		mustTransport(EncodeAdminStatusV1(AdminStatus{SchemaVersion: 1, Kind: AdminKindHealth, Status: AdminStatusHealthy, Complete: true})),
+		mustTransport(EncodeAdminStatusV1(AdminStatus{SchemaVersion: 1, Kind: AdminKindReadiness, Status: AdminStatusReady, Complete: true})),
 	}
 	for index, vector := range vectors {
 		var value any

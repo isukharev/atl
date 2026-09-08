@@ -11,11 +11,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added the explicit local read-only `atl broker serve` host with strict
+  owner-private file configuration, selected-backend credential isolation,
+  bounded loopback TLS lifecycle, separate authenticated admin readiness,
+  content-minimized audit and a credential-free systemd deployment example.
+  Startup performs no authority/backend probe and ordinary ATL config/PAT
+  resolution is excluded from this server path.
 - Added the uncomposed authenticated Broker HTTP server core for exact reads,
   with strict protocol/failure schemas, fixed HTTPS workload introspection and
   PDP routes, per-call leases and limits, selected-backend composition support,
-  final-decision write deadlines, and whole-response credential refusal. No
-  listener, CLI/MCP route, deployment config, or remote client is activated.
+  final-decision write deadlines, and whole-response credential refusal. The
+  server core remains independently testable and no remote client is activated.
 - Added service-owned semantic enforcement for the Broker exact-read profile.
   Narrow Jira issue and Confluence page readers now separate authorized
   metadata qualification from final business reads, bind immutable identity and

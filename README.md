@@ -34,7 +34,7 @@ proposal is reviewed.
 | Goal | Short guide |
 |---|---|
 | Install and configure private PKI trust | [Five-minute setup](docs/getting-started.md) |
-| Give a coding agent safe access | [Agent setup](docs/agent-setup.md) |
+| Agents and Broker | [Setup](docs/agent-setup.md) · [Broker](docs/reference/cli/agent-interfaces.md#atl-broker-serve) |
 | Mirror, edit, and publish safely | [Safe writes](docs/safe-writes.md) |
 | Refresh or recover an existing mirror | [Mirrors and recovery](docs/mirrors-and-recovery.md) |
 | Compare qualified generations | [Sealed corpus generations](docs/corpus-generations.md) |

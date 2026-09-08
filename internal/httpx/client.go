@@ -49,6 +49,20 @@ type Client struct {
 	requireWriteClearance bool
 }
 
+// CloseIdleConnections closes pooled connections owned by this client. It is
+// used by long-running hosts during ordered shutdown.
+func (c *Client) CloseIdleConnections() {
+	if c == nil {
+		return
+	}
+	if c.hc != nil {
+		c.hc.CloseIdleConnections()
+	}
+	if c.dl != nil {
+		c.dl.CloseIdleConnections()
+	}
+}
+
 // New builds a client for a backend base URL with a bearer PAT.
 func New(base, token, version string, options ...Option) *Client {
 	return NewWithScheduler(base, token, version, nil, options...)

@@ -72,6 +72,30 @@ func TestTransportFailureAndProtocolAreClosed(t *testing.T) {
 	}
 }
 
+func TestAdminStatusIsClosed(t *testing.T) {
+	for _, value := range []AdminStatus{
+		{SchemaVersion: 1, Kind: AdminKindHealth, Status: AdminStatusHealthy, Complete: true},
+		{SchemaVersion: 1, Kind: AdminKindReadiness, Status: AdminStatusReady, Complete: true},
+		{SchemaVersion: 1, Kind: AdminKindReadiness, Status: AdminStatusDraining, Complete: true},
+		{SchemaVersion: 1, Kind: AdminKindReadiness, Status: AdminStatusUnavailable, Complete: true},
+	} {
+		wire, err := EncodeAdminStatusV1(value)
+		decoded, decodeErr := DecodeAdminStatusV1(wire)
+		if err != nil || decodeErr != nil || !reflect.DeepEqual(decoded, value) {
+			t.Fatalf("decoded=%+v errors=%v/%v", decoded, err, decodeErr)
+		}
+	}
+	for _, value := range []AdminStatus{
+		{SchemaVersion: 1, Kind: AdminKindHealth, Status: AdminStatusReady, Complete: true},
+		{SchemaVersion: 1, Kind: AdminKindReadiness, Status: AdminStatusHealthy, Complete: true},
+		{SchemaVersion: 1, Kind: "debug", Status: AdminStatusHealthy, Complete: true},
+	} {
+		if _, err := EncodeAdminStatusV1(value); !errors.Is(err, domain.ErrUsage) {
+			t.Fatalf("value=%+v err=%v", value, err)
+		}
+	}
+}
+
 func TestTransportEnvelopesRejectLossyOrExpandedJSON(t *testing.T) {
 	request, _ := NewAuthenticationRequest([]byte("synthetic-workload-credential"), AuthenticationChallenge{Nonce: testNonce('n'), Audience: "atl-broker", BrokerID: "broker-1"})
 	authWire, _ := EncodeAuthenticationRequestV1(request)

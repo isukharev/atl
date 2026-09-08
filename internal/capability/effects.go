@@ -64,9 +64,11 @@ const (
 	EffectGuardedPlanApply     = "guarded-plan-apply"
 	EffectCorpusBuild          = "corpus-build"
 	EffectStdioServer          = "stdio-server"
+	EffectBrokerServer         = "broker-server"
 )
 
 var effectProfiles = []EffectProfile{
+	{ID: EffectBrokerServer, Summary: "serve the authenticated local Broker over bounded loopback TLS", RemoteEffect: "read", LocalEffect: "read", CredentialAccess: "required", NetworkBound: "fixed", ProcessEffect: "server", ReplayClass: "mixed", OutputKind: "protocol", LocalArtifact: "required", Configuration: "read", SelfUpdate: "disabled"},
 	{ID: EffectConfigRead, Summary: "inspect effective configuration", RemoteEffect: "none", LocalEffect: "read", CredentialAccess: "none", NetworkBound: "none", ProcessEffect: "none", ReplayClass: "replay_safe", OutputKind: "data", LocalArtifact: "none", Configuration: "read", SelfUpdate: "disabled"},
 	{ID: EffectConfigWrite, Summary: "update local configuration", RemoteEffect: "none", LocalEffect: "write", CredentialAccess: "none", NetworkBound: "none", ProcessEffect: "none", ReplayClass: "non_replay_safe", OutputKind: "data", LocalArtifact: "none", Configuration: "write", SelfUpdate: "disabled"},
 	{ID: EffectCorpusBuild, Summary: "capture explicitly capped remote selections into local corpus state", RemoteEffect: "read", LocalEffect: "write", CredentialAccess: "required", NetworkBound: "caller", ProcessEffect: "none", ReplayClass: "non_replay_safe", OutputKind: "data", LocalArtifact: "required", Configuration: "read", SelfUpdate: "disabled"},
