@@ -61,6 +61,12 @@ Confluence mirror snapshots into the canonical indexer-v1 members; the CLI only
 parses local roots and emits the content-free receipt and generation summary.
 The same app layer owns qualified corpus-build orchestration over transport-
 neutral Jira/Confluence services and `internal/corpus` recovery state.
+It also owns the transport-neutral Broker exact-read coordinator. That service
+uses narrow Jira/Confluence qualification and business-read ports, an injected
+authorizer, one parent budget, and buffered request-bound results. The concrete
+adapters resolve only server-owned destinations and expose only a digest of
+their immutable configured base for binding checks; no CLI or MCP route
+composes this path until the authenticated server/client slices land.
 `internal/compose` alone constructs the selected concrete adapters, shares one
 request scheduler between them, loads only selected credentials, and injects
 the build's deny-all write authorizer.

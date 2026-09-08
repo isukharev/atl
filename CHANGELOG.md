@@ -11,6 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added service-owned semantic enforcement for the Broker exact-read profile.
+  Narrow Jira issue and Confluence page readers now separate authorized
+  metadata qualification from final business reads, bind immutable identity and
+  version evidence, share phase/parent budgets, and buffer results through a
+  current-decision drift check. No CLI, MCP, credential or server transport is
+  activated by this internal integration.
 - Added the versioned transport-neutral Broker semantic contract, strict pure
   codecs, canonical operation registry and compatibility vectors. The first
   contract profile is limited to exact Jira issue and Confluence page reads;
