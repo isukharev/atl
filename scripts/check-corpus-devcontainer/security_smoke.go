@@ -86,6 +86,8 @@ var corpusDevcontainerJobContract = []string{
 	"    runs-on: ubuntu-latest",
 	"    steps:",
 	"      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1",
+	"        with:",
+	"          ref: ${{ github.sha }}",
 	"      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0",
 	"        with:",
 	"          go-version-file: go.mod",

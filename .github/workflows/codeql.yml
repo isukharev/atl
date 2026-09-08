@@ -6,6 +6,12 @@ on:
   schedule:
     - cron: '27 3 * * 1' # weekly, Monday 03:27 UTC
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      analysis_category:
+        description: Separate the aggregate scan from the legacy standalone scan
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -18,6 +24,8 @@ jobs:
       security-events: write # required to upload CodeQL results
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
           go-version-file: go.mod
@@ -33,3 +41,6 @@ jobs:
         run: make agent-eval-build
       - name: Analyze
         uses: github/codeql-action/analyze@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81 # v4.37.3
+        with:
+          # Empty for standalone runs: retain CodeQL's existing default category.
+          category: ${{ inputs.analysis_category }}

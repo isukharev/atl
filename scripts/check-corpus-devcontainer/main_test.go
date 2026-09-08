@@ -59,6 +59,13 @@ func TestCorpusDevcontainerWorkflowBindsContractsToExactJob(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	wrongRefJob := bytes.Replace(job, []byte("ref: ${{ github.sha }}"), []byte("ref: main"), 1)
+	if bytes.Equal(wrongRefJob, job) {
+		t.Fatal("immutable checkout fixture was not replaced")
+	}
+	if err := validateCorpusDevcontainerWorkflow(bytes.Replace(workflow, job, wrongRefJob, 1)); err == nil {
+		t.Fatal("mutable checkout ref was accepted")
+	}
 	jobLines := bytes.Split(job, []byte("\n"))
 	continuations := 0
 	for index, line := range jobLines {

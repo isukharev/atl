@@ -6,6 +6,19 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      pr:
+        description: Open pull request number (same repository, targeting main)
+        required: true
+        type: string
+      head_sha:
+        description: Exact reviewed PR head SHA; dispatch its branch
+        required: true
+        type: string
+      base_sha:
+        description: Exact current main SHA, already contained in the PR head
+        required: true
+        type: string
 
 # Least privilege: CI only needs to read the repo.
 permissions:
@@ -16,6 +29,28 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Independent during bootstrap: a binding failure must not skip old required
+  # jobs before branch protection has migrated to ci-ready.
+  binding:
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+          check-latest: true
+      - name: Bind current pull request revision
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: env -u GOROOT GOTOOLCHAIN=auto GOWORK=off go run ./scripts/check-premerge bind
+
   test:
     if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
     strategy:
@@ -27,6 +62,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
           # Single source of truth for the Go version: the module's go directive.
@@ -94,6 +131,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
           go-version-file: go.mod
@@ -132,6 +171,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.sha }}
           fetch-depth: 0
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
@@ -169,6 +209,8 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
           go-version-file: go.mod
@@ -201,6 +243,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.sha }}
           fetch-depth: 0
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
@@ -220,8 +263,8 @@ jobs:
         run: make check-docs-catalog
       - name: Documentation freshness
         env:
-          ATL_DOCS_BASE: ${{ github.event.pull_request.base.sha }}
-          ATL_DOCS_HEAD: ${{ github.event.pull_request.head.sha }}
+          ATL_DOCS_BASE: ${{ inputs.base_sha || github.event.pull_request.base.sha }}
+          ATL_DOCS_HEAD: ${{ inputs.head_sha || github.event.pull_request.head.sha }}
         run: make check-docs-freshness
       - name: Repository maintainer skills
         run: make check-repository-skills
@@ -244,6 +287,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
           go-version-file: go.mod
@@ -254,6 +299,37 @@ jobs:
           # silently enter CI; bump deliberately.
           go install golang.org/x/vuln/cmd/govulncheck@v1.4.0
           govulncheck ./...
+
+  codeql:
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    permissions:
+      contents: read
+      security-events: write
+    uses: ./.github/workflows/codeql.yml
+    with:
+      analysis_category: ci-ready
+
+  ci-ready:
+    if: always() && (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch')
+    needs: [binding, test, corpus-devcontainer, agent-eval, agent-eval-extension-windows, lint, govulncheck, codeql]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+          check-latest: true
+      - name: Require complete checks and current pull request revision
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ATL_PREMERGE_NEEDS: ${{ toJSON(needs) }}
+        run: env -u GOROOT GOTOOLCHAIN=auto GOWORK=off go run ./scripts/check-premerge ready
 
   smoke:
     if: github.event_name == 'push'

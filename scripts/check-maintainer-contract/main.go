@@ -237,6 +237,7 @@ const (
 	checkoutStepContract     = `      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1`
 	lintCheckoutStepContract = `      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
+          ref: ${{ github.sha }}
           fetch-depth: 0`
 	setupGoStepContract = `      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
         with:
@@ -268,8 +269,8 @@ const (
         run: make check-docs-catalog`
 	docsFreshnessStepContract = `      - name: Documentation freshness
         env:
-          ATL_DOCS_BASE: ${{ github.event.pull_request.base.sha }}
-          ATL_DOCS_HEAD: ${{ github.event.pull_request.head.sha }}
+          ATL_DOCS_BASE: ${{ inputs.base_sha || github.event.pull_request.base.sha }}
+          ATL_DOCS_HEAD: ${{ inputs.head_sha || github.event.pull_request.head.sha }}
         run: make check-docs-freshness`
 	releaseDocsFreshnessStepContract = `      - name: Documentation freshness
         run: make check-docs-freshness`
@@ -293,6 +294,7 @@ const (
           govulncheck ./...`
 	agentEvalCheckoutStepContract = `      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
+          ref: ${{ github.sha }}
           fetch-depth: 0`
 	agentEvalImpactStepContract = `      - name: Classify evaluation impact
         id: impact
@@ -597,7 +599,10 @@ func validateBootstrap(root string) error {
 	if err := validateWindowsCompileWorkflow(ci); err != nil {
 		return err
 	}
-	if err := validateWorkflowJobSet(ci, "ci", "test", "corpus-devcontainer", "agent-eval", "agent-eval-extension-windows", "lint", "govulncheck", "smoke"); err != nil {
+	if err := validateWorkflowJobSet(ci, "ci", "binding", "test", "corpus-devcontainer", "agent-eval", "agent-eval-extension-windows", "lint", "govulncheck", "codeql", "ci-ready", "smoke"); err != nil {
+		return err
+	}
+	if err := validateBootstrapCI(ci); err != nil {
 		return err
 	}
 	testJob, err := workflowJob(ci, "test")
@@ -605,7 +610,7 @@ func validateBootstrap(root string) error {
 		return err
 	}
 	if err := requireWorkflowStepPrefix(testJob, "ci test",
-		checkoutStepContract, setupGoStepContract, buildStepContract,
+		ciCheckoutStepContract, setupGoStepContract, buildStepContract,
 		ciProvenanceStepContract, vetStepContract, extensionProtocolRuntimeStepContract, schedulerRuntimeStepContract,
 		coreGateStepContract,
 	); err != nil {
@@ -663,7 +668,7 @@ func validateBootstrap(root string) error {
 		return err
 	}
 	if err := requireWorkflowStepPrefix(extensionWindowsJob, "ci agent-eval-extension-windows",
-		checkoutStepContract, setupGoStepContract, extensionProtocolWindowsRuntimeStepContract,
+		ciCheckoutStepContract, setupGoStepContract, extensionProtocolWindowsRuntimeStepContract,
 		schedulerWindowsRuntimeStepContract,
 	); err != nil {
 		return err
@@ -1247,6 +1252,9 @@ func validateModuleDeliveryContracts(root string) error {
 	if err := requireWorkflowStep(analyze, "Build evaluator module", codeQLEvaluatorBuildStepContract); err != nil {
 		return fmt.Errorf("CodeQL: %w", err)
 	}
+	if err := validateBootstrapCodeQL(codeQL); err != nil {
+		return err
+	}
 
 	dependabot, err := os.ReadFile(filepath.Join(root, ".github", "dependabot.yml"))
 	if err != nil {
@@ -1645,19 +1653,8 @@ func requireInlineNeeds(job []byte, required ...string) error {
 }
 
 func validateWindowsCompileWorkflow(contents []byte) error {
-	const requiredTriggers = `on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
-  workflow_dispatch:
-`
-	triggerBlock, err := workflowTopLevelBlock(contents, "on")
-	if err != nil {
+	if err := validateCITriggers(contents); err != nil {
 		return err
-	}
-	if strings.TrimSpace(string(triggerBlock)) != strings.TrimSpace(requiredTriggers) {
-		return errors.New("ci workflow must retain the exact pull-request trigger contract")
 	}
 	testJob, err := workflowJob(contents, "test")
 	if err != nil {
