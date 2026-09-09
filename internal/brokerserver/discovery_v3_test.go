@@ -82,8 +82,8 @@ func TestFamilyDiscoveryV3NegotiatesAndProjectsAvailableDefinitionsWithoutJiraIO
 		}
 	}
 	registry := brokercontract.RegistryV2()
-	if len(registry) != 1 || registry[0].Definition.Available || len(wantDefinitions) != 0 || len(projection.Operations) != 0 {
-		t.Fatalf("availability gate changed before integrated enablement: registry=%+v available=%+v projection=%+v", registry, wantDefinitions, projection.Operations)
+	if len(registry) != 1 || !registry[0].Definition.Available || len(wantDefinitions) != 1 || len(projection.Operations) != 1 {
+		t.Fatalf("integrated operation not advertised exactly: registry=%+v available=%+v projection=%+v", registry, wantDefinitions, projection.Operations)
 	}
 	projectCalls, identityCalls, businessCalls := fixture.reader.calls()
 	if fixture.base.authenticator.calls != 2 || fixture.authorizer.discoveryCalls != 1 || len(fixture.authorizer.phaseSnapshot()) != 0 || fixture.base.authorizer.discoveryCalls != 0 || fixture.base.authorizer.admissionCalls != 0 || fixture.base.backendCalls.Load() != 0 || projectCalls+identityCalls+businessCalls != 0 {

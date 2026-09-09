@@ -11,6 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added Broker-only `jira issue project-page` and read-only MCP
+  `jira_project_issue_page`: one project-qualified page of at most 15 issues,
+  exact selected fields, separately authorized metadata/business reads and
+  explicit pagination completeness limits. Fixed-family discovery v3 and
+  `broker discover --family atl.broker.execution.v2` preserve existing v1/v2
+  contracts. Session replacement and expired leases suppress buffered output;
+  no arbitrary JQL, direct fallback or automatic continuation is introduced.
+
 - Added explicit `atl corpus handoff-qualified` for a clean, complete,
   Confluence-only sealed cache generation. It verifies the immutable generation
   before and after one five-second Broker qualification, uses authority-resolved

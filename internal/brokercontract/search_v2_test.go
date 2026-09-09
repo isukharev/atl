@@ -189,7 +189,7 @@ func projectPageResultFixtureV2(t testing.TB) domain.BrokerJiraProjectPageResult
 	}
 }
 
-func TestProjectPageV2RequestAndRegistryAreClosedAndGated(t *testing.T) {
+func TestProjectPageV2RequestAndRegistryAreClosedAndAvailable(t *testing.T) {
 	request := projectPageRequestFixtureV2()
 	request.Arguments.Fields = []domain.BrokerProjectPageField{domain.BrokerProjectPageFieldSummary, domain.BrokerProjectPageFieldDescription}
 	wire, err := EncodeProjectPageRequestV2(request)
@@ -198,7 +198,7 @@ func TestProjectPageV2RequestAndRegistryAreClosedAndGated(t *testing.T) {
 		t.Fatalf("decoded=%+v errors=%v/%v wire=%s", decoded, err, decodeErr, wire)
 	}
 	definitions := RegistryV2()
-	if len(definitions) != 1 || definitions[0].Definition.ID != request.Operation || definitions[0].Definition.Available ||
+	if len(definitions) != 1 || definitions[0].Definition.ID != request.Operation || !definitions[0].Definition.Available ||
 		definitions[0].Definition.Limits.MaxResources != 16 || definitions[0].MaxEffects != 16 || definitions[0].Definition.Limits.MaxTotalUpstreamRequests != 3 ||
 		definitions[0].Definition.Limits.MaxTotalUpstreamResponseBytes != 68_419_584 || !validDigest(RegistrySHA256V2()) ||
 		RegistrySHA256() != "c579297a8d9ac454aaf0fdbd17a83167480f70a53d3446e5aead3776849bd5b5" ||

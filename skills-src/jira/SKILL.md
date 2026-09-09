@@ -62,6 +62,12 @@ means stop and reconcile manually; never replay the DELETE. The whole
 policy must be removed only after explicit approval and before its preview;
 restore it immediately after the single workflow.
 
+In Broker mode, use `jira issue project-page --project PROJ --fields summary --limit 15`
+or `jira_project_issue_page` for one project-qualified page. Only summary and
+description are selectable. Each cursor starts fresh discovery and authorization;
+`coordinate_exhausted` is not stable absence and `selection_complete` is always
+false. Never turn `unsupported` into direct REST, arbitrary JQL or a PAT request.
+
 If the plugin exposes typed MCP, prefer `jira_fields`, `jira_issue_search`,
 `jira_issue_history`, `jira_issue_graph`, `jira_issue_refs`, `jira_epic_digest`, `jira_board_view`,
 `jira_structure_get`, and

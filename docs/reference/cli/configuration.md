@@ -326,16 +326,27 @@ the same non-secret selection and file references with
 `ATL_BROKER_CONFLUENCE_SESSION_FILE`. Empty environment values do not override
 global configuration.
 
-The initial Jira surface is `jira issue get <KEY> --fields ...` with a nonempty
+Broker workload transports do not consult proxy settings, with either system
+TLS trust or a dedicated CA bundle. This does not change ordinary direct-mode
+Jira/Confluence proxy behavior.
+
+The Jira exact-read surface is `jira issue get <KEY> --fields ...` with a nonempty
 subset of the exact technical ids `summary`, `description`, and `updated`.
 The initial Confluence surface is a numeric-id `conf page get --format csf` and
 the metadata/outline/section reads built from the same exact page port. URL
-selectors, rendered `view` bodies, searches, mirrors, corpus builds, writes,
+selectors, rendered `view` bodies, arbitrary searches, mirrors, corpus builds, writes,
 and all broader methods return the closed unsupported error before execution.
 Authenticated protocol negotiation checks the configured Broker id, audience,
 schema/registry digests, profiles, operation versions, features, and bounds.
 Every supported call then makes one execute attempt; redirects and automatic
 retries are disabled.
+
+The separate execution-v2 `jira issue project-page` operation reads one
+project-qualified page of at most 15 issues with summary/description fields.
+It uses fixed-family discovery v3, not arbitrary JQL or the common `IssueList`.
+Each later cursor is newly authorized and never proves a stable complete
+project. Selected session credentials and guards are rechecked before execution
+and after buffering. See the [command reference](jira-issues.md#atl-jira-issue-project-page).
 
 ## `atl doctor`
 

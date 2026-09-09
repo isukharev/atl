@@ -89,6 +89,15 @@ and add remain CLI-only, and catalog entries do not grant write authority.
 
 ## Broker discovery result
 
+With `--service jira --family atl.broker.execution.v2`, or through
+`atl://broker/discovery/jira/atl.broker.execution.v2`, the result instead uses
+the strict [discovery-v3 projection](../../schemas/broker-discovery-v3.schema.json).
+It has `schema_version:3` and exact `contract_family:"atl.broker.execution.v2"`,
+and binds execution-v2 registry/schema digests. All operation limits and effects
+are exact, the lease is at most five seconds, and the projection is complete
+only for that fixed family. Fresh/private/advisory semantics are unchanged.
+An allowed row is not authorization of any project, issue or field.
+
 `atl broker discover --service jira|confluence` and the matching MCP
 `atl://broker/discovery/jira|confluence` resource emit the strict
 [discovery v2 projection schema](../../schemas/broker-discovery-v2.schema.json).

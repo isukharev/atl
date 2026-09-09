@@ -189,7 +189,7 @@ func validAuditEvent(event AuditEvent) bool {
 	default:
 		return false
 	}
-	if event.Operation != "" && event.Operation != string(domain.BrokerOperationJiraIssueRead) && event.Operation != string(domain.BrokerOperationConfluencePageRead) {
+	if event.Operation != "" && event.Operation != string(domain.BrokerOperationJiraIssueRead) && event.Operation != string(domain.BrokerOperationConfluencePageRead) && event.Operation != string(domain.BrokerOperationJiraProjectIssuePageRead) {
 		return false
 	}
 	switch event.Outcome {

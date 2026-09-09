@@ -13,6 +13,7 @@ Issue reads, fields, creation, guarded edits, transitions, relationships, attach
 - [`atl jira issue field batch`](#atl-jira-issue-field-batch)
 - [`atl jira issue view`](#atl-jira-issue-view)
 - [`atl jira issue search`](#atl-jira-issue-search)
+- [`atl jira issue project-page`](#atl-jira-issue-project-page)
 - [`atl jira issue types` / `create-check` / `create-metadata`](#atl-jira-issue-types--create-check--create-metadata)
 - [`atl jira issue children`](#atl-jira-issue-children)
 - [`atl jira issue create`](#atl-jira-issue-create)
@@ -238,6 +239,45 @@ page with an advertised remainder is `complete:false` with
 `partial_reason:"pagination_stalled"` and no cursor, so it never proves that
 the query has no matches. `pagination_unqualified` reports inconsistent paging
 coordinates. Partial reasons are closed static values and never backend text.
+
+## `atl jira issue project-page`
+
+Read one bounded Jira project page in explicit Broker mode, without forwarding
+arbitrary JQL or loading a backend PAT:
+
+```bash named-jira-broker-project-page
+export ATL_READ_ONLY=1
+atl broker discover --service jira --family atl.broker.execution.v2
+atl jira issue project-page --project PROJ --fields summary,description --limit 15 --cursor 0
+```
+
+`--project` requires a canonical uppercase Jira project key. `--fields` accepts
+only `summary` and `description`, without duplicates, and defaults to `summary`;
+an explicitly empty selection returns identity evidence only. `--limit` is
+1..15 (default 15), and `--cursor` is a canonical decimal 0..1,000,000 (default
+0). There is no JQL, view, column, expansion, URL or automatic continuation.
+Direct mode refuses this operation; it does not substitute ordinary issue
+search. Existing `issue search --jql` behavior is unchanged.
+
+The Broker authenticates each invocation, qualifies the project and identity
+page, authorizes every returned issue and field, then compares the complete
+business buffer against those identities, order, revisions and coordinates.
+A denied sibling denies the whole page rather than silently filtering rows.
+Every later cursor is a fresh invocation with fresh discovery and authorization.
+Current workload credentials and execution guards are checked before execution
+and after buffering; replacement discards the result, never selects a fallback.
+
+JSON follows the distinct [Broker project-page result](../output/jira.md#broker-project-issue-page),
+not `IssueList`. `-o text` prints bounded cells and explicit page truth;
+`-o id` prints only issue keys. `complete:true` describes this one authorized
+envelope. `coordinate_exhausted:true` is only an offset/total observation, while
+`selection_complete` is always false. Neither an empty page nor the last cursor
+proves a stable complete project or atomic current project membership.
+
+Typed MCP `jira_project_issue_page` accepts `project_key`, `fields`, `limit`,
+`cursor` and `max_bytes`, with the same page semantics. Its encoded-result bound
+defaults to 256 KiB, selectable from 1 KiB through 1 MiB; overflow returns no
+clipped evidence. It is read-only and available in Jira-containing profiles.
 
 ## `atl jira issue types` / `create-check` / `create-metadata`
 

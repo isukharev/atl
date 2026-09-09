@@ -20,8 +20,8 @@ func TestCapabilityCatalogDefinitionsAreValidAndUnique(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if catalog.SchemaVersion != capabilityCatalogSchemaVersion || catalog.Selection.Count != 70 {
-		t.Fatalf("catalog count=%d schema=%d definitions want=70", catalog.Selection.Count, catalog.SchemaVersion)
+	if catalog.SchemaVersion != capabilityCatalogSchemaVersion || catalog.Selection.Count != 71 {
+		t.Fatalf("catalog count=%d schema=%d definitions want=71", catalog.Selection.Count, catalog.SchemaVersion)
 	}
 	if catalog.Routing.Match != "exact" || !strings.Contains(catalog.Routing.ReferenceLoad, "do not search") {
 		t.Fatalf("routing contract=%+v", catalog.Routing)
@@ -55,16 +55,16 @@ func TestCapabilityCatalogDefinitionsAreValidAndUnique(t *testing.T) {
 			t.Fatalf("%s skill route=%q/%q", item.ID, item.Skill, item.Reference)
 		}
 	}
-	if readOnly != 61 || mutating != 9 || len(mcpTools) != 24 {
-		t.Fatalf("access=%d/%d unique_mcp_tools=%d want=61/9/24", readOnly, mutating, len(mcpTools))
+	if readOnly != 62 || mutating != 9 || len(mcpTools) != 25 {
+		t.Fatalf("access=%d/%d unique_mcp_tools=%d want=62/9/25", readOnly, mutating, len(mcpTools))
 	}
 }
 
 func TestCapabilityDefinitionsResolveAllCobraRoutes(t *testing.T) {
 	root := newRoot()
 	definitions := capabilitydef.Definitions()
-	if len(definitions) != 70 {
-		t.Fatalf("definitions=%d want=70", len(definitions))
+	if len(definitions) != 71 {
+		t.Fatalf("definitions=%d want=71", len(definitions))
 	}
 	for _, definition := range definitions {
 		command, remaining, err := root.Find(strings.Fields(definition.CLICommand))
@@ -144,8 +144,8 @@ func TestCapabilityCatalogPreservesLegacyProjectionAndAddsTransportRouting(t *te
 			mappedMutating++
 		}
 	}
-	if mapped != 33 || cliOnly != 37 {
-		t.Fatalf("mapped=%d cli_only=%d want=33/37", mapped, cliOnly)
+	if mapped != 34 || cliOnly != 37 {
+		t.Fatalf("mapped=%d cli_only=%d want=34/37", mapped, cliOnly)
 	}
 	if mappedMutating != 0 {
 		t.Fatalf("mapped mutating capabilities=%d want=0", mappedMutating)
@@ -159,7 +159,7 @@ func TestCapabilityTaskRoutesStaySmallAndOrdered(t *testing.T) {
 	}{
 		{"confluence/attachment-discovery", []string{"confluence.attachment.search"}},
 		{"jira/setup", []string{"jira.project.list", "jira.issue.create-check"}},
-		{"jira/evidence", []string{"jira.issue.search", "jira.issue.fields", "jira.epic.digest", "jira.issue.field.get", "jira.issue.refs", "jira.issue.history"}},
+		{"jira/evidence", []string{"jira.issue.search", "jira.project.issue-page", "jira.issue.fields", "jira.epic.digest", "jira.issue.field.get", "jira.issue.refs", "jira.issue.history"}},
 		{"jira/graph-evidence", []string{"jira.issue.graph", "jira.issue.children"}},
 		{"jira/inverse-reference", []string{"jira.issue.reference.search"}},
 		{"jira/portfolio", []string{"jira.board.list", "jira.board.view", "jira.structure.get", "jira.structure.folders", "jira.structure.view", "jira.portfolio.epic.digest", "jira.portfolio.confluence.section"}},
@@ -194,7 +194,7 @@ func TestCapabilityTaskRoutesStaySmallAndOrdered(t *testing.T) {
 				t.Fatalf("ids=%v want=%v", ids, tt.ids)
 			}
 			maximum := 6
-			if tt.task == "jira/portfolio" || tt.task == "confluence/evidence" {
+			if tt.task == "jira/portfolio" || tt.task == "confluence/evidence" || tt.task == "jira/evidence" {
 				maximum = 7
 			}
 			if len(ids) > maximum {
@@ -318,7 +318,7 @@ func TestCapabilitiesCommandIsOfflineAndSupportsAllOutputModes(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &catalog); err != nil {
 		t.Fatal(err)
 	}
-	if catalog.Selection.Task != "jira/evidence" || catalog.Selection.Count != 6 {
+	if catalog.Selection.Task != "jira/evidence" || catalog.Selection.Count != 7 {
 		t.Fatalf("selection=%+v", catalog.Selection)
 	}
 	var rawCatalog struct {

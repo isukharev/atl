@@ -34,8 +34,8 @@ func NewBrokerProjectPageService(authorizer domain.BrokerProjectPageAuthorizerV2
 	return &BrokerProjectPageService{authorizer: authorizer, jira: jira, now: time.Now}, nil
 }
 
-// Execute exercises the foundation through explicit injected dependencies. The
-// registry remains unavailable and no server/client route composes it yet.
+// Execute qualifies and reads one page through explicit injected dependencies;
+// transport routing and publication remain outside the application service.
 func (s *BrokerProjectPageService) Execute(ctx context.Context, request domain.BrokerProjectPageRequestV2, verified domain.BrokerVerifiedContext) (BrokerProjectPageResult, error) {
 	if s == nil || s.authorizer == nil || s.jira.Reader == nil || s.now == nil {
 		return BrokerProjectPageResult{}, brokerProjectPageError(domain.ErrCheckFailed)

@@ -19,10 +19,14 @@ step mechanically.
 | One epic but unknown custom fields | `jira issue fields <KEY> --metadata-only` | exact compact fields, then one digest after choosing names/ids |
 | Several known keys requiring broad native issue bodies | `jira export --keys ... --out -` | per-key history/digest only for exceptions |
 | Broad discovery | `jira issue search --columns ...` | batch export for selected keys |
+| Broker mode and one known project | `jira issue project-page --project PROJ --fields summary --limit 15` or `jira_project_issue_page` | select description only if needed; every next cursor is freshly authorized and never proves stable project absence |
 
-The offline `jira/evidence` capability route exposes broad search as its first
-discovery step, followed by exact per-issue qualification and bounded
-expansion. Skip that search when the task already supplies one exact issue key.
+The offline `jira/evidence` route exposes broad search for direct mode and a
+separate bounded project page for Broker mode, followed by exact per-issue
+qualification and bounded expansion. Skip discovery when the task already
+supplies one exact issue key. Broker mode never falls back to arbitrary JQL or
+direct REST; honor unsupported operations and the page's always-false
+`selection_complete` independently of coordinate exhaustion.
 
 For one exact issue and a relationship/discovery question, begin with one typed
 `jira_issue_graph` call when available, or the CLI under `ATL_READ_ONLY=1`.

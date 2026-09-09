@@ -3,6 +3,7 @@ package brokerserver
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +11,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/isukharev/atl/internal/app"
 	"github.com/isukharev/atl/internal/brokercontract"
@@ -311,5 +313,46 @@ func TestProjectPageUnavailableDependencyAuthenticatesThenReturnsUnsupportedWith
 	projectCalls, identityCalls, businessCalls := fixture.reader.calls()
 	if response.StatusCode == http.StatusOK || err != nil || failure.Reason != domain.BrokerReasonUnsupported || fixture.base.authenticator.calls != 1 || fixture.base.authorizer.admissionCalls != 0 || fixture.base.backendCalls.Load() != 0 || projectCalls+identityCalls+businessCalls != 0 {
 		t.Fatalf("status=%d failure=%+v err=%v auth=%d v1=%d v1_backend=%d reads=(%d,%d,%d)", response.StatusCode, failure, err, fixture.base.authenticator.calls, fixture.base.authorizer.admissionCalls, fixture.base.backendCalls.Load(), projectCalls, identityCalls, businessCalls)
+	}
+}
+
+func TestProjectPageHostAuditRecordsSuccessfulAndDeniedOperation(t *testing.T) {
+	for _, deny := range []domain.BrokerAuthorizationPhase{"", domain.BrokerPhaseFinalAuthorization} {
+		t.Run(string(deny), func(t *testing.T) {
+			fixture := newProjectPageServerFixture(t, deny)
+			var output bytes.Buffer
+			audit, err := NewAudit(&output, fixture.base.handler.guard)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+			defer cancel()
+			defer func() { _ = audit.Close(ctx) }()
+			host := &Host{audit: audit}
+			served := make(chan struct{})
+			audited := host.auditedData(fixture.base.handler)
+			response, _ := projectPageTLSRequest(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				defer close(served)
+				audited.ServeHTTP(w, r)
+			}), fixture.body)
+			select {
+			case <-served:
+			case <-ctx.Done():
+				t.Fatal("audited handler did not complete")
+			}
+			if err := audit.Close(ctx); err != nil {
+				t.Fatal(err)
+			}
+			var event AuditEvent
+			if err := json.Unmarshal(bytes.TrimSpace(output.Bytes()), &event); err != nil {
+				t.Fatalf("missing valid operation audit: %v", err)
+			}
+			if !validAuditEvent(event) || event.Route != "data_execute_v2" || event.Operation != string(domain.BrokerOperationJiraProjectIssuePageRead) || event.Outcome != auditOutcome(response.StatusCode) || event.ResponseBytes == 0 {
+				t.Fatalf("unexpected event: %+v", event)
+			}
+			if bytes.Contains(output.Bytes(), []byte("PROJ")) || bytes.Contains(output.Bytes(), []byte("Synthetic project page")) || bytes.Contains(output.Bytes(), []byte("synthetic-workload-credential")) {
+				t.Fatal("audit disclosed protected request or response content")
+			}
+		})
 	}
 }
