@@ -64,7 +64,7 @@ type selectedGraphTracker struct {
 
 func (t *selectedGraphTracker) ReadIssueSnapshotProjection(ctx context.Context, key string, projection domain.IssueSnapshotProjection) (*domain.QualifiedIssueSnapshot, error) {
 	t.projections = append(t.projections, projection)
-	return t.jiraGraphTraversalTracker.ReadIssueSnapshot(ctx, key)
+	return t.ReadIssueSnapshot(ctx, key)
 }
 func (t *selectedGraphTracker) ListComments(ctx context.Context, key string) ([]domain.Comment, error) {
 	t.collectors["comments"]++
