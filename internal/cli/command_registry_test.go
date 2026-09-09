@@ -70,6 +70,7 @@ corpus cache status
 corpus diff
 corpus export
 corpus handoff
+corpus handoff-qualified
 doctor
 environment inspect
 help
@@ -287,8 +288,8 @@ func TestCommandRegistryPreservesReviewedOutputModes(t *testing.T) {
 	}
 	walk(root)
 
-	if leafCount != 186 || textCount != 154 || idCount != 35 {
-		t.Fatalf("leaves/text/id=%d/%d/%d want=186/154/35", leafCount, textCount, idCount)
+	if leafCount != 187 || textCount != 155 || idCount != 35 {
+		t.Fatalf("leaves/text/id=%d/%d/%d want=187/155/35", leafCount, textCount, idCount)
 	}
 	for path := range reviewedTextOutputCommandPaths {
 		if !seen[path] {

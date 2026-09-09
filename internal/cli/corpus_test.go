@@ -87,6 +87,20 @@ func TestCorpusExportRejectsStrayArgumentsBeforeLocalState(t *testing.T) {
 	}
 }
 
+func TestQualifiedCorpusHandoffRequiresExplicitStoreBeforeConfigOrNetwork(t *testing.T) {
+	configRoot := t.TempDir()
+	if err := os.WriteFile(filepath.Join(configRoot, "config.json"), []byte(`{"connection_mode":`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var requests atomic.Int64
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { requests.Add(1) }))
+	defer server.Close()
+	out, _, err := executeCLIRaw(t, map[string]string{"ATL_CONFIG_DIR": configRoot, "ATL_UPDATE_URL": server.URL}, "corpus", "handoff-qualified")
+	if err == nil || codeFor(err) != exitUsage || out != "" || requests.Load() != 0 {
+		t.Fatalf("output=%q error=%v requests=%d", out, err, requests.Load())
+	}
+}
+
 func TestCorpusDiffIsContentFreeZeroEgressAndWritesOnlyExplicitPrivateArtifact(t *testing.T) {
 	storeRoot := seedCLICorpusQualifiedDiffStore(t)
 	configRoot := t.TempDir()

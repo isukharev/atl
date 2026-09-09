@@ -21,7 +21,7 @@ func TestCommandEffectCatalogClassifiesEveryExecutableLeaf(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if catalog.SchemaVersion != commandEffectCatalogSchemaVersion || catalog.Enforcement != "informational" || catalog.Selection.Count != 186 {
+	if catalog.SchemaVersion != commandEffectCatalogSchemaVersion || catalog.Enforcement != "informational" || catalog.Selection.Count != 187 {
 		t.Fatalf("catalog metadata=%+v", catalog)
 	}
 	profiles := capabilitydef.EffectProfiles()
@@ -245,6 +245,20 @@ func TestCorpusCacheEffectProfilesMatchOfflineLifecycle(t *testing.T) {
 				t.Fatalf("%s command=%+v profile=%+v", commandPath, command, profile)
 			}
 		})
+	}
+}
+
+func TestQualifiedCorpusHandoffHasExactBrokerAndLocalEffects(t *testing.T) {
+	catalog, err := buildCommandEffectCatalog(commandEffectSelection{Command: "corpus handoff-qualified"})
+	if err != nil || len(catalog.Commands) != 1 || len(catalog.Profiles) != 1 {
+		t.Fatalf("catalog=%+v error=%v", catalog, err)
+	}
+	command, profile := catalog.Commands[0], catalog.Profiles[0]
+	if command.Access != "read-only" || command.EffectProfile != capabilitydef.EffectBrokerQualifiedHandoff ||
+		profile.RemoteEffect != "read" || profile.LocalEffect != "write" || profile.CredentialAccess != "required" ||
+		profile.NetworkBound != "fixed" || profile.LocalArtifact != "possible" || profile.ReplayClass != "non_replay_safe" ||
+		profile.ProcessEffect != "none" || profile.Configuration != "read" || profile.SelfUpdate != "disabled" {
+		t.Fatalf("command=%+v profile=%+v", command, profile)
 	}
 }
 

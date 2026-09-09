@@ -91,6 +91,32 @@ func TestBrokerServiceCompositionNeverReadsOrdinaryPATStore(t *testing.T) {
 	}
 }
 
+func TestBrokerCacheQualificationCompositionUsesOnlyConfluenceSession(t *testing.T) {
+	directory := t.TempDir()
+	if err := os.Chmod(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ATL_CONFIG_DIR", directory)
+	if err := os.Mkdir(filepath.Join(directory, "credentials.json"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	sessionPath := filepath.Join(directory, "session.json")
+	writeBrokerFile(t, directory, "session.json", []byte(`{"schema_version":1,"credential":"synthetic-workload-credential","execution_id":"execution-1","execution_epoch":"epoch-1","authority_revision":"revision-1"}`))
+	server := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { t.Fatal("composition contacted Broker") }))
+	defer server.Close()
+	caPath := filepath.Join(directory, "broker.ca")
+	writeBrokerFile(t, directory, "broker.ca", pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.Certificate().Raw}))
+	cfg := &config.Config{ConnectionMode: config.ConnectionModeBroker, Broker: &config.BrokerClientConfig{BaseURL: server.URL, BrokerID: "broker-1", Audience: "atl-broker", CAFile: caPath, ConfluenceSessionFile: sessionPath}}
+	reader, err := NewBrokerCacheQualification(cfg, "test")
+	if err != nil || reader == nil {
+		t.Fatalf("reader=%v error=%v", reader, err)
+	}
+	cfg.ConnectionMode = config.ConnectionModeDirect
+	if reader, err := NewBrokerCacheQualification(cfg, "test"); err == nil || reader != nil {
+		t.Fatalf("direct reader=%v error=%v", reader, err)
+	}
+}
+
 func TestBrokerDoctorProjectionNeverReadsOrdinaryPATStore(t *testing.T) {
 	directory := t.TempDir()
 	t.Setenv("ATL_CONFIG_DIR", directory)

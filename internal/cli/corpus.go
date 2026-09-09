@@ -121,6 +121,53 @@ func newCorpusCmd() *cobra.Command {
 	handoff.Flags().StringVar(&handoffStoreRoot, "store", "", "existing owner-only sealed-generation store root")
 	handoff.Flags().StringVar(&handoffArtifact, "handoff-artifact", "", "exclusive private document-route artifact path under an existing 0700 parent outside the store")
 
+	var qualifiedHandoffStoreRoot, qualifiedHandoffArtifact string
+	qualifiedHandoff := &cobra.Command{
+		Use:   "handoff-qualified",
+		Short: "Authorize one sealed Confluence corpus handoff through the Broker",
+		Args: func(_ *cobra.Command, args []string) error {
+			if len(args) != 0 {
+				return usageErr("corpus handoff-qualified accepts no positional arguments")
+			}
+			return nil
+		},
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if qualifiedHandoffStoreRoot == "" {
+				return usageErr("corpus handoff-qualified requires --store")
+			}
+			cfg, err := loadConfig()
+			if err != nil {
+				return err
+			}
+			build := version.Current()
+			state := corpus.BuildStateUnknown
+			switch build.BuildState {
+			case "clean":
+				state = corpus.BuildStateClean
+			case "dirty":
+				state = corpus.BuildStateModified
+			}
+			qualifier, err := compose.NewBrokerCacheQualification(cfg, build.Version)
+			if err != nil {
+				return err
+			}
+			result, err := app.PrepareQualifiedCorpusHandoff(cmd.Context(), app.QualifiedCorpusHandoffOptions{
+				StoreRoot: qualifiedHandoffStoreRoot, HandoffArtifact: qualifiedHandoffArtifact,
+				GeneratorVersion: build.Version, GeneratorCommit: build.Commit, BuildState: state,
+			}, qualifier)
+			if err != nil {
+				return err
+			}
+			return emit(cmd, result, func() string {
+				return fmt.Sprintf("qualification=%s expires_at_millis=%d generation=%s projection_schema=%d members=%d bytes=%d handoff_artifact_written=%t",
+					result.Qualification, result.ExpiresAtMillis, result.Generation.GenerationDigest, result.Generation.ProjectionSchema,
+					result.Generation.Totals.Members, result.Generation.Totals.Bytes, result.HandoffArtifactWritten)
+			})
+		},
+	}
+	qualifiedHandoff.Flags().StringVar(&qualifiedHandoffStoreRoot, "store", "", "existing owner-only Confluence cache store root")
+	qualifiedHandoff.Flags().StringVar(&qualifiedHandoffArtifact, "handoff-artifact", "", "exclusive private document-route artifact path under an existing 0700 parent outside the store")
+
 	cache := &cobra.Command{Use: "cache", Short: "Inspect and retain owner-private corpus cache generations"}
 	var cacheStatusStore string
 	cacheStatus := &cobra.Command{
@@ -290,6 +337,6 @@ func newCorpusCmd() *cobra.Command {
 	build.Flags().Int64Var(&buildOptions.MaxTotalAttachmentBytes, "max-total-attachment-bytes", 0, "generation-wide attachment body byte cap")
 	build.Flags().BoolVar(&buildOptions.AllowPartialEvidence, "allow-partial-evidence", false, "publish requested evidence with explicit partial qualifications")
 
-	group.AddCommand(build, cache, diff, export, handoff)
+	group.AddCommand(build, cache, diff, export, handoff, qualifiedHandoff)
 	return group
 }

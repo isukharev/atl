@@ -29,7 +29,10 @@ type Config struct {
 	TLS       httpx.TLSOptions
 }
 
-type Client struct{ config Config }
+type Client struct {
+	config Config
+	now    func() time.Time
+}
 
 func New(config Config) (*Client, error) {
 	parsed, parseErr := url.Parse(config.BaseURL)
@@ -39,7 +42,7 @@ func New(config Config) (*Client, error) {
 		!validIdentifier(config.BrokerID, domain.BrokerMaxIdentifierBytes) || !validIdentifier(config.Audience, domain.BrokerMaxAudienceBytes) {
 		return nil, clientError(domain.ErrConfig)
 	}
-	return &Client{config: config}, nil
+	return &Client{config: config, now: time.Now}, nil
 }
 
 func (c *Client) ReadJiraIssue(ctx context.Context, key string, fields []domain.BrokerJiraIssueField) (domain.BrokerJiraIssueReadResult, error) {

@@ -290,6 +290,8 @@ func (h *Host) auditedData(next http.Handler) http.Handler {
 				route = "data_execute"
 			case ProtocolPath:
 				route = "data_protocol"
+			case brokertransport.CacheQualificationPathV2:
+				route = "data_cache_qualification"
 			}
 		}
 		h.audit.Wrap(route, next).ServeHTTP(writer, request)

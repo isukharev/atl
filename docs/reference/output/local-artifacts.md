@@ -12,6 +12,7 @@ Local manifest and sealed-corpus result shapes.
 - [Corpus cache lifecycle](#corpus-cache-lifecycle)
 - [Corpus generation diff](#corpus-generation-diff)
 - [Corpus handoff](#corpus-handoff)
+- [Qualified corpus handoff](#qualified-corpus-handoff)
 - [Corpus export](#corpus-export)
 <!-- reference-navigation:end -->
 
@@ -358,6 +359,38 @@ schemas, invalid routes, modes or digests, and a document member that is not
 the one supported inventory. ATL refuses an existing artifact, an unsafe
 parent, or a direct/symlink-aliased destination inside the sealed store.
 Artifact failures remain content-free and do not echo the path.
+
+## Qualified corpus handoff
+
+`atl corpus handoff-qualified --store DIR` returns a separate content-free
+online result:
+
+```json
+{
+  "schema_version": 1,
+  "qualification": "current_allowed",
+  "expires_at_millis": 1788948004000,
+  "generation": {
+    "generation_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "manifest_schema": 1,
+    "receipt_schema": 1,
+    "projection_schema": 2,
+    "generator_version": "0.10.0",
+    "build_state": "clean",
+    "services": ["confluence"],
+    "totals": {"members": 6, "bytes": 2048}
+  },
+  "handoff_artifact_written": false
+}
+```
+
+The expiry is the content-free wall-clock projection of an opaque process-local
+monotonic release bound, not durable authority and never a renewal input.
+Source principal/read-scope values, selectors, paths, object
+identities, backend origins, titles and bodies are omitted. The optional
+artifact is exactly the existing private indexer-handoff v1 route described
+above. If the final session/lease check fails after a local write, no success
+object is emitted even though that non-authoritative route may exist.
 
 ## Corpus export
 

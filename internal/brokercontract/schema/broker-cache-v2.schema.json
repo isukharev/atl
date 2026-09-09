@@ -1,0 +1,12 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema",
+  "$id":"https://github.com/isukharev/atl/docs/schemas/broker-cache-v2.schema.json",
+  "title":"ATL Broker cache qualification contract v2",
+  "oneOf":[{"$ref":"#/$defs/candidate"},{"$ref":"#/$defs/resolution"}],
+  "$defs":{
+    "digest":{"type":"string","pattern":"^[0-9a-f]{64}$"},
+    "cache_candidate":{"type":"object","additionalProperties":false,"required":["operation","selector_sha256","projection_sha256","evidence_schema_sha256","generation_sha256","content_sha256"],"properties":{"operation":{"const":"confluence.page.read"},"selector_sha256":{"$ref":"#/$defs/digest"},"projection_sha256":{"$ref":"#/$defs/digest"},"evidence_schema_sha256":{"$ref":"#/$defs/digest"},"generation_sha256":{"$ref":"#/$defs/digest"},"content_sha256":{"$ref":"#/$defs/digest"}}},
+    "candidate":{"type":"object","additionalProperties":false,"required":["schema_version","context","candidate","not_after_millis"],"properties":{"schema_version":{"const":2},"context":{"$ref":"broker-v1.schema.json#/$defs/verified_context"},"candidate":{"$ref":"#/$defs/cache_candidate"},"not_after_millis":{"type":"integer","minimum":1}}},
+    "resolution":{"type":"object","additionalProperties":false,"required":["schema_version","candidate_sha256","request","decision","complete"],"properties":{"schema_version":{"const":2},"candidate_sha256":{"$ref":"#/$defs/digest"},"request":{"$ref":"broker-v1.schema.json#/$defs/cache_qualification_request"},"decision":{"$ref":"broker-v1.schema.json#/$defs/cache_qualification"},"complete":{"const":true}}}
+  }
+}
