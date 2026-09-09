@@ -7,9 +7,14 @@ import (
 )
 
 func TestDecodeMirrorSnapshotWiresAcceptReleasedShapes(t *testing.T) {
+	t.Run("Jira v2 complete pull", testJiraMirrorSnapshotCompletePullAcceptsStatuses)
 	jira, err := decodeJiraMirrorSnapshotWire(bytes.NewReader(validMirrorSnapshotWire(t, "jira")))
-	if err != nil || jira.SchemaVersion != 1 || jira.Service != "jira" || !jira.Complete || !jira.Reconciled {
+	if err != nil || jira.SchemaVersion != 1 || jira.Service != "jira" || !jira.Complete || !jira.Reconciled || jira.CompletePull != nil {
 		t.Fatalf("Jira wire=%+v err=%v", jira, err)
+	}
+	encoded, err := json.Marshal(jira)
+	if err != nil || bytes.Contains(encoded, []byte(`"complete_pull"`)) {
+		t.Fatalf("historical Jira wire invented checkpoint facts: %s err=%v", encoded, err)
 	}
 	confluence, err := decodeConfluenceMirrorSnapshotWire(bytes.NewReader(validMirrorSnapshotWire(t, "confluence")))
 	if err != nil || confluence.SchemaVersion != 1 || confluence.Service != "confluence" || !confluence.Complete || !confluence.Reconciled {
@@ -18,6 +23,8 @@ func TestDecodeMirrorSnapshotWiresAcceptReleasedShapes(t *testing.T) {
 }
 
 func TestDecodeMirrorSnapshotWiresRejectWireDrift(t *testing.T) {
+	t.Run("Jira v2 complete pull members", testJiraMirrorSnapshotCompletePullRejectsMemberDrift)
+	t.Run("Jira v2 complete pull contradictions", testJiraMirrorSnapshotCompletePullRejectsContradictions)
 	for _, test := range []struct {
 		service string
 		decode  func([]byte) error

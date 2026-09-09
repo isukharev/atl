@@ -14,23 +14,24 @@ import (
 	"github.com/isukharev/atl/internal/safepath"
 )
 
-const jiraMirrorSnapshotSchemaVersion = 1
+const jiraMirrorSnapshotSchemaVersion = 2
 
 // JiraMirrorSnapshot is a content-free, deterministic health inventory of one
 // durable Jira mirror. Detailed issue identities and bytes remain available
 // through status and the mirror itself.
 type JiraMirrorSnapshot struct {
-	SchemaVersion   int                      `json:"schema_version"`
-	Service         string                   `json:"service"`
-	RemoteRequested bool                     `json:"remote_requested"`
-	Complete        bool                     `json:"complete"`
-	Reconciled      bool                     `json:"reconciled"`
-	Local           JiraMirrorLocalSummary   `json:"local"`
-	Native          JiraMirrorNativeSummary  `json:"native"`
-	Snapshot        JiraMirrorRawSummary     `json:"snapshot"`
-	Pending         JiraMirrorPendingSummary `json:"pending"`
-	Render          JiraMirrorRenderSummary  `json:"render"`
-	Remote          JiraMirrorRemoteSummary  `json:"remote"`
+	SchemaVersion   int                           `json:"schema_version"`
+	Service         string                        `json:"service"`
+	RemoteRequested bool                          `json:"remote_requested"`
+	Complete        bool                          `json:"complete"`
+	Reconciled      bool                          `json:"reconciled"`
+	Local           JiraMirrorLocalSummary        `json:"local"`
+	Native          JiraMirrorNativeSummary       `json:"native"`
+	Snapshot        JiraMirrorRawSummary          `json:"snapshot"`
+	Pending         JiraMirrorPendingSummary      `json:"pending"`
+	Render          JiraMirrorRenderSummary       `json:"render"`
+	Remote          JiraMirrorRemoteSummary       `json:"remote"`
+	CompletePull    mirror.CompletePullInspection `json:"complete_pull"`
 }
 
 type JiraMirrorLocalSummary struct {
@@ -310,6 +311,10 @@ func inspectJiraMirrorUnlocked(dir string) (*JiraMirrorSnapshot, []*jiraMirrorLo
 	canonicalByKey := make(map[string]*jiraMirrorLocalEvidence, len(locals))
 	keys := make([]string, 0, len(locals))
 	var snapshotErr error
+	result.CompletePull, snapshotErr = m.InspectJiraCompletePulls()
+	if !result.CompletePull.Healthy {
+		result.Complete = false
+	}
 	for _, local := range locals {
 		rel, relErr := filepath.Rel(dir, local.Path)
 		canonical := relErr == nil && local.Synced != nil && filepath.Clean(rel) == filepath.Clean(local.Synced.Path)
@@ -587,5 +592,5 @@ func finalizeJiraMirrorSnapshot(result *JiraMirrorSnapshot) {
 		result.Complete = false
 	}
 	result.Reconciled = result.Local.Reconciled && result.Native.Reconciled && result.Snapshot.Reconciled &&
-		result.Pending.Reconciled && result.Render.Reconciled && result.Remote.Reconciled
+		result.Pending.Reconciled && result.Render.Reconciled && result.Remote.Reconciled && result.CompletePull.Complete
 }

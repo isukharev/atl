@@ -323,11 +323,38 @@ missing, and unreadable Markdown views remain distinct. The aggregate emits no
 issue key/id, path, hash, field id, diagnostic text, wiki/raw-snapshot content,
 or derived-view bytes.
 
+Jira snapshot schema v2 also reports `complete_pull`: a bounded offline
+inventory of active Jira checkpoint selections and their durable progress.
+`selected = completed + remaining`; completed counts only the accepted prefix
+recorded in checkpoint progress, not pending journal entries. A stale progress
+binding conservatively counts a zero prefix, as resume does. `status` is
+`empty`, `resumable`, `recovery_pending`, `invalid`, or `inventory_limit`.
+Only `resumable` recommends `recovery:"rerun_original_command"`: rerun the
+same complete-pull command with its original options. Snapshot cannot recover
+those options from their hashes or prove remote access or current local payloads.
+Pending journals, publication intents, and qualified pre-intent residue report
+`recovery_pending` with `recovery:"preserve_for_inspection"`; this is not a
+guarantee that recovery will succeed. Invalid or limited inventory also requires
+preservation. Snapshot never restarts, repairs, retires or cleans these files.
+
+Inspection permits at most 128 entries in the shared checkpoint directory,
+64 MiB of aggregate metadata, existing per-file bounds, and 2,049 entries per
+Jira publication stage. The totals cover Jira families only. Qualified
+Confluence manifests identify sibling names that are excluded from Jira counts;
+their progress remains outside inspection. Only unresolved global temporary
+metadata triggers bounded sibling journal/intent reads to qualify ownership;
+this does not assert sibling health or recoverability. Stage `.tmp-*` candidates
+consume the aggregate metadata budget, including before an intent exists;
+named `payload-*` bodies remain outside that budget and are not read.
+Unclassifiable, unsafe or racing ownership fails closed. See the [output contract](../output/jira.md) for the closed
+reason vocabulary and the distinction between inventory completeness and health.
+
 `complete` means every inspected byte source needed for a trustworthy snapshot
 was readable, internally valid, and stably bound; it does not mean the mirror
 is clean. `reconciled` means every documented partition adds up exactly. A
 baseline mismatch, malformed/misbound raw snapshot, invalid/unbound pending
-record, active pending transaction, or unreadable source returns the qualified
+record, active pending transaction, pending/invalid/limited complete-pull
+inventory, or unreadable source returns the qualified
 snapshot with exit `8`. Missing optional/legacy evidence remains an explicit
 count rather than silently reading as present. If writing that snapshot to
 stdout fails, the write failure is reported together with the inspection

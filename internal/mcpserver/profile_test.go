@@ -122,7 +122,8 @@ func TestDefaultProfilePreservesNewToolSchemasAndInstructions(t *testing.T) {
 	if string(legacyJSON) != string(profileJSON) {
 		t.Fatal("default profile changed the legacy tool inventory or schemas")
 	}
-	if got := sha256.Sum256(profileJSON); hex.EncodeToString(got[:]) != "557766338f71b4814aa02ae046faed99746cc594e65c95eb7e2ea840ec34b3a9" {
+	// Jira snapshot v2 adds only the required complete_pull output property.
+	if got := sha256.Sum256(profileJSON); hex.EncodeToString(got[:]) != "a2851e1f989f1cbb049ba9e2dfe2413c57d9eebd26204212076b68959c8ad5df" {
 		t.Fatalf("default tool contract hash=%x", got)
 	}
 	if legacyClient.InitializeResult().Instructions != Instructions ||

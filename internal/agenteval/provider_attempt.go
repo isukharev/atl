@@ -78,11 +78,17 @@ func executeProviderAttemptWithSession(command *exec.Cmd, commit, revalidate fun
 	}
 	if err := command.Start(); err != nil {
 		if tree != nil {
-			err = errors.Join(err, tree.close())
+			if closeErr := tree.close(); closeErr != nil {
+				err = errors.Join(err, closeErr)
+			}
 		}
 		if session != nil {
 			var lifecycleErr error
 			switch {
+			case command.Process == nil && errors.Is(err, context.DeadlineExceeded):
+				lifecycleErr = session.timeoutBeforeSpawn(UnknownAttemptUsage())
+			case command.Process == nil && errors.Is(err, context.Canceled):
+				lifecycleErr = session.cancelBeforeSpawn(UnknownAttemptUsage())
 			case errors.Is(err, context.DeadlineExceeded):
 				lifecycleErr = session.Timeout(false, UnknownAttemptUsage())
 			case errors.Is(err, context.Canceled):

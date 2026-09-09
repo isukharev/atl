@@ -13,6 +13,7 @@ import (
 
 	"github.com/isukharev/atl/internal/app"
 	"github.com/isukharev/atl/internal/domain"
+	"github.com/isukharev/atl/internal/mirror"
 )
 
 func scaffoldJiraSnapshotMirror(t *testing.T, root, body string) string {
@@ -26,6 +27,50 @@ func scaffoldJiraSnapshotMirror(t *testing.T, root, body string) string {
 		t.Fatal(err)
 	}
 	return wiki
+}
+
+func TestJiraSnapshotCompletePullPendingNeedsNoBackendConfig(t *testing.T) {
+	root := t.TempDir()
+	scaffoldJiraSnapshotMirror(t, root, "base")
+	m := mirror.New(root)
+	checkpoint := mirror.CompletePullCheckpoint{Service: mirror.CompletePullServiceJira, SelectorSHA256: strings.Repeat("a", 64), OptionsSHA256: strings.Repeat("b", 64), IDs: []string{"10001"}}
+	body, err := json.Marshal(checkpoint.IDs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkpoint.SelectionSHA256 = mirror.Hash(body)
+	if err := m.SaveCompletePullCheckpoint(checkpoint); err != nil {
+		t.Fatal(err)
+	}
+	stage := filepath.Join(root, ".atl", "complete-pulls", checkpoint.SelectorSHA256+".publish")
+	if err := os.Mkdir(stage, 0700); err != nil {
+		t.Fatal(err)
+	}
+	for _, format := range []string{"json", "text"} {
+		out, code := runCLI(t, nil, "--read-only", "jira", "snapshot", root, "--remote", "-o", format)
+		if code != exitCheckFailed {
+			t.Fatalf("exit=%d output=%s", code, out)
+		}
+		if format == "json" {
+			var got app.JiraMirrorSnapshot
+			if err := json.Unmarshal([]byte(out), &got); err != nil {
+				t.Fatal(err)
+			}
+			if got.SchemaVersion != 2 || got.Complete || got.CompletePull.Status != "recovery_pending" || got.CompletePull.Recovery != "preserve_for_inspection" || got.Remote.Attempted != 0 {
+				t.Fatalf("snapshot=%+v", got)
+			}
+		} else if !strings.Contains(out, "complete_pull=recovery_pending") || !strings.Contains(out, "checkpoint_recovery=preserve_for_inspection") {
+			t.Fatalf("missing progress guidance: %s", out)
+		}
+		for _, private := range []string{root, "10001", checkpoint.SelectorSHA256, "PROJ-1"} {
+			if strings.Contains(out, private) {
+				t.Fatalf("snapshot leaked fixture value: %s", out)
+			}
+		}
+	}
+	if _, err := os.Stat(stage); err != nil {
+		t.Fatalf("snapshot changed pending stage: %v", err)
+	}
 }
 
 func TestJiraSnapshotIsOfflineContentFreeAndDeterministic(t *testing.T) {

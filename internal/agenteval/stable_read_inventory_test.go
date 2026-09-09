@@ -20,6 +20,7 @@ func TestStableReadProductionInventory(t *testing.T) {
 	const atifExport = "internal/agenteval/interchange/atif/export.go"
 	const distributionBuilder = "scripts/agent-eval-distribution/main.go"
 	want := map[string]int{
+		"internal/adapter/brokerjournal/disk_unix.go":               1,
 		"internal/agenteval/aggregate_root.go":                      3,
 		"internal/agenteval/cmd/agent-eval/standalone_config.go":    1,
 		"internal/agenteval/evolution/publication.go":               4,

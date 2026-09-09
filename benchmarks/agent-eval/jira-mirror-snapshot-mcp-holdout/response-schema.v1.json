@@ -2,7 +2,7 @@
   "type": "object",
   "additionalProperties": false,
   "properties": {
-    "schema_version": {"type": "integer", "const": 1},
+    "schema_version": {"type": "integer", "const": 2},
     "service": {"type": "string", "const": "jira"},
     "remote_requested": {"type": "boolean"},
     "complete": {"type": "boolean"},
@@ -53,6 +53,22 @@
       },
       "required": ["total", "valid", "invalid", "unreadable", "bound", "unbound", "field_edits", "active_transactions", "reconciled"]
     },
+    "complete_pull": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "status": {"type": "string", "enum": ["empty", "resumable", "recovery_pending", "invalid", "inventory_limit"]},
+        "reason": {"type": "string", "enum": ["", "malformed", "unsupported_schema", "orphaned", "unreadable", "entry_limit", "byte_limit"]},
+        "recovery": {"type": "string", "enum": ["none", "rerun_original_command", "preserve_for_inspection"]},
+        "checkpoints": {"type": "integer", "minimum": 0, "maximum": 128},
+        "selected": {"type": "integer", "minimum": 0, "maximum": 128000000},
+        "completed": {"type": "integer", "minimum": 0, "maximum": 128000000},
+        "remaining": {"type": "integer", "minimum": 0, "maximum": 128000000},
+        "journals": {"type": "integer", "minimum": 0, "maximum": 128},
+        "publications": {"type": "integer", "minimum": 0, "maximum": 128},
+        "complete": {"type": "boolean"}, "healthy": {"type": "boolean"}
+      },
+      "required": ["status", "reason", "recovery", "checkpoints", "selected", "completed", "remaining", "journals", "publications", "complete", "healthy"]
+    },
     "render": {
       "type": "object", "additionalProperties": false,
       "properties": {
@@ -77,5 +93,5 @@
       "required": ["requested", "eligible", "attempted", "not_attempted", "checked", "in_sync", "drifted", "unavailable", "reconciled"]
     }
   },
-  "required": ["schema_version", "service", "remote_requested", "complete", "reconciled", "local", "native", "snapshot", "pending", "render", "remote"]
+  "required": ["schema_version", "service", "remote_requested", "complete", "reconciled", "local", "native", "snapshot", "pending", "complete_pull", "render", "remote"]
 }

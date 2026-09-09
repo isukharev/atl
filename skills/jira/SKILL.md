@@ -355,7 +355,15 @@ baseline/raw-snapshot/pending/render/drift cardinalities. Require reconciled
 output and treat `complete:false`, unavailable probes, invalid binding, or exit
 `8` as a stop signal, including contention with an active mirror mutation.
 Snapshot coordinates through a shared advisory lock without creating or
-changing files. Expand with identity-bearing
+changing files. Its v2 `complete_pull` inventory is also available offline via
+`jira snapshot <existing-root>` and `jira_mirror_snapshot`. Use its durable
+`selected/completed/remaining` counts to discover interrupted complete pulls.
+Only `status:"resumable"` recommends rerunning the same original command and
+options. `recovery_pending`, `invalid`, or `inventory_limit` requires preserving
+the mirror for inspection; never infer permission to restart or clean up.
+Pending metadata does not prove recovery will succeed. Historical v1 snapshot
+output has no checkpoint facts and must not be treated as an empty inventory.
+Expand with identity-bearing
 `jira status <existing-root> --remote` only when repair or per-issue selection
 needs it.
 Preserve locally edited work. Re-pull a clean remote-drifted mirror; a clean

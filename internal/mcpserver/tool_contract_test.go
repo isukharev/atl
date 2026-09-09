@@ -522,7 +522,7 @@ func TestServerAdvertisesOnlyTypedReadOnlyTools(t *testing.T) {
 			}
 			serviceFields := []string{"validation"}
 			if tool.Name == "jira_mirror_snapshot" {
-				serviceFields = []string{"snapshot", "pending"}
+				serviceFields = []string{"snapshot", "pending", "complete_pull"}
 			}
 			for _, required := range serviceFields {
 				if !schemaRequired(output, required) {

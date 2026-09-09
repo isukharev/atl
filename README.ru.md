@@ -153,6 +153,9 @@ body по allowlist. Точные флаги описаны в
 [Jira mirrors](docs/reference/cli/jira-mirrors.md#atl-jira-pull).
 Для большого attachment inventory используйте
 [`jira attachment-bodies`](docs/reference/cli/jira-mirrors.md#atl-jira-attachment-bodies).
+[`jira snapshot`](docs/reference/cli/jira-mirrors.md#atl-jira-snapshot) показывает
+прогресс checkpoint без сети: возобновление, ожидающее восстановление или
+небезопасное состояние для проверки — без содержимого задач.
 
 Изображения сохраняются под [ID-префиксами в свободные целевые файлы](docs/reference/cli/jira-issues.md#atl-jira-issue-images).
 

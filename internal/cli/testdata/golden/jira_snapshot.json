@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "service": "jira",
   "remote_requested": false,
   "complete": true,
@@ -77,5 +77,18 @@
     "drifted": 0,
     "unavailable": 0,
     "reconciled": true
+  },
+  "complete_pull": {
+    "status": "empty",
+    "reason": "",
+    "recovery": "none",
+    "checkpoints": 0,
+    "selected": 0,
+    "completed": 0,
+    "remaining": 0,
+    "journals": 0,
+    "publications": 0,
+    "complete": true,
+    "healthy": true
   }
 }
