@@ -97,7 +97,9 @@ func TestSelectedProjectPageCLIAndMCPProcessOracle(t *testing.T) {
 			"project_key": "PROJ", "fields": []string{"summary", "description"}, "limit": 2, "cursor": "0", "max_bytes": 65536,
 		})
 		if result == nil || result.IsError || result.StructuredContent == nil || stderr != "" {
-			t.Fatalf("MCP result=%+v stderr=%s", result, stderr)
+			fixture.assertNoViolations()
+			encoded, encodeErr := json.Marshal(result)
+			t.Fatalf("MCP result=%s encode_error=%v counts=%+v stderr=%s", encoded, encodeErr, fixture.counters.snapshot(), stderr)
 		}
 		encoded, err := json.Marshal(result.StructuredContent)
 		if err != nil {
