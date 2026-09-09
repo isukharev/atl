@@ -115,8 +115,8 @@
   ],
   "package_totals": [
     {"owner":"adapter-confluence","path":"internal/adapter/confluence/","max_lines":5249,"rationale":"Include the narrow Broker page reader and its explicit long-running-host idle-connection shutdown seam."},
-    {"owner":"adapter-jira","path":"internal/adapter/jira/","max_lines":6447,"rationale":"Include the qualified graph snapshot projection through shared single-attempt decoding and selected property-section validation."},
-    {"owner":"app","path":"internal/app/","max_lines":53709,"rationale":"Include selected graph collectors and qualified snapshot projection alongside bounded checkpoint inspection and advisory Broker discovery."},
+    {"owner":"adapter-jira","path":"internal/adapter/jira/","max_lines":6773,"rationale":"Include the bounded Broker project identity and two-page reader alongside qualified graph snapshot projection through shared single-attempt decoding and selected property-section validation."},
+    {"owner":"app","path":"internal/app/","max_lines":53994,"rationale":"Include the gated project-page coordinator with ordered qualification, per-resource authorization and bounded pagination truth alongside selected graph collectors, qualified snapshot projection, bounded checkpoint inspection and advisory Broker discovery."},
     {"owner":"cli","path":"internal/cli/","max_lines":13665,"rationale":"Include bounded graph source selectors alongside checkpoint progress and read-only Broker discovery."},
     {"owner":"compose","path":"internal/compose/","max_lines":1157,"rationale":"Include lazy per-service discovery client construction without PAT resolution or direct fallback."},
     {"owner":"contentpolicy","path":"internal/contentpolicy/","max_lines":1281,"rationale":"Keep policy parsing, resolved and deny-only evaluation, source-denial envelopes, freeze, static scope requirements, and hierarchy hazards at the reviewed public-surface total."},

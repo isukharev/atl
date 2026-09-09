@@ -168,8 +168,12 @@ func firstBrokerReadError(primary, validation error) error {
 }
 
 func brokerReadError(err error) error {
+	return brokerOperationError("broker exact read failed", err)
+}
+
+func brokerOperationError(message string, err error) error {
 	if ok, safe := brokercontract.ContentFreeError(err); ok {
-		return fmt.Errorf("broker exact read failed: %w", safe)
+		return fmt.Errorf("%s: %w", message, safe)
 	}
 	sentinel := domain.ErrCheckFailed
 	switch {
@@ -184,5 +188,5 @@ func brokerReadError(err error) error {
 	case errors.Is(err, domain.ErrForbidden):
 		sentinel = domain.ErrForbidden
 	}
-	return fmt.Errorf("broker exact read failed: %w", sentinel)
+	return fmt.Errorf("%s: %w", message, sentinel)
 }
