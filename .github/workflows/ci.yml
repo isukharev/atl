@@ -164,9 +164,34 @@ jobs:
       - name: Product compatibility contract
         if: needs.binding.outputs.evaluator == 'compat'
         run: make agent-eval-compat
-      - name: Complete agent-evaluation gate
+      - name: Complete non-race agent-evaluation gates
         if: needs.binding.outputs.evaluator == 'full'
-        run: make agent-eval-full
+        run: make agent-eval-hosted-full-nonrace
+
+  agent-eval-race:
+    needs: binding
+    if: needs.binding.outputs.evaluator == 'full'
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        shard: [0, 1, 2, 3]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+          check-latest: true
+      - name: Complete source-bound evaluator race shard
+        env:
+          ATL_AGENT_EVAL_RACE_SHARD: ${{ matrix.shard }}
+          ATL_AGENT_EVAL_SOURCE_SHA: ${{ github.sha }}
+        run: make agent-eval-hosted-race-shard
 
   agent-eval-platform:
     needs: binding
@@ -321,7 +346,7 @@ jobs:
 
   ci-ready:
     if: always() && github.event_name == 'pull_request'
-    needs: [binding, contracts, test, corpus-devcontainer, agent-eval, agent-eval-platform, agent-eval-extension-windows, lint, govulncheck, codeql]
+    needs: [binding, contracts, test, corpus-devcontainer, agent-eval, agent-eval-race, agent-eval-platform, agent-eval-extension-windows, lint, govulncheck, codeql]
     runs-on: ubuntu-latest
     permissions:
       contents: read

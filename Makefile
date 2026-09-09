@@ -40,6 +40,7 @@ GO_ENV   := env -u GOROOT GOTOOLCHAIN=auto GOWORK=off
 GO_LOCAL_ENV := env -u GOROOT GOTOOLCHAIN=local GOWORK=off
 AGENT_EVAL_DIR := internal/agenteval
 AGENT_EVAL_MAKE := $(MAKE) -C $(AGENT_EVAL_DIR) REPOSITORY_ROOT="$(CURDIR)" ATL_BINARY="$(CURDIR)/atl"
+override AGENT_EVAL_FULL_PREREQUISITES := check-agent-eval-support check-skill-routing check-module-boundary
 
 # Platforms published to GitHub Releases. Keep in sync with the release workflow.
 PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64
@@ -211,8 +212,24 @@ agent-eval-contract: check-skill-routing
 agent-eval-product-boundary: check-package-boundary
 
 .PHONY: agent-eval-full
-agent-eval-full: check-agent-eval-support check-skill-routing check-module-boundary
+agent-eval-full: $(AGENT_EVAL_FULL_PREREQUISITES)
 	$(AGENT_EVAL_MAKE) full
+
+.PHONY: agent-eval-hosted-full-nonrace
+agent-eval-hosted-full-nonrace: $(AGENT_EVAL_FULL_PREREQUISITES)
+	$(AGENT_EVAL_MAKE) hosted-full-nonrace
+
+.PHONY: agent-eval-hosted-race-shard
+agent-eval-hosted-race-shard:
+	$(GO_ENV) GOENV=off GOFLAGS= GOOS=linux GOARCH=amd64 GOAMD64=v1 GOEXPERIMENT= CGO_ENABLED=1 go run \
+		./scripts/agent-eval-race/main.go \
+		./scripts/agent-eval-race/source.go \
+		./scripts/agent-eval-race/inventory.go \
+		./scripts/agent-eval-race/events.go \
+		./scripts/agent-eval-race/process.go \
+		./scripts/agent-eval-race/process_linux.go \
+		-shard "$${ATL_AGENT_EVAL_RACE_SHARD}" \
+		-source "$${ATL_AGENT_EVAL_SOURCE_SHA}"
 
 .PHONY: agent-eval-distribution-clean
 agent-eval-distribution-clean:

@@ -40,7 +40,7 @@ const bindingJobContract = `  binding:
 
 const readyJobContract = `  ci-ready:
     if: always() && github.event_name == 'pull_request'
-    needs: [binding, contracts, test, corpus-devcontainer, agent-eval, agent-eval-platform, agent-eval-extension-windows, lint, govulncheck, codeql]
+    needs: [binding, contracts, test, corpus-devcontainer, agent-eval, agent-eval-race, agent-eval-platform, agent-eval-extension-windows, lint, govulncheck, codeql]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -119,9 +119,27 @@ const evaluatorJobContract = `  agent-eval:
 ` + agentEvalCheckoutStepContract + "\n" + setupGoStepContract + "\n" + `      - name: Product compatibility contract
         if: needs.binding.outputs.evaluator == 'compat'
         run: make agent-eval-compat
-      - name: Complete agent-evaluation gate
+      - name: Complete non-race agent-evaluation gates
         if: needs.binding.outputs.evaluator == 'full'
-        run: make agent-eval-full
+        run: make agent-eval-hosted-full-nonrace
+`
+
+const evaluatorRaceJobContract = `  agent-eval-race:
+    needs: binding
+    if: needs.binding.outputs.evaluator == 'full'
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        shard: [0, 1, 2, 3]
+    runs-on: ubuntu-latest
+    steps:
+` + agentEvalCheckoutStepContract + "\n" + setupGoStepContract + "\n" + `      - name: Complete source-bound evaluator race shard
+        env:
+          ATL_AGENT_EVAL_RACE_SHARD: ${{ matrix.shard }}
+          ATL_AGENT_EVAL_SOURCE_SHA: ${{ github.sha }}
+        run: make agent-eval-hosted-race-shard
 `
 
 const platformJobContract = `  agent-eval-platform:
@@ -223,7 +241,7 @@ func validatePremergeWorkflow(contents []byte) error {
 	if err := validateWorkflowHeader(contents, "ci", "ci"); err != nil {
 		return err
 	}
-	if err := validateWorkflowJobSet(contents, "ci", "binding", "contracts", "test", "corpus-devcontainer", "agent-eval", "agent-eval-platform", "agent-eval-extension-windows", "lint", "govulncheck", "codeql", "ci-ready", "smoke"); err != nil {
+	if err := validateWorkflowJobSet(contents, "ci", "binding", "contracts", "test", "corpus-devcontainer", "agent-eval", "agent-eval-race", "agent-eval-platform", "agent-eval-extension-windows", "lint", "govulncheck", "codeql", "ci-ready", "smoke"); err != nil {
 		return err
 	}
 	if err := validateWindowsCompileWorkflow(contents); err != nil {
@@ -232,7 +250,7 @@ func validatePremergeWorkflow(contents []byte) error {
 	for _, required := range []struct{ name, contract string }{
 		{"binding", bindingJobContract}, {"ci-ready", readyJobContract}, {"codeql", codeQLCallJobContract},
 		{"contracts", contractsJobContract}, {"lint", lintJobContract}, {"govulncheck", vulnerabilityJobContract},
-		{"agent-eval", evaluatorJobContract}, {"agent-eval-platform", platformJobContract},
+		{"agent-eval", evaluatorJobContract}, {"agent-eval-race", evaluatorRaceJobContract}, {"agent-eval-platform", platformJobContract},
 		{"agent-eval-extension-windows", windowsRuntimeJobContract},
 		{"smoke", smokeJobContract},
 	} {

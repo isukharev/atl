@@ -266,13 +266,42 @@ tidy, Windows, and bilateral `make agent-eval-product-boundary` gates. Do not
 add a root module dependency, a root `replace`, or a tracked `go.work` to make
 root recursive commands traverse the evaluator.
 
-The complete race lane retains every package under `-race -count=1` and has a
-45-minute package failure cap. The pull-request evaluator job has a separate
-75-minute outer cap so unit, lint, vet, vulnerability, Windows, and boundary
-checks still have bounded room after a slow race pass. These are failure caps,
-not performance targets; hosted durations remain observe-only maintainability
-evidence and sustained growth should be addressed by a separately reviewed
-suite split rather than by omitting checks.
+The ordinary and release `make agent-eval-full` contour retains every package
+under one unsharded `-race -count=1` command with a 45-minute package failure
+cap. A selected hosted full contour derives every active evaluator package and
+top-level runnable from the exact committed Linux/amd64 race build. It runs
+four deterministic nonempty root-package shards whose disjoint union is the
+complete discovered inventory; the first shard also runs every non-root
+package without a test selector. New packages and tests therefore enter the
+race contour automatically or make discovery fail closed. The complete
+non-race full gates run once alongside the shards.
+
+Every hosted shard checks the source, toolchain, platform, package inventory,
+actual runnable terminal events, and product-binary provenance before emitting
+bounded content-free counts, digests, and timing. Product dependency discovery
+matches the CGO-free build and certifies production and embedded inputs only;
+the evaluator race discovery uses cgo and additionally certifies its compiled
+test and test-embed inputs. The verbose-mode guard therefore applies only to
+evaluator tests that the JSON race commands execute, not unexecuted product
+dependency tests. Child processes receive a
+narrow build-only environment rather than ambient `ATL_*`, backend, provider,
+or fixture configuration. `GOENV=off`, `GOAMD64=v1`, and empty `GOFLAGS` and
+`GOEXPERIMENT` override user Go settings and are attested with the Go version,
+Linux/amd64 target, and cgo mode. This sanitizes the spawned process environment;
+it does not remove arbitrary filesystem credentials or protect a hostile host.
+
+Normal Go-level test skips remain distinct from workflow-job skips. Each
+observed fuzz seed requires one run event and one separate pass or skip event;
+the runner does not claim a static count for seeds it did not observe. Because
+structured timing uses Go's verbose JSON event mode, active evaluator tests
+must not branch on `testing.Verbose`; source certification rejects that semantic
+drift. The required aggregate accepts the matrix only when every member
+succeeds. Each test command retains the 45-minute test-binary cap, the runner
+adds a 47-minute process-tree cap, and
+the workflow retains a 75-minute outer cap. These are failure caps, not
+performance targets; hosted durations remain observe-only maintainability
+evidence and a measured dominant parent test requires a separately reviewed
+partition change rather than an omission or caller-controlled selector.
 
 The standalone compatibility facade runs its exact evaluator test selection
 recursively across every active package plus the product wire and
