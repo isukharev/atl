@@ -99,20 +99,55 @@ func containsCredential(credential []byte, values ...string) bool {
 }
 
 func encodedCredentialContains(encoded, credential []byte) bool {
-	patterns := [][]byte{credential, []byte(base64.StdEncoding.EncodeToString(credential)), []byte(base64.RawStdEncoding.EncodeToString(credential)), []byte(base64.RawURLEncoding.EncodeToString(credential))}
+	found := false
+	_ = visitOwnedCredentialRepresentations(credential, func(pattern []byte) error {
+		defer clear(pattern)
+		if len(pattern) > 0 && bytes.Contains(encoded, pattern) {
+			found = true
+		}
+		return nil
+	})
+	return found
+}
+
+// visitOwnedCredentialRepresentations constructs one independently owned
+// representation at a time. A successful visitor assumes ownership; on an
+// error this helper clears the pattern that the visitor rejected.
+func visitOwnedCredentialRepresentations(credential []byte, visit func([]byte) error) error {
+	deliver := func(pattern []byte) error {
+		if err := visit(pattern); err != nil {
+			clear(pattern)
+			return err
+		}
+		return nil
+	}
+	if err := deliver(bytes.Clone(credential)); err != nil {
+		return err
+	}
+	for _, encoding := range []*base64.Encoding{base64.StdEncoding, base64.RawStdEncoding, base64.RawURLEncoding} {
+		encoded := make([]byte, encoding.EncodedLen(len(credential)))
+		encoding.Encode(encoded, credential)
+		if err := deliver(encoded); err != nil {
+			return err
+		}
+	}
 	var quoted strings.Builder
 	encoder := json.NewEncoder(&quoted)
 	encoder.SetEscapeHTML(false)
 	if err := encoder.Encode(string(credential)); err == nil {
 		value := strings.TrimSuffix(quoted.String(), "\n")
 		if len(value) >= 2 {
-			patterns = append(patterns, []byte(value[1:len(value)-1]))
+			pattern := []byte(value[1 : len(value)-1])
+			if err := deliver(pattern); err != nil {
+				return err
+			}
 		}
 	}
+	return nil
+}
+
+func clearCredentialPatterns(patterns [][]byte) {
 	for _, pattern := range patterns {
-		if len(pattern) > 0 && bytes.Contains(encoded, pattern) {
-			return true
-		}
+		clear(pattern)
 	}
-	return false
 }
