@@ -98,11 +98,23 @@ type projectPageProcessFixture struct {
 	violations     []string
 	bufferHookOnce sync.Once
 	discoveryOnce  sync.Once
+	completions    projectPageProcessCompletionCounters
+	completionWake chan struct{}
+	failuresMu     sync.Mutex
+	failureReasons map[domain.BrokerReason]int
 }
 
 func newProjectPageProcessFixture(t *testing.T, options projectPageProcessOptions) *projectPageProcessFixture {
 	t.Helper()
-	f := &projectPageProcessFixture{t: t, options: options, issuerSHA256: strings.Repeat("a", 64)}
+	f := &projectPageProcessFixture{
+		t: t, options: options, issuerSHA256: strings.Repeat("a", 64),
+		completionWake: make(chan struct{}, 1), failureReasons: make(map[domain.BrokerReason]int),
+	}
+	t.Cleanup(func() {
+		if t.Failed() {
+			t.Logf("project-page fixture witness: %s", f.diagnosticWitness())
+		}
+	})
 	f.hostClockNanos.Store(time.Now().UnixNano())
 
 	configRoot := t.TempDir()
@@ -174,30 +186,7 @@ func newProjectPageProcessFixture(t *testing.T, options projectPageProcessOption
 	if err != nil {
 		t.Fatal(err)
 	}
-	wrappedData := http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		switch request.URL.Path {
-		case brokertransport.DiscoveryNegotiatePathV3:
-			f.counters.brokerNegotiate.Add(1)
-		case brokertransport.DiscoveryPathV3:
-			f.counters.brokerDiscovery.Add(1)
-		case brokertransport.ExecutePathV2:
-			f.counters.brokerExecute.Add(1)
-		}
-		if request.URL.Path != brokertransport.ExecutePathV2 || !f.options.replaceAfterBuffer {
-			data.ServeHTTP(writer, request)
-			return
-		}
-		buffered := newProjectPageProcessBufferedWriter(writer)
-		data.ServeHTTP(buffered, request)
-		f.bufferHookOnce.Do(func() {
-			if err := f.writeSession(projectPageProcessReplacementCredential); err != nil {
-				f.violationf("replace session after buffered response: %v", err)
-			}
-		})
-		if err := buffered.publish(writer); err != nil {
-			f.violationf("publish buffered Broker response: %v", err)
-		}
-	})
+	wrappedData := f.observeDataHandler(data)
 
 	certificate := testHostCertificate(t)
 	dataListener, err := net.Listen("tcp", "127.0.0.1:0")

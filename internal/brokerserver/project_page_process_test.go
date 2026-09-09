@@ -69,13 +69,15 @@ func TestSelectedProjectPageCLIAndMCPProcessOracle(t *testing.T) {
 			"jira", "issue", "project-page", "--project", "PROJ", "--fields", "summary,description", "--limit", "2", "--cursor", "0")
 		firstPage := requireProjectPageProcessSuccess(t, first)
 		assertProjectPageProcessFirstPage(t, firstPage)
+		fixture.waitForCompletions(projectPageProcessCompletionSnapshot{brokerNegotiate: 1, brokerDiscovery: 1, brokerExecute: 1})
 		fixture.assertCounts(projectPageProcessCountSnapshot{
 			brokerNegotiate: 1, brokerDiscovery: 1, brokerExecute: 1, authentication: 3, discovery: 1,
 			admission: 1, qualification: 1, operation: 1, jiraProject: 1, jiraIdentity: 1, jiraBusiness: 1,
 		})
 
-		// Deterministically refill the Host's bounded data admission tokens;
-		// paging freshness is asserted by the doubled route/phase counters.
+		// The completion boundary above proves that the first process no longer
+		// holds the Handler permit before the Host's admission clock is refilled.
+		// Paging freshness is asserted by the doubled route/phase counters.
 		fixture.advanceHostClock(time.Second)
 		second := runProjectPageProcessCLI(t, binary, fixture.environment,
 			"jira", "issue", "project-page", "--project", "PROJ", "--fields", "summary,description", "--limit", "2", "--cursor", "2")
@@ -84,6 +86,7 @@ func TestSelectedProjectPageCLIAndMCPProcessOracle(t *testing.T) {
 			!secondPage.Page.CoordinateExhausted || secondPage.Page.SelectionComplete || secondPage.Page.NextCursorPresent || secondPage.Page.NextCursor != "" || secondPage.Page.PartialReason != "" || !secondPage.Complete {
 			t.Fatalf("second page=%+v", secondPage)
 		}
+		fixture.waitForCompletions(projectPageProcessCompletionSnapshot{brokerNegotiate: 2, brokerDiscovery: 2, brokerExecute: 2})
 		fixture.assertCounts(projectPageProcessCountSnapshot{
 			brokerNegotiate: 2, brokerDiscovery: 2, brokerExecute: 2, authentication: 6, discovery: 2,
 			admission: 2, qualification: 2, operation: 2, jiraProject: 2, jiraIdentity: 2, jiraBusiness: 2,
@@ -118,6 +121,7 @@ func TestSelectedProjectPageCLIAndMCPProcessOracle(t *testing.T) {
 		if !reflect.DeepEqual(textPage, page) {
 			t.Fatal("MCP structured and user-visible text projections differ")
 		}
+		fixture.waitForCompletions(projectPageProcessCompletionSnapshot{brokerNegotiate: 1, brokerDiscovery: 1, brokerExecute: 1})
 		fixture.assertCounts(projectPageProcessCountSnapshot{
 			brokerNegotiate: 1, brokerDiscovery: 1, brokerExecute: 1, authentication: 3, discovery: 1,
 			admission: 1, qualification: 1, operation: 1, jiraProject: 1, jiraIdentity: 1, jiraBusiness: 1,
