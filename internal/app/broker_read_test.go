@@ -18,6 +18,7 @@ type brokerReadAuthorizerStub struct {
 	denyPhase  domain.BrokerAuthorizationPhase
 	denyReason domain.BrokerReason
 	lease      time.Duration
+	leasePhase domain.BrokerAuthorizationPhase
 	calls      []domain.BrokerAuthorizationPhase
 }
 
@@ -71,6 +72,9 @@ func (a *brokerReadAuthorizerStub) decisionCore(phase domain.BrokerAuthorization
 		}
 	}
 	lease := a.lease
+	if a.leasePhase != "" && a.leasePhase != phase {
+		lease = 5 * time.Second
+	}
 	if lease == 0 {
 		lease = 5 * time.Second
 	}
@@ -384,7 +388,11 @@ func TestBrokerReadServiceDecisionDeadlinePreventsQueuedDispatch(t *testing.T) {
 	for _, phase := range []string{"qualification", "business"} {
 		t.Run(phase, func(t *testing.T) {
 			request, verified, jira, confluence := brokerReadFixture(now.UnixMilli())
-			authorizer := &brokerReadAuthorizerStub{nowMillis: now.UnixMilli(), lease: 10 * time.Millisecond}
+			leasePhase := domain.BrokerPhaseQualificationAuthorization
+			if phase == "business" {
+				leasePhase = domain.BrokerPhaseFinalAuthorization
+			}
+			authorizer := &brokerReadAuthorizerStub{nowMillis: now.UnixMilli(), lease: 10 * time.Millisecond, leasePhase: leasePhase}
 			service := brokerReadTestService(authorizer, jira, confluence)
 			service.now = func() time.Time { return now }
 			jira.waitQualification = phase == "qualification"
@@ -396,6 +404,9 @@ func TestBrokerReadServiceDecisionDeadlinePreventsQueuedDispatch(t *testing.T) {
 			}
 			if result != (BrokerExactReadResult{}) || !errors.Is(err, context.DeadlineExceeded) || jira.backendAttempts != wantAttempts {
 				t.Fatalf("result=%+v err=%v attempts=%d", result, err, jira.backendAttempts)
+			}
+			if jira.qualification != 1 || phase == "business" && jira.business != 1 {
+				t.Fatal("deadline test did not reach the selected queued phase")
 			}
 		})
 	}

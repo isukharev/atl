@@ -16,7 +16,8 @@ type CapabilityFamilyMetric struct {
 }
 
 var mcpCapabilityFamilies = map[string]string{
-	"jira_fields": "jira.fields", "jira_issue_search": "jira.issue.search",
+	"jira_project_issue_page": "jira.project.issue-page",
+	"jira_fields":             "jira.fields", "jira_issue_search": "jira.issue.search",
 	"jira_issue_field_get": "jira.issue.field", "jira_issue_refs": "jira.issue.refs",
 	"jira_issue_history": "jira.issue.history", "jira_issue_graph": "jira.issue.graph",
 	"jira_epic_digest": "jira.epic.digest", "jira_board_view": "jira.board.view",
@@ -46,7 +47,8 @@ func KnownMCPToolNames() []string {
 }
 
 var allowedCapabilityFamilies = map[string]struct{}{
-	"atl.config": {}, "atl.capabilities": {}, "jira.fields": {}, "jira.issue.fields": {},
+	"jira.project.issue-page": {},
+	"atl.config":              {}, "atl.capabilities": {}, "jira.fields": {}, "jira.issue.fields": {},
 	"jira.issue.field": {}, "jira.issue.field.preview": {}, "jira.issue.field.set": {}, "jira.issue.graph": {}, "jira.issue.refs": {}, "jira.issue.worklog.list": {}, "jira.issue.worklog.add": {}, "jira.issue.search": {}, "jira.issue.batch-read": {}, "jira.epic.digest": {},
 	"jira.board.list": {}, "jira.board.get": {}, "jira.board.config": {}, "jira.board.issues": {}, "jira.board.backlog": {}, "jira.board.view": {}, "jira.board.export": {},
 	"jira.pull": {}, "jira.status": {}, "jira.mirror.snapshot": {},
@@ -242,6 +244,7 @@ matched:
 		{[]string{"jira", "issue", "view"}, "jira.issue.view"}, {[]string{"jira", "issue", "get"}, "jira.issue.get"},
 		{[]string{"jira", "issue", "field", "get"}, "jira.issue.field"}, {[]string{"jira", "issue", "fields"}, "jira.issue.fields"}, {[]string{"jira", "issue", "refs"}, "jira.issue.refs"}, {[]string{"jira", "epic", "digest"}, "jira.epic.digest"},
 		{[]string{"jira", "issue", "search"}, "jira.issue.search"},
+		{[]string{"jira", "issue", "project-page"}, "jira.project.issue-page"},
 		{[]string{"jira", "board", "list"}, "jira.board.list"}, {[]string{"jira", "board", "get"}, "jira.board.get"},
 		{[]string{"jira", "board", "config"}, "jira.board.config"}, {[]string{"jira", "board", "issues"}, "jira.board.issues"},
 		{[]string{"jira", "board", "backlog"}, "jira.board.backlog"}, {[]string{"jira", "board", "view"}, "jira.board.view"},

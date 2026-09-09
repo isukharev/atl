@@ -169,12 +169,16 @@ func TestAuthorityProjectPageTransportFailuresAreSingleAttemptAndContentFree(t *
 			var calls atomic.Int32
 			server := httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, incoming *http.Request) {
 				calls.Add(1)
+				defer incoming.Body.Close()
+				if _, err := io.Copy(io.Discard, incoming.Body); err != nil {
+					t.Errorf("read submitted authority request: %v", err)
+					return
+				}
 				if test.name == "redirect" {
 					writer.Header().Set("Location", "/private-fallback")
 				}
 				writer.WriteHeader(test.status)
 				_, _ = writer.Write(test.body())
-				_ = incoming.Body.Close()
 			}))
 			t.Cleanup(server.Close)
 			authority := newTestAuthority(t, server, strings.Repeat("a", 64))

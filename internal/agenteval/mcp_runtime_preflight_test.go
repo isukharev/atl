@@ -95,7 +95,7 @@ func TestSyntheticMCPResourceInventoryIsExactAndClosed(t *testing.T) {
 }
 
 func TestSyntheticMCPDiscoveryInventoryIsBoundToSelectedService(t *testing.T) {
-	for service, count := range map[string]int{"default": 4, "jira": 3, "confluence": 3, "offline": 2} {
+	for service, count := range map[string]int{"default": 5, "jira": 4, "confluence": 3, "offline": 2} {
 		value := syntheticMCPResourceInventoryValueForTest(service)
 		if len(value["resources"].([]any)) != count {
 			t.Fatalf("service=%s inventory count differs", service)
@@ -569,6 +569,13 @@ func syntheticMCPResourceInventoryValueForTest(service string) map[string]any {
 				"description": "Fresh private advisory Broker operation access; every invocation reauthorizes.",
 			})
 		}
+	}
+	if service == "default" || service == "jira" {
+		discovery = append(discovery, map[string]any{
+			"uri": "atl://broker/discovery/jira/atl.broker.execution.v2", "name": "atl-broker-discovery-jira-execution-v2",
+			"title": "atl Broker Jira execution-v2 discovery", "mimeType": "application/json",
+			"description": "Fresh private advisory access for the fixed atl.broker.execution.v2 family; every invocation reauthorizes.",
+		})
 	}
 	value["resources"] = append(discovery, value["resources"].([]any)...)
 	return value

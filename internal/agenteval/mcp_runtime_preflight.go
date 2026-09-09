@@ -34,6 +34,14 @@ func syntheticMCPExpectedResourceInventory(service string) []syntheticMCPResourc
 			})
 		}
 	}
+	if service == "default" || service == "jira" {
+		descriptors = append(descriptors, syntheticMCPResourceDescriptor{
+			URI: "atl://broker/discovery/jira/atl.broker.execution.v2", Name: "atl-broker-discovery-jira-execution-v2",
+			Title:       "atl Broker Jira execution-v2 discovery",
+			Description: "Fresh private advisory access for the fixed atl.broker.execution.v2 family; every invocation reauthorizes.",
+			MIMEType:    syntheticMCPResourceMIMEType,
+		})
+	}
 	return append(descriptors, []syntheticMCPResourceDescriptor{
 		{
 			URI:         syntheticMCPCapabilitiesResourceURI,

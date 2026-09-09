@@ -61,7 +61,7 @@ func TestSyntheticMCPServeArgsPreserveDefaultProfileOmission(t *testing.T) {
 	confluenceTools, confluenceOK := syntheticMCPToolsForService("confluence")
 	wantDefault := maps.Clone(jiraTools)
 	maps.Copy(wantDefault, confluenceTools)
-	if !defaultOK || !jiraOK || !confluenceOK || len(defaultTools) != 24 || len(confluenceTools) != 13 ||
+	if !defaultOK || !jiraOK || !confluenceOK || len(defaultTools) != 25 || len(jiraTools) != 12 || !jiraTools[brokerSelectedProcessOnlyMCPTool] || len(confluenceTools) != 13 ||
 		!confluenceTools["confluence_attachment_search"] || !maps.Equal(defaultTools, wantDefault) {
 		t.Fatalf("synthetic MCP inventories: default=%v jira=%v Confluence=%v ok=%t/%t/%t",
 			defaultTools, jiraTools, confluenceTools, defaultOK, jiraOK, confluenceOK)

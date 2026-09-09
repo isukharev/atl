@@ -397,7 +397,11 @@ func TestBoundedRoutePublishFlushesWhileContextIsLiveAndKeepsClippedDeadline(t *
 func TestBoundedRouteCompletedRequestsReuseKeepaliveConnection(t *testing.T) {
 	authenticator := &boundedRouteBlockingAuthenticator{started: make(chan struct{}), canceled: make(chan struct{})}
 	handler := boundedRouteTestHandler(t, authenticator)
-	server := httptest.NewTLSServer(handler)
+	finished := make(chan struct{}, 2)
+	server := httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		handler.ServeHTTP(writer, request)
+		finished <- struct{}{}
+	}))
 	t.Cleanup(server.Close)
 	client := server.Client()
 	request := func() *http.Request {
@@ -424,6 +428,15 @@ func TestBoundedRouteCompletedRequestsReuseKeepaliveConnection(t *testing.T) {
 	}
 	_, _ = io.Copy(io.Discard, response.Body)
 	response.Body.Close()
+	completion := time.NewTimer(2 * time.Second)
+	defer completion.Stop()
+	for range 2 {
+		select {
+		case <-finished:
+		case <-completion.C:
+			t.Fatal("completed HTTP responses did not release their handlers")
+		}
+	}
 	if !reused || authenticator.calls.Load() != 0 || len(handler.permits) != 0 {
 		t.Fatalf("reused=%t auth=%d permits=%d", reused, authenticator.calls.Load(), len(handler.permits))
 	}
