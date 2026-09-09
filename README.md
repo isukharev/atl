@@ -116,11 +116,11 @@ For inverse GitLab/Confluence references, use CLI-only `atl jira issue reference
 search` with explicit JQL, sources, mode and limits. Only complete exhaustive
 results prove absence. Before expanding a thread, run `atl conf comment list --id
 ID`. Attachment/tree/graph results qualify incomplete evidence; graph text's
-`URL` column contains safe URL-node identities.
+`URL` column contains safe URL-node identities. Remote-link failures include
+content-free diagnostics.
 
-Typed MCP offers smaller, read-only projections for agents. The CLI remains the
-route for native bodies, durable mirrors, large bounded traversals, exports,
-and every write.
+Typed MCP offers smaller read-only projections. CLI handles native bodies,
+durable mirrors, bounded traversals, exports, and every write.
 
 ### 2. Mirror and review locally
 
