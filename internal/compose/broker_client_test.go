@@ -199,7 +199,7 @@ func TestBrokerJiraOutcomeCompositionRequiresIndependentObserverSession(t *testi
 	}
 	if result, err := service.ObserveBrokerCommentOperation(t.Context(), "ticket-1"); result != nil {
 		t.Fatalf("result=%+v err=%v", result, err)
-	} else if reason, _ := brokercontract.Reason(err); reason != domain.BrokerReasonUnsupported {
-		t.Fatalf("reason=%s err=%v", reason, err)
+	} else if !errors.Is(err, domain.ErrConfig) {
+		t.Fatalf("missing observer session error=%v", err)
 	}
 }

@@ -59,6 +59,10 @@ outcome; `POST /v2/cache/qualify` for the separate cache family; and
 `POST /v2/execute` for one project page, alongside
 authenticated `GET /v1/protocol` for schema, registry,
 profile metadata, and the configured Broker id and workload audience. A client
+uses `/v1/protocol` only for its frozen `exact_reads_v1` descriptor: it lists
+the two exact reads, not guarded writes, even though its registry digest binds
+all current semantic-v1 definitions. Comment/outcome clients negotiate their
+operation support and advisory access through discovery-v2. A client
 checks that identity against its fixed configuration before execution. The
 response is compatibility metadata, not
 execution-scoped discovery or a grant. Paths, methods, queries, content type,

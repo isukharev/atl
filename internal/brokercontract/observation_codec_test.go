@@ -10,7 +10,7 @@ import (
 	"github.com/isukharev/atl/internal/domain"
 )
 
-func TestDiscoveryCannotAdvertiseGatedOperations(t *testing.T) {
+func TestDiscoveryKeepsClosedUniqueOperationsAndExplicitAvailability(t *testing.T) {
 	available := AvailableDefinitions()
 	operations := make([]domain.BrokerDiscoveryOperation, len(available))
 	for index, definition := range available {
@@ -25,15 +25,20 @@ func TestDiscoveryCannotAdvertiseGatedOperations(t *testing.T) {
 	if err != nil || !reflect.DeepEqual(decoded, value) {
 		t.Fatalf("decoded=%+v err=%v wire=%s", decoded, err, wire)
 	}
-	gated, _ := Definition(domain.BrokerOperationJiraCommentApply, 1)
-	value.Operations = append(value.Operations, domain.BrokerDiscoveryOperation{ID: gated.ID, Version: 1, Availability: domain.BrokerAvailabilityAvailable, Features: copyStrings(gated.RequiredFeatures), Limits: gated.Limits})
+	duplicate := value.Operations[0]
+	value.Operations = append(value.Operations, duplicate)
 	if _, err := EncodeDiscoveryV1(value); !errors.Is(err, domain.ErrUsage) {
-		t.Fatalf("gated advertisement error=%v", err)
+		t.Fatalf("duplicate advertisement error=%v", err)
 	}
-	value.Operations[len(value.Operations)-1].Availability = domain.BrokerAvailabilityUnsupported
+	value.Operations = value.Operations[:len(value.Operations)-1]
+	value.Operations[0].Availability = domain.BrokerAvailabilityUnsupported
 	sort.Slice(value.Operations, func(i, j int) bool { return value.Operations[i].ID < value.Operations[j].ID })
 	if _, err := EncodeDiscoveryV1(value); err != nil {
 		t.Fatalf("explicit unsupported fact rejected: %v", err)
+	}
+	value.Operations[0].ID = "unknown.operation"
+	if _, err := EncodeDiscoveryV1(value); !errors.Is(err, domain.ErrUsage) {
+		t.Fatalf("unknown operation accepted: %v", err)
 	}
 }
 

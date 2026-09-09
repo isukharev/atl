@@ -76,7 +76,7 @@ func TestDiscoveryRunningClientObservesGrantRevokeAndCurrentSession(t *testing.T
 	for _, access := range []domain.BrokerDiscoveryAccess{domain.BrokerDiscoveryAccessUnavailable, domain.BrokerDiscoveryAccessAllowed, domain.BrokerDiscoveryAccessRequestRequired, domain.BrokerDiscoveryAccessUnavailable} {
 		f.authorizer.discoveryAccess = access
 		projection, err := client.Discover(t.Context(), "jira")
-		if err != nil || len(projection.Operations) != 1 || projection.Operations[0].Access != access {
+		if err != nil || len(projection.Operations) != 4 || projection.Operations[0].Access != access {
 			t.Fatalf("access=%s result=%+v err=%v", access, projection, err)
 		}
 		encoded, _ := brokercontract.EncodeDiscoveryProjectionV2(projection)

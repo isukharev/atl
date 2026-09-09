@@ -35,8 +35,12 @@ func TestBrokerDiscoveryRejectsDriftExpiryCancellationAndAuthorityOutage(t *test
 				if name == "outage" {
 					return domain.BrokerDiscoveryProjectionV2{}, errors.New("private-authority-canary")
 				}
-				definition, _ := brokercontract.Definition(domain.BrokerOperationJiraIssueRead, 1)
-				p := domain.BrokerDiscoveryProjectionV2{SchemaVersion: 2, RequestID: request.RequestID, RequestSHA256: bound.RequestSHA256, ContextSHA256: request.ContextSHA256, ExecutionID: verified.ExecutionID, ExecutionEpoch: verified.ExecutionEpoch, Audience: verified.Audience, BrokerID: verified.BrokerID, AuthorityRevision: verified.AuthorityRevision, Service: "jira", RegistrySHA256: brokercontract.RegistrySHA256(), ContractSchemaSHA256: brokercontract.SchemaSHA256(), DiscoverySchemaSHA256: brokercontract.DiscoverySchemaSHA256V2(), IssuedAtMillis: now.UnixMilli(), ExpiresAtMillis: request.NotAfterMillis, Complete: true, Operations: []domain.BrokerDiscoveryOperationV2{{ID: definition.ID, Version: definition.Version, Supported: true, Access: domain.BrokerDiscoveryAccessAllowed, Features: definition.RequiredFeatures, Limits: definition.Limits, Effects: definition.Effects}}}
+				p := domain.BrokerDiscoveryProjectionV2{SchemaVersion: 2, RequestID: request.RequestID, RequestSHA256: bound.RequestSHA256, ContextSHA256: request.ContextSHA256, ExecutionID: verified.ExecutionID, ExecutionEpoch: verified.ExecutionEpoch, Audience: verified.Audience, BrokerID: verified.BrokerID, AuthorityRevision: verified.AuthorityRevision, Service: "jira", RegistrySHA256: brokercontract.RegistrySHA256(), ContractSchemaSHA256: brokercontract.SchemaSHA256(), DiscoverySchemaSHA256: brokercontract.DiscoverySchemaSHA256V2(), IssuedAtMillis: now.UnixMilli(), ExpiresAtMillis: request.NotAfterMillis, Complete: true}
+				for _, definition := range brokercontract.AvailableDefinitions() {
+					if definition.BackendService == "jira" {
+						p.Operations = append(p.Operations, domain.BrokerDiscoveryOperationV2{ID: definition.ID, Version: definition.Version, Supported: true, Access: domain.BrokerDiscoveryAccessAllowed, Features: definition.RequiredFeatures, Limits: definition.Limits, Effects: definition.Effects})
+					}
+				}
 				if name == "late authority" {
 					now = now.Add(6 * time.Second)
 				}

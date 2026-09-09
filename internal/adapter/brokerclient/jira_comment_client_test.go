@@ -18,8 +18,15 @@ import (
 	"github.com/isukharev/atl/internal/httpx"
 )
 
-func TestGuardedCommentPublicMethodsRespectUnavailableRegistryBeforeSession(t *testing.T) {
-	loader := &countingSessionLoader{value: testSession()}
+type refusingCommentSessionLoader struct{ calls int }
+
+func (loader *refusingCommentSessionLoader) Load() (Session, error) {
+	loader.calls++
+	return Session{}, domain.ErrConfig
+}
+
+func TestGuardedCommentPublicMethodsRequireSessionAfterValidation(t *testing.T) {
+	loader := &refusingCommentSessionLoader{}
 	client, err := New(Config{BaseURL: "https://127.0.0.1:1", BrokerID: "broker-1", Audience: "atl-broker", Session: loader})
 	if err != nil {
 		t.Fatal(err)
@@ -36,15 +43,18 @@ func TestGuardedCommentPublicMethodsRespectUnavailableRegistryBeforeSession(t *t
 		func() error { _, err := client.ObserveBrokerOperation(t.Context(), "ticket-1"); return err },
 	} {
 		err := call()
-		if reason, _ := brokercontract.Reason(err); reason != domain.BrokerReasonUnsupported {
-			t.Fatalf("reason=%s err=%v", reason, err)
+		if !errors.Is(err, domain.ErrConfig) {
+			t.Fatalf("missing session error=%v", err)
 		}
 	}
-	if loader.calls.Load() != 0 {
-		t.Fatalf("session loads=%d, want zero", loader.calls.Load())
+	if loader.calls != 3 {
+		t.Fatalf("session loads=%d, want one per valid invocation", loader.calls)
 	}
 	if _, err := client.PreviewJiraComment(t.Context(), "not a key", []byte("body")); !errors.Is(err, domain.ErrUsage) {
 		t.Fatalf("invalid preview err=%v", err)
+	}
+	if loader.calls != 3 {
+		t.Fatal("invalid input loaded a session")
 	}
 }
 

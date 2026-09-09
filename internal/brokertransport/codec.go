@@ -156,9 +156,14 @@ func ProtocolV1(brokerID, audience string) (Protocol, error) {
 		return Protocol{}, malformedError()
 	}
 	definitions := brokercontract.AvailableDefinitions()
-	operations := make([]ProtocolOperation, len(definitions))
-	for index, definition := range definitions {
-		operations[index] = ProtocolOperation{definition.ID, definition.Version, append([]string{}, definition.RequiredFeatures...), definition.Limits.MaxRequestBytes, definition.Limits.MaxResponseBytes}
+	operations := make([]ProtocolOperation, 0, 2)
+	for _, definition := range definitions {
+		// The frozen HTTP descriptor is the exact_reads_v1 profile. Broader
+		// semantic-v1 operations negotiate through discovery-v2 instead.
+		if definition.ID != domain.BrokerOperationJiraIssueRead && definition.ID != domain.BrokerOperationConfluencePageRead {
+			continue
+		}
+		operations = append(operations, ProtocolOperation{definition.ID, definition.Version, append([]string{}, definition.RequiredFeatures...), definition.Limits.MaxRequestBytes, definition.Limits.MaxResponseBytes})
 	}
 	return Protocol{SchemaVersion: SchemaVersion, BrokerID: brokerID, Audience: audience, ContractSchemaSHA256: brokercontract.SchemaSHA256(), TransportSchemaSHA256: SchemaSHA256(), RegistrySHA256: brokercontract.RegistrySHA256(), AuthenticationProfile: AuthenticationProfileV1, ExecutionProfile: "exact_reads_v1", ConsistencyProfile: domain.BrokerReadConsistencyIdentitySnapshotV1, Operations: operations, Complete: true}, nil
 }

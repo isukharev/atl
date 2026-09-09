@@ -16,8 +16,8 @@ type BrokerJiraCommentResult struct {
 	ReleaseDeadline time.Time
 }
 
-// BrokerJiraCommentService is an injectable app core. No runtime route creates
-// it yet, and registry availability remains false.
+// BrokerJiraCommentService coordinates the explicitly selected guarded-comment
+// runtime with independent authority, local policy and durable journal ports.
 type BrokerJiraCommentService struct {
 	authorizer domain.BrokerAuthorizer
 	journal    domain.BrokerJournal

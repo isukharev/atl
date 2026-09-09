@@ -16,7 +16,7 @@ import (
 
 func TestRegistryIsClosedStableAndAvailabilityIsExplicit(t *testing.T) {
 	definitions := Registry()
-	if len(definitions) != 5 || len(AvailableDefinitions()) != 2 || !validDigest(RegistrySHA256()) || !validDigest(SchemaSHA256()) {
+	if len(definitions) != 5 || len(AvailableDefinitions()) != 5 || !validDigest(RegistrySHA256()) || !validDigest(SchemaSHA256()) {
 		t.Fatalf("definitions=%d available=%d registry=%q schema=%q", len(definitions), len(AvailableDefinitions()), RegistrySHA256(), SchemaSHA256())
 	}
 	want := []domain.BrokerOperationID{
@@ -37,7 +37,7 @@ func TestRegistryIsClosedStableAndAvailabilityIsExplicit(t *testing.T) {
 			definition.Limits.Qualification.MaxResponseBytes > definition.Limits.MaxTotalUpstreamResponseBytes || definition.Limits.Business.MaxResponseBytes > definition.Limits.MaxTotalUpstreamResponseBytes {
 			t.Fatalf("invalid definition=%+v", definition)
 		}
-		if definition.Available != (definition.ID == domain.BrokerOperationJiraIssueRead || definition.ID == domain.BrokerOperationConfluencePageRead) {
+		if !definition.Available {
 			t.Fatalf("availability drift=%+v", definition)
 		}
 	}

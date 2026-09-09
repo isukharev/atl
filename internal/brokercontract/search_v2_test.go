@@ -201,7 +201,7 @@ func TestProjectPageV2RequestAndRegistryAreClosedAndAvailable(t *testing.T) {
 	if len(definitions) != 1 || definitions[0].Definition.ID != request.Operation || !definitions[0].Definition.Available ||
 		definitions[0].Definition.Limits.MaxResources != 16 || definitions[0].MaxEffects != 16 || definitions[0].Definition.Limits.MaxTotalUpstreamRequests != 3 ||
 		definitions[0].Definition.Limits.MaxTotalUpstreamResponseBytes != 68_419_584 || !validDigest(RegistrySHA256V2()) ||
-		RegistrySHA256() != "c579297a8d9ac454aaf0fdbd17a83167480f70a53d3446e5aead3776849bd5b5" ||
+		RegistrySHA256() != "a712329120114874b6d1c2f62884ca28a45cdef8616fd78073bc3a6a72fae72c" ||
 		SchemaSHA256() != "fdf82ad96e59a6c32f639f4602da15632dfcb72ab0fb734df00782bf29967372" {
 		t.Fatalf("definitions=%+v v2=%s v1=%s/%s", definitions, RegistrySHA256V2(), RegistrySHA256(), SchemaSHA256())
 	}
