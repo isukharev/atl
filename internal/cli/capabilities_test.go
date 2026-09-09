@@ -20,8 +20,8 @@ func TestCapabilityCatalogDefinitionsAreValidAndUnique(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if catalog.SchemaVersion != capabilityCatalogSchemaVersion || catalog.Selection.Count != 69 {
-		t.Fatalf("catalog metadata=%+v definitions want=69", catalog)
+	if catalog.SchemaVersion != capabilityCatalogSchemaVersion || catalog.Selection.Count != 70 {
+		t.Fatalf("catalog count=%d schema=%d definitions want=70", catalog.Selection.Count, catalog.SchemaVersion)
 	}
 	if catalog.Routing.Match != "exact" || !strings.Contains(catalog.Routing.ReferenceLoad, "do not search") {
 		t.Fatalf("routing contract=%+v", catalog.Routing)
@@ -55,16 +55,16 @@ func TestCapabilityCatalogDefinitionsAreValidAndUnique(t *testing.T) {
 			t.Fatalf("%s skill route=%q/%q", item.ID, item.Skill, item.Reference)
 		}
 	}
-	if readOnly != 60 || mutating != 9 || len(mcpTools) != 24 {
-		t.Fatalf("access=%d/%d unique_mcp_tools=%d want=60/9/24", readOnly, mutating, len(mcpTools))
+	if readOnly != 61 || mutating != 9 || len(mcpTools) != 24 {
+		t.Fatalf("access=%d/%d unique_mcp_tools=%d want=61/9/24", readOnly, mutating, len(mcpTools))
 	}
 }
 
 func TestCapabilityDefinitionsResolveAllCobraRoutes(t *testing.T) {
 	root := newRoot()
 	definitions := capabilitydef.Definitions()
-	if len(definitions) != 69 {
-		t.Fatalf("definitions=%d want=69", len(definitions))
+	if len(definitions) != 70 {
+		t.Fatalf("definitions=%d want=70", len(definitions))
 	}
 	for _, definition := range definitions {
 		command, remaining, err := root.Find(strings.Fields(definition.CLICommand))
@@ -144,8 +144,8 @@ func TestCapabilityCatalogPreservesLegacyProjectionAndAddsTransportRouting(t *te
 			mappedMutating++
 		}
 	}
-	if mapped != 33 || cliOnly != 36 {
-		t.Fatalf("mapped=%d cli_only=%d want=33/36", mapped, cliOnly)
+	if mapped != 33 || cliOnly != 37 {
+		t.Fatalf("mapped=%d cli_only=%d want=33/37", mapped, cliOnly)
 	}
 	if mappedMutating != 0 {
 		t.Fatalf("mapped mutating capabilities=%d want=0", mappedMutating)
@@ -160,7 +160,7 @@ func TestCapabilityTaskRoutesStaySmallAndOrdered(t *testing.T) {
 		{"confluence/attachment-discovery", []string{"confluence.attachment.search"}},
 		{"jira/setup", []string{"jira.project.list", "jira.issue.create-check"}},
 		{"jira/evidence", []string{"jira.issue.search", "jira.issue.fields", "jira.epic.digest", "jira.issue.field.get", "jira.issue.refs", "jira.issue.history"}},
-		{"jira/graph-evidence", []string{"jira.issue.graph"}},
+		{"jira/graph-evidence", []string{"jira.issue.graph", "jira.issue.children"}},
 		{"jira/inverse-reference", []string{"jira.issue.reference.search"}},
 		{"jira/portfolio", []string{"jira.board.list", "jira.board.view", "jira.structure.get", "jira.structure.folders", "jira.structure.view", "jira.portfolio.epic.digest", "jira.portfolio.confluence.section"}},
 		{"jira/board-portfolio", []string{"jira.board-portfolio.fields", "jira.board-portfolio.view", "jira.board-portfolio.epic.digest"}},

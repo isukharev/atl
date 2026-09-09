@@ -257,6 +257,14 @@ returns qualification without facts and cannot be combined with another
 selector. Invalid combinations fail before Jira client construction or network
 access.
 
+Choose collectors before reads with `include_sources` or `exclude_sources`
+string arrays, using the canonical source names from the
+[graph reference](reference/cli/jira-graph.md). Empty forms are invalid and
+Development still requires `include_development:true`. Unlike compact `select`,
+these inputs change collection at every depth. Inspect `source_selection` for
+the selected/omitted partition and supporting snapshot fields; completeness
+covers selected sources only, and omitted sources prove no absence.
+
 ```json
 {
   "key": "PROJ-1",

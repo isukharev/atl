@@ -21,6 +21,8 @@ Build one deterministic bounded work-artifact graph from an exact Jira issue:
 export ATL_READ_ONLY=1
 atl jira issue graph PROJ-1
 atl jira issue graph PROJ-1 --depth 2 --strict
+atl jira issue graph PROJ-1 --include-sources issue_links,hierarchy --depth 1
+atl jira issue graph PROJ-1 --exclude-sources comments,worklogs,issue_properties
 atl jira issue graph PROJ-1 --resolve confluence
 atl jira issue graph PROJ-1 --include-development
 atl jira issue graph PROJ-1 --projection compact
@@ -34,7 +36,8 @@ is deliberately Jira-only: it has no
 Confluence resolution input, always leaves discovered page identities as
 qualified stubs, and has no `strict` option. Supply `key`, optional `depth` from
 0 through 2, and optional `max_nodes`, `max_edges`, `max_requests`,
-`include_development`, `projection`, `select`, and `max_bytes`. Nodes default to
+`include_development`, `include_sources`, `exclude_sources`, `projection`,
+`select`, and `max_bytes`. Nodes default to
 50 and cap at 100;
 edges default to 200 and cap at 500; physical requests default to 50 and cap at
 100. Evidence is fixed at 500 records and the aggregate buffered Jira response
@@ -46,6 +49,45 @@ entire tool call rather than returning a clipped graph. Omitting
 `include_development` or supplying false preserves the stable request and output
 profile; the resulting absence of Development evidence is not proof of zero
 development work.
+
+`--include-sources` and `--exclude-sources` choose collectors before reads.
+Each accepts repeatable/comma-separated names; MCP uses `include_sources` and
+`exclude_sources` arrays. The closed order is `issue_fields`, `issue_links`,
+`hierarchy`, `attachments`, `issue_properties`, `comments`, `worklogs`,
+`remote_links`, `development`. Omitted includes start with the eight stable
+sources; explicit includes replace that set, and excludes subtract from it.
+Each form accepts at most nine tokens of at most 32 bytes. Duplicates are
+deduplicated into the closed order. Unknown, blank, whitespace-padded or empty
+forms, and a final empty set, fail before configuration or reads.
+
+`--include-development` still explicitly adds Development to either the default
+or explicit include set. Naming `development` without that opt-in, or excluding
+it while opting in, is invalid. An omitted development flag never enables it.
+Compact `--select` is a separate output-only choice; it does not choose sources.
+
+Only selected collectors run at each attempted depth. Full and compact output
+add optional `source_selection` schema v1 with canonical `selected`/`omitted`
+arrays and a `snapshot` projection. Completeness, strict mode, source counts and
+source bounds apply only to selected collectors. Omission cannot prove absence.
+Without either source selector, output bytes and request order are unchanged.
+
+Every snapshot still reads identity, summary, names and schema. Selecting
+`issue_fields` or `hierarchy` requires `fields=*all`; hierarchy needs returned
+field metadata to discover dynamic Epic Link fields without a global catalog
+request. Hierarchy without `issue_fields` reports
+`snapshot.supporting_fields_reason:"hierarchy_discovery"` and never runs the
+narrative field collector. Otherwise fields are `summary`, plus `issuelinks`
+and/or `attachment` only when their collectors are selected. Properties are
+requested only for `issue_properties`; unsolicited properties are ignored.
+Supporting bytes still consume the shared response-byte bound. A backend
+without projected snapshot support fails closed for explicit selection.
+
+For inverse parent membership, `atl capabilities --task jira/graph-evidence`
+also routes to the existing `jira issue children <KEY>` bounded IssueList page.
+Use `--epic-field parent` for modern direct-parent relations, retain the emitted
+parent/relation qualification and follow `next_cursor` when present. Board and
+Structure reads remain the portfolio routes; the legacy issue-tree schema is
+unchanged.
 
 CLI `--include-development` and typed MCP `include_development:true` explicitly
 opt into Jira's experimental Development surface. For every successfully
@@ -158,8 +200,9 @@ may exit 0 with `complete:false`; consumers must inspect qualification.
 `-o id` is unsupported because a graph has no single primary identifier class,
 and invalid flags are rejected before configuration, credentials, or network.
 
-The root uses one single-attempt issue request with all returned applicable
-fields, field names/schema, and issue properties. Before recursive inspection,
+Without source selectors, the root uses one single-attempt issue request with
+all returned applicable fields, field names/schema, and issue properties.
+For a selected `issue_fields` collector, before recursive inspection,
 returned fields are reconciled against schema metadata. A recursively eligible
 field with missing, blank, unknown, or structurally invalid type/item metadata
 is not inspected and makes `issue_fields` partial with `malformed_response`.
@@ -188,8 +231,8 @@ URL is requested.
 `complete`, `empty`, `partial`, `forbidden`, `unsupported`, or `skipped`, with
 static content-free reasons. Malformed, request-failed, inspection-limited, and
 output-limited sources remain visibly incomplete. `empty` proves absence only
-for that named source. Source stability is fixed per kind: `issue_properties`
-is `experimental_api`; every other current source kind is `public_api`.
+for that selected source. Source stability is fixed per kind: `issue_properties`
+and opt-in `development` are `experimental_api`; other source kinds are `public_api`.
 `issue_properties` remains ordered; its count is the returned property count,
 while completeness means that set was processed under the fixed privacy
 exclusions and bounds. Auxiliary failures keep the

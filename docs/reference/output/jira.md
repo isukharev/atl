@@ -640,7 +640,8 @@ tab-separated field records.
 Typed MCP `jira_issue_graph` returns the same full-v2 default or compact-v1
 projection through a Jira-only read. Its schema requires one canonical issue
 `key` and accepts optional `depth` from 0 through 2, `max_nodes`, `max_edges`,
-`max_requests`, `include_development`, `projection`, `select`, and `max_bytes`.
+`max_requests`, `include_development`, `include_sources`, `exclude_sources`,
+`projection`, `select`, and `max_bytes`.
 It deliberately accepts neither
 `resolve`/`resolve_confluence` nor `strict`: Confluence identities remain
 qualified stubs, and callers inspect `complete`, sources, reconciliation, and
@@ -668,6 +669,45 @@ development activity.
 graph. The omitted or explicit full projection is the existing schema-v2 byte
 contract; compact is a qualified schema-v1 fact projection derived after full
 bounded collection. Depth defaults to zero.
+
+Explicit CLI `--include-sources`/`--exclude-sources` or typed MCP
+`include_sources`/`exclude_sources` adds the following optional member to either
+projection. With neither selector, this member is absent and existing bytes
+and request order remain unchanged. This example selects only structured links:
+
+```json
+{
+  "source_selection": {
+    "schema_version": 1,
+    "selected": ["issue_links"],
+    "omitted": ["issue_fields", "hierarchy", "attachments", "issue_properties", "comments", "worklogs", "remote_links", "development"],
+    "snapshot": {"fields": ["summary", "issuelinks"], "properties": false}
+  }
+}
+```
+
+The non-null arrays partition all nine source kinds in their fixed collector
+order; `selected` is nonempty, and `omitted` may be empty. Every attempted Jira
+node has rows only for selected collectors. `complete`, strict mode, source
+status/count reconciliation, and `max_sources = max_nodes * selected_count + 1`
+use that scope at every depth. The extra reserved row remains available only to
+the separately requested CLI Confluence metadata phase. MCP never requests it.
+Omitted sources establish no absence. `frontier` still qualifies selected
+structured relations whose expansion reached a bound.
+
+`snapshot.fields` is `["*all"]` when `issue_fields` or `hierarchy` is selected;
+otherwise it is `["summary"]`, then `"issuelinks"` and/or `"attachment"` when
+selected, in that order. `properties` is true exactly for `issue_properties`.
+Every snapshot also expands names/schema. Hierarchy without `issue_fields`
+adds the sole optional reason `supporting_fields_reason:"hierarchy_discovery"`:
+dynamic Epic Link discovery needs broad returned fields, but those supporting
+bytes are not inspected by an omitted narrative collector. No extra catalog
+request is made. The projection applies to each attempted node and all returned
+supporting bytes count toward the response budget. Inventories, projection,
+version, provenance, and per-node selected-source accounting are validated.
+Compact preserves `source_selection` even when complete source rows are omitted
+by its output projection. Compact `projection.selected` remains a distinct
+choice of emitted fact classes and does not reduce collector traffic.
 
 The CLI `--include-development` option and typed MCP
 `include_development:true` input add

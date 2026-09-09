@@ -14,7 +14,10 @@ func validateJiraGraphV2Result(result *JiraIssueGraphResult) error {
 	if result == nil {
 		return invalid("result is nil")
 	}
-	activeSourceKinds := jiraGraphSourceKinds(result.Bounds.IncludeDevelopment)
+	if err := validateJiraGraphSourceSelection(result.SourceSelection, result.Bounds.IncludeDevelopment); err != nil {
+		return err
+	}
+	activeSourceKinds := jiraGraphSelectedKinds(result.SourceSelection, result.Bounds.IncludeDevelopment)
 	if result.SchemaVersion != jiraIssueGraphSchemaVersionV2 ||
 		result.Bounds.RequestedDepth < 0 || result.Bounds.RequestedDepth > jiraGraphMaxDepth ||
 		result.Bounds.MaxNodes < 1 || result.Bounds.MaxNodes > jiraGraphMaxNodes ||

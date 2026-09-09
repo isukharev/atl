@@ -124,7 +124,13 @@ returned counts instead of recomputing changelog arithmetic, and fall back to
 the CLI when individual changes are themselves the required evidence.
 `jira_issue_graph` takes one canonical issue `key`. Omitted or explicit full
 projection returns the byte-compatible schema-v2 graph; compact returns schema
-v1 after full bounded collection. Set `projection:"compact"`; its `select`
+v1 after bounded collection. Use `include_sources`/`exclude_sources` arrays to
+choose collectors before reads; these differ from compact output-only `select`.
+Use canonical source names, reject empty forms, and keep Development's separate
+opt-in. Inspect `source_selection` for selected/omitted sources and supporting
+snapshot fields: completeness covers selected sources only, and omission never
+proves absence. With neither source selector, existing bytes and request order
+remain unchanged. Set `projection:"compact"`; its `select`
 array accepts `urls`, `scm`, or qualification-only `none`, defaults to URLs,
 and adds SCM by default only when Development is enabled. Explicit SCM requires
 that opt-in. Start at depth zero;

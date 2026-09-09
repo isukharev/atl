@@ -77,7 +77,7 @@
     },
     {
       "path": "atl/reference/mcp.md",
-      "sha256": "f5a3fb0f3da6a3fb6f9f50d97425596ebaa414b1302826975fe8deb159a47716"
+      "sha256": "c9250bc57cff86b0dd535af3d0410208d60e6734182bd5405dfb8ecb23722306"
     },
     {
       "path": "atl/reference/mental-model.md",
@@ -133,7 +133,7 @@
     },
     {
       "path": "jira/SKILL.md",
-      "sha256": "9b676670129878d852fdada3fca0ea6fcef5ccc672991b5628e58890c898c685"
+      "sha256": "1f9164887fa61916bdaee9cbb827bcd9a7c3a944293e2a07aecba198b18ce274"
     },
     {
       "path": "jira/agents/openai.yaml",
@@ -145,7 +145,7 @@
     },
     {
       "path": "jira/reference/commands.md",
-      "sha256": "e73ca5600829c9020b1c483524b8de9d34d6b0e8404e759487e324695e74aeef"
+      "sha256": "98651778e0b678c3dcffc490030eff7b3eaf94a41f49aa954d9ccb7e762b6944"
     },
     {
       "path": "jira/reference/editing.md",
@@ -157,7 +157,7 @@
     },
     {
       "path": "jira/reference/evidence-workflow.md",
-      "sha256": "fcc06885fdc7df4e6781d3c97d8370ccf8f1c4b64bb69d158424dca092acf0e0"
+      "sha256": "2bd3e74229148c53f9832a9a5206cfe2a133b5740248dad4d358ac4cd2042abf"
     },
     {
       "path": "jira/reference/extended-capabilities.md",

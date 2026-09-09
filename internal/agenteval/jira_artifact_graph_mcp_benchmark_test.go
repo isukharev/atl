@@ -89,6 +89,9 @@ func TestJiraArtifactGraphMCPFixturesDriveSelectedATLBinary(t *testing.T) {
 			if err != nil {
 				t.Fatalf("decode Jira issue graph: %v", err)
 			}
+			if graph.SourceSelection != nil {
+				t.Fatal("default graph unexpectedly emitted explicit source_selection")
+			}
 			encodedProduct := called.StructuredContent
 			labelsPresent, narrativePresent, developmentPresent := jiraArtifactGraphMCPProjectionLeaks(t, cohort, encodedProduct)
 			final := jiraArtifactGraphMCPFinal(t, cohort, &graph, labelsPresent, narrativePresent, developmentPresent)

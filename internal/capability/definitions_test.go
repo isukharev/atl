@@ -9,8 +9,8 @@ import (
 
 func TestDefinitionsReturnsDefensiveCopy(t *testing.T) {
 	first := Definitions()
-	if len(first) != 69 {
-		t.Fatalf("definitions=%d want=69", len(first))
+	if len(first) != 70 {
+		t.Fatalf("definitions=%d want=70", len(first))
 	}
 	want := first[0]
 	first[0] = Definition{ID: "changed"}
@@ -27,7 +27,7 @@ func TestDefinitionsCanonicalMetadataDigestIsStable(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := sha256.Sum256(encoded)
-	const want = "5c15e676be9a6c9223e43973699c8b3f0a064de3c9d81d749d347f10e0d81adf"
+	const want = "4416228bedc713d9a6536715471ce423cfbc1cc40f90cebe9ed38672abaf4e55"
 	if hex.EncodeToString(got[:]) != want {
 		t.Fatalf("definition metadata digest=%x", got)
 	}
@@ -51,8 +51,8 @@ func TestDefinitionsTransportMappings(t *testing.T) {
 			mappedMutating++
 		}
 	}
-	if mapped != 33 || cliOnly != 36 {
-		t.Fatalf("mapped=%d cli_only=%d want=33/36", mapped, cliOnly)
+	if mapped != 33 || cliOnly != 37 {
+		t.Fatalf("mapped=%d cli_only=%d want=33/37", mapped, cliOnly)
 	}
 	if mappedMutating != 0 {
 		t.Fatalf("mapped mutating definitions=%d want=0", mappedMutating)
@@ -183,6 +183,22 @@ func TestJiraIssueGraphHasOneJiraOnlyTypedRoute(t *testing.T) {
 	}
 	if graphCount != 1 {
 		t.Fatalf("jira.issue.graph definitions=%d want=1", graphCount)
+	}
+}
+
+func TestJiraIssueChildrenIsBoundedGraphEvidenceRoute(t *testing.T) {
+	count := 0
+	for _, definition := range Definitions() {
+		if definition.ID != "jira.issue.children" {
+			continue
+		}
+		count++
+		if definition.TaskClass != "jira/graph-evidence" || definition.Service != "jira" || definition.Role != "expand" || definition.Priority != 20 || definition.CLICommand != "jira issue children" || definition.MCPTool != "" || definition.Completeness != "explicit" || definition.Evidence != "qualified" {
+			t.Fatalf("children route=%+v", definition)
+		}
+	}
+	if count != 1 {
+		t.Fatalf("children routes=%d", count)
 	}
 }
 

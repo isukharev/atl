@@ -105,15 +105,16 @@ an unqualified full page.
 
 ### 1. Read narrowly
 
-Start with CQL/JQL discovery, then read only selected objects or fields. Use
-`atl jira issue graph KEY --depth 0` for links, hierarchy, documentation,
-attachments, or Development identities; add `--projection compact` for
-qualified URL/SCM JSON. From one GitLab project or Confluence page, use CLI-only
-`atl jira issue reference search` with explicit JQL scope, sources, mode, and
-limits; only a complete exhaustive result proves absence. Run `atl conf comment
-list --id ID` before expanding one thread. These attachment/tree/graph surfaces
-qualify incomplete evidence; text exposes safe URL-node identities in its `URL`
-column.
+Discover with CQL/JQL; read selectively. `atl jira issue graph KEY
+--depth 0` covers links, hierarchy, docs, attachments and Development identities;
+`--projection compact` yields qualified URL/SCM JSON. Select collectors with
+`--include-sources`/`--exclude-sources`; omitted sources cannot prove absence.
+Discover bounded `jira issue children` through `jira/graph-evidence`.
+For inverse GitLab/Confluence references, use CLI-only `atl jira issue reference
+search` with explicit JQL, sources, mode and limits. Only complete exhaustive
+results prove absence. Before expanding a thread, run `atl conf comment list --id
+ID`. Attachment/tree/graph results qualify incomplete evidence; graph text's
+`URL` column contains safe URL-node identities.
 
 Typed MCP offers smaller, read-only projections for agents. The CLI remains the
 route for native bodies, durable mirrors, large bounded traversals, exports,

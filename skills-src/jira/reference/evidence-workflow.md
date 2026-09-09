@@ -26,6 +26,25 @@ expansion. Skip that search when the task already supplies one exact issue key.
 For one exact issue and a relationship/discovery question, begin with one typed
 `jira_issue_graph` call when available, or the CLI under `ATL_READ_ONLY=1`.
 Start with the default full schema-v2 read at depth zero. Verify top-level
+qualification, selecting only necessary collectors through MCP `include_sources`
+or `exclude_sources`, or CLI `--include-sources`/`--exclude-sources`, when the
+task identifies its evidence scope. The canonical names are `issue_fields`,
+`issue_links`, `hierarchy`, `attachments`, `issue_properties`, `comments`,
+`worklogs`, `remote_links`, `development`. Explicit includes replace the stable
+default eight, excludes subtract, and Development still requires its separate
+opt-in (which adds it even with explicit includes). Never exclude Development
+while opting in. Empty forms or a final empty set are invalid. Each form is
+bounded to nine tokens and deduplicated in canonical order.
+Inspect optional `source_selection` schema v1 in full or compact output:
+selected/omitted inventory and snapshot projection apply at every depth, and
+completeness covers selected sources only. Omitted sources prove no absence.
+Hierarchy may require all fields for dynamic Epic Link discovery, disclosed as
+`hierarchy_discovery`; omitted narrative collectors still do not run. Source
+selection reduces collector requests; compact fact selection does not.
+For inverse parent membership, the same `jira/graph-evidence` capability class
+also returns the existing bounded `jira issue children` route. Use
+`--epic-field parent` for direct-parent relations and preserve parent/relation
+qualification and continuation. Then verify top-level
 reconciliation and every requested source, and distinguish structured relations
 from heuristic `mentions`. When
 the question truly spans linked Jira work, use the smallest sufficient MCP

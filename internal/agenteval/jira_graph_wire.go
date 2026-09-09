@@ -39,17 +39,18 @@ var (
 // JiraIssueGraphView is the evaluator-owned released jira_issue_graph wire.
 // It intentionally excludes product-private and narrative fields.
 type JiraIssueGraphView struct {
-	SchemaVersion int                      `json:"schema_version"`
-	RootID        string                   `json:"root_id"`
-	Complete      bool                     `json:"complete"`
-	Truncated     bool                     `json:"truncated"`
-	Bounds        JiraIssueGraphBounds     `json:"bounds"`
-	Summary       JiraIssueGraphSummary    `json:"summary"`
-	Nodes         []JiraIssueGraphNode     `json:"nodes"`
-	Edges         []JiraIssueGraphEdge     `json:"edges"`
-	Sources       []JiraIssueGraphSource   `json:"sources"`
-	Frontier      []JiraIssueGraphFrontier `json:"frontier"`
-	Warnings      []string                 `json:"warnings"`
+	SchemaVersion   int                            `json:"schema_version"`
+	RootID          string                         `json:"root_id"`
+	Complete        bool                           `json:"complete"`
+	Truncated       bool                           `json:"truncated"`
+	Bounds          JiraIssueGraphBounds           `json:"bounds"`
+	SourceSelection *JiraIssueGraphSourceSelection `json:"source_selection,omitempty"`
+	Summary         JiraIssueGraphSummary          `json:"summary"`
+	Nodes           []JiraIssueGraphNode           `json:"nodes"`
+	Edges           []JiraIssueGraphEdge           `json:"edges"`
+	Sources         []JiraIssueGraphSource         `json:"sources"`
+	Frontier        []JiraIssueGraphFrontier       `json:"frontier"`
+	Warnings        []string                       `json:"warnings"`
 }
 
 type JiraIssueGraphBounds struct {
@@ -190,13 +191,18 @@ func validateJiraGraphWireMembers(data []byte) error {
 	if err := jiraGraphWireMembers(root, "graph", []string{
 		"schema_version", "root_id", "complete", "truncated", "bounds", "summary",
 		"nodes", "edges", "sources", "frontier",
-	}, nil); err != nil {
+	}, []string{"source_selection"}); err != nil {
 		return err
 	}
 	if !warningsPresent {
 		return fmt.Errorf("graph.warnings is required")
 	}
 	root["warnings"] = warnings
+	if raw, ok := root["source_selection"]; ok {
+		if err := validateJiraGraphSourceSelectionMembers(raw); err != nil {
+			return err
+		}
+	}
 	bounds, err := jiraGraphWireObject(root["bounds"], "graph.bounds")
 	if err != nil {
 		return err
@@ -353,7 +359,10 @@ func jiraGraphWireNull(raw json.RawMessage) bool {
 
 func (view JiraIssueGraphView) validate() error {
 	bounds := view.Bounds
-	sourceKinds := jiraGraphWireSourceKinds(bounds.IncludeDevelopment)
+	sourceKinds, err := validateJiraGraphSourceSelection(view.SourceSelection, bounds.IncludeDevelopment)
+	if err != nil {
+		return err
+	}
 	if view.SchemaVersion != JiraIssueGraphViewSchemaVersion || !jiraGraphWireJiraID(view.RootID) {
 		return fmt.Errorf("schema version or root is invalid")
 	}
@@ -406,7 +415,7 @@ func (view JiraIssueGraphView) validate() error {
 	developmentProjects := map[string]bool{}
 	developmentProjectEdges := map[string]bool{}
 	for index, edge := range view.Edges {
-		if err := validateJiraGraphWireEdge(edge, nodes, bounds.IncludeDevelopment); err != nil {
+		if err := validateJiraGraphWireEdge(edge, nodes, bounds.IncludeDevelopment, sourceKinds); err != nil {
 			return fmt.Errorf("edge %d: %w", index, err)
 		}
 		if index > 0 && jiraGraphWireEdgeSortKey(view.Edges[index-1]) >= jiraGraphWireEdgeSortKey(edge) {
@@ -475,20 +484,8 @@ func (view JiraIssueGraphView) validate() error {
 		}
 		truncated = truncated || source.Truncated
 	}
-	for _, node := range view.Nodes {
-		inventory := sourcesByNode[node.ID]
-		hasInventory := false
-		for _, kind := range sourceKinds {
-			hasInventory = hasInventory || inventory[kind]
-		}
-		if !node.Expanded && !hasInventory {
-			continue
-		}
-		for _, kind := range sourceKinds {
-			if !inventory[kind] {
-				return fmt.Errorf("attempted jira node source inventory is incomplete")
-			}
-		}
+	if err := validateJiraGraphSelectedSourceInventory(view.Nodes, sourcesByNode, sourceKinds); err != nil {
+		return err
 	}
 
 	for index, item := range view.Frontier {
@@ -593,7 +590,7 @@ func validateJiraGraphWireSCMNode(node JiraIssueGraphNode) bool {
 	return false
 }
 
-func validateJiraGraphWireEdge(edge JiraIssueGraphEdge, nodes map[string]JiraIssueGraphNode, includeDevelopment bool) error {
+func validateJiraGraphWireEdge(edge JiraIssueGraphEdge, nodes map[string]JiraIssueGraphNode, includeDevelopment bool, sourceKinds []string) error {
 	from, fromOK := nodes[edge.From]
 	to, toOK := nodes[edge.To]
 	if !fromOK || !toOK || edge.From == edge.To || !jiraGraphWireHex.MatchString(strings.TrimPrefix(edge.ID, "edge:")) ||
@@ -620,6 +617,7 @@ func validateJiraGraphWireEdge(edge JiraIssueGraphEdge, nodes map[string]JiraIss
 	for index, evidence := range edge.Evidence {
 		identity := strings.Join([]string{evidence.Collector, evidence.SourceKind, evidence.SourceID, evidence.JSONPointer, evidence.Extraction}, "\x00")
 		if seen[identity] || index > 0 && previousIdentity >= identity || evidence.SourceNodeID != edge.From ||
+			!jiraGraphWireOneOf(evidence.Collector, sourceKinds...) ||
 			!jiraGraphWireOneOf(evidence.SourceKind, "field", "property", "comment", "worklog", "remote_link", "development_detail") ||
 			!jiraGraphWireOneOf(evidence.Extraction, "structured", "absolute_url", "jira_key", "confluence_page_id", "service_url") ||
 			!jiraGraphWireSafeEvidenceCoordinate(evidence) {
@@ -669,14 +667,6 @@ func validateJiraGraphWireSource(source JiraIssueGraphSource, nodes map[string]J
 		}
 	}
 	return nil
-}
-
-func jiraGraphWireSourceKinds(includeDevelopment bool) []string {
-	kinds := []string{"issue_fields", "issue_links", "hierarchy", "attachments", "issue_properties", "comments", "worklogs", "remote_links"}
-	if includeDevelopment {
-		kinds = append(kinds, "development")
-	}
-	return kinds
 }
 
 func jiraGraphWireJiraID(id string) bool {
