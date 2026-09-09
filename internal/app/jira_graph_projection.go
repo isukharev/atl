@@ -371,6 +371,14 @@ func cloneJiraIssueGraphSource(source domain.ArtifactGraphSource) domain.Artifac
 		depth := *source.NodeDepth
 		source.NodeDepth = &depth
 	}
+	if source.Failure != nil {
+		failure := *source.Failure
+		if failure.HTTPStatus != nil {
+			status := *failure.HTTPStatus
+			failure.HTTPStatus = &status
+		}
+		source.Failure = &failure
+	}
 	return source
 }
 

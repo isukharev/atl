@@ -1097,6 +1097,18 @@ Only `complete` and `empty` have `complete:true`. Optional
 `partial_reason` is one of `inspection_limit`, `output_limit`,
 `request_failed`, `malformed_response`, `request_limit`, `byte_limit`,
 `dependency_unavailable`, or `policy`; it never contains a backend error.
+Only a failed `remote_links` source may add `failure`. Its `class` is exactly
+`authentication`, `permission`, `not_found`, `http`, `transport`, or `request`.
+`http_status` is absent or exactly 401 for authentication, absent or exactly
+403 for permission, and absent or exactly 404 for not-found. It is required in
+the range 300–599 excluding 401, 403, and 404 for `http`, and absent for
+transport and generic request failures. The object contains no message, URL,
+header, response body or remediation. HTTP 404 means
+only that this request observed 404: the legacy source status remains
+`unsupported`, but neither field proves endpoint absence or rules out
+permission hiding. Full schema v2 and compact schema v1 preserve the same
+diagnostic on retained incomplete sources; successful sources and selections
+without a remote-link request failure omit it.
 Malformed or request-limited sources are `partial`; a source that cannot be
 started by policy is `skipped`. Stability is fixed per source kind:
 `issue_properties` is `experimental_api`; every other current kind is
@@ -1107,6 +1119,8 @@ property produced graph evidence.
 Top-level `complete` is derived from all requested sources. Auxiliary source
 failure returns a reconciled graph with exit 0 and `complete:false`; seed,
 schema, or reconciliation failure returns the corresponding non-zero sentinel.
+Human text adds `Failure` and `HTTP status` columns only when a diagnostic is
+present, leaving successful text unchanged.
 
 The one root snapshot requests `fields=*all`, `properties=*all`, and
 `expand=names,schema` together and is single-attempt. Comments and worklogs use

@@ -62,6 +62,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   hierarchy supporting-field disclosure and unchanged default graph bytes.
   Graph-evidence guidance now also discovers bounded inverse parent membership
   through the existing issue-children command.
+- Added content-free Jira remote-link failure diagnostics to full and compact
+  issue graphs. Closed authentication, permission, not-found, HTTP, transport,
+  and request classes can include an observed status without exposing backend
+  prose, URLs, headers or bodies; 404 does not claim endpoint absence. Successful
+  and legacy graph bytes remain unchanged when no diagnostic is present.
 - Added a separate strict Broker discovery v2 semantic schema and codec for
   operation-level structural support and current advisory access state. It
   binds request, authenticated execution, authority revision, service, schema

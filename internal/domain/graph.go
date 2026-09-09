@@ -34,6 +34,27 @@ const (
 	ArtifactSourceSkipped     ArtifactGraphSourceStatus = "skipped"
 )
 
+// ArtifactGraphSourceFailureClass is a closed, content-free classification of
+// one failed graph source request. It never carries backend prose or a URL.
+type ArtifactGraphSourceFailureClass string
+
+const (
+	ArtifactSourceFailureAuthentication ArtifactGraphSourceFailureClass = "authentication"
+	ArtifactSourceFailurePermission     ArtifactGraphSourceFailureClass = "permission"
+	ArtifactSourceFailureNotFound       ArtifactGraphSourceFailureClass = "not_found"
+	ArtifactSourceFailureHTTP           ArtifactGraphSourceFailureClass = "http"
+	ArtifactSourceFailureTransport      ArtifactGraphSourceFailureClass = "transport"
+	ArtifactSourceFailureRequest        ArtifactGraphSourceFailureClass = "request"
+)
+
+// ArtifactGraphSourceFailure records only a closed failure class and an
+// optional observed HTTP status. It deliberately omits messages, response
+// bodies, headers, routes and remediation.
+type ArtifactGraphSourceFailure struct {
+	Class      ArtifactGraphSourceFailureClass `json:"class"`
+	HTTPStatus *int                            `json:"http_status,omitempty"`
+}
+
 // ArtifactGraphSCMIdentity is one closed, content-minimized source-control
 // coordinate. Exactly one artifact selector is set outside project nodes.
 type ArtifactGraphSCMIdentity struct {
@@ -115,16 +136,17 @@ func ValidArtifactPartialReason(reason string) bool {
 
 // ArtifactGraphSource qualifies one requested collector for one expanded node.
 type ArtifactGraphSource struct {
-	NodeID        string                    `json:"node_id"`
-	NodeDepth     *int                      `json:"node_depth,omitempty"`
-	Kind          string                    `json:"kind"`
-	Requested     bool                      `json:"requested"`
-	Status        ArtifactGraphSourceStatus `json:"status"`
-	Complete      bool                      `json:"complete"`
-	Count         int                       `json:"count"`
-	Truncated     bool                      `json:"truncated,omitempty"`
-	PartialReason string                    `json:"partial_reason,omitempty"`
-	Stability     ArtifactGraphStability    `json:"stability"`
+	NodeID        string                      `json:"node_id"`
+	NodeDepth     *int                        `json:"node_depth,omitempty"`
+	Kind          string                      `json:"kind"`
+	Requested     bool                        `json:"requested"`
+	Status        ArtifactGraphSourceStatus   `json:"status"`
+	Complete      bool                        `json:"complete"`
+	Count         int                         `json:"count"`
+	Truncated     bool                        `json:"truncated,omitempty"`
+	PartialReason string                      `json:"partial_reason,omitempty"`
+	Stability     ArtifactGraphStability      `json:"stability"`
+	Failure       *ArtifactGraphSourceFailure `json:"failure,omitempty"`
 }
 
 // IssueFieldSchema is the bounded Jira field metadata needed to distinguish

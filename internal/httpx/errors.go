@@ -59,6 +59,10 @@ func (e *TransportError) Error() string {
 // URL-bearing cause available to generic unwrapping loggers.
 func (e *TransportError) Is(target error) bool { return errors.Is(e.err, target) }
 
+// DiagnosticTransportFailure lets upper layers classify this content-free
+// wrapper structurally without importing httpx or unwrapping its private cause.
+func (*TransportError) DiagnosticTransportFailure() bool { return true }
+
 // Format keeps alternate fmt verbs from printing the private cause as a Go
 // struct. That cause can contain an unredacted *url.Error.
 func (e *TransportError) Format(state fmt.State, verb rune) {

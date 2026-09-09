@@ -51,6 +51,10 @@ completeness covers selected sources only. Omitted sources prove no absence.
 Hierarchy may require all fields for dynamic Epic Link discovery, disclosed as
 `hierarchy_discovery`; omitted narrative collectors still do not run. Source
 selection reduces collector requests; compact fact selection does not.
+For an incomplete `remote_links` source, use only its optional closed `failure`
+class and observed status to distinguish authentication, permission, not-found,
+HTTP, transport, and generic request failures. A 404 is not proof that the
+endpoint is absent and may hide permission; do not infer from missing prose.
 For inverse parent membership, the same `jira/graph-evidence` capability class
 also returns the existing bounded `jira issue children` route. Use
 `--epic-field parent` for direct-parent relations and preserve parent/relation

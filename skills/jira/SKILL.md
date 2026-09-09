@@ -125,6 +125,10 @@ required. In CLI text output, read a URL node's `URL` column only as the graph's
 already-normalized public identity; a blank cell for a non-URL, opaque, or
 sensitive identity is intentional and must not be reconstructed from node ids
 or evidence.
+If `remote_links` is incomplete, inspect its optional closed `failure` class and
+observed HTTP status before choosing recovery. Treat `not_found`/404 as one
+request result, never as proof that the endpoint is absent or that permission
+was granted. The diagnostic contains no backend explanation; do not guess one.
 When the task explicitly asks for code, commit, branch, or merge-request
 evidence, set MCP `include_development:true`, or add CLI
 `--include-development` when MCP is unavailable, at the smallest sufficient

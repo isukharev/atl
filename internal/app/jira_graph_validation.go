@@ -235,6 +235,9 @@ func validateJiraGraphV2Result(result *JiraIssueGraphResult) error {
 		if source.Stability != jiraGraphSourceStability(source.Kind) {
 			return invalid("source stability is invalid")
 		}
+		if !validJiraGraphRemoteLinkFailure(source) {
+			return invalid("source failure diagnostic is invalid")
+		}
 		if source.Kind == "development" && source.Complete && source.Count != developmentArtifactEdges[source.NodeID] {
 			return invalid("Development source count is invalid")
 		}
