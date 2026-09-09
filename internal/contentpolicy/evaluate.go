@@ -174,6 +174,9 @@ func matchSelector(selector Selector, target domain.WriteTarget) (matchState, st
 		}
 	}
 	if len(selector.Under) > 0 {
+		if target.Service != "confluence" {
+			return matchUnresolved, "under"
+		}
 		if target.ID != "" && containsString(selector.Under, target.ID) {
 			return matchYes, ""
 		}

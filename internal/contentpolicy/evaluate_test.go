@@ -255,6 +255,39 @@ func TestJiraSprintAndConfluenceIDTargetFormsRemainUnchanged(t *testing.T) {
 	}
 }
 
+func TestHierarchySelectorsRemainConfluenceOnly(t *testing.T) {
+	selector := Selector{Services: []string{"jira", "confluence"}, Kinds: []string{"issue", "sprint", "page"}, Under: []string{"101"}}
+	allow := Rule{ID: "hierarchy-allow", Effect: EffectAllow, Verbs: domain.WriteVerbSet{domain.WriteVerbUpdate}, Resource: selector}
+	deny := Rule{ID: "hierarchy-deny", Effect: EffectDeny, Verbs: domain.WriteVerbSet{domain.WriteVerbUpdate}, Resource: selector}
+	broad := Rule{ID: "broad-allow", Effect: EffectAllow, Verbs: domain.WriteVerbSet{domain.WriteVerbUpdate}, Resource: Selector{Services: selector.Services, Kinds: selector.Kinds}}
+	for _, test := range []struct {
+		name       string
+		target     domain.WriteTarget
+		confluence bool
+	}{
+		{"Jira issue", domain.WriteTarget{Service: "jira", Kind: "issue", ID: "101", Key: "OPS-1", Project: "OPS"}, false},
+		{"Jira sprint", domain.WriteTarget{Service: "jira", Kind: "sprint", ID: "101"}, false},
+		{"Confluence self", domain.WriteTarget{Service: "confluence", Kind: "page", ID: "101", Space: "DOC"}, true},
+		{"Confluence descendant", domain.WriteTarget{Service: "confluence", Kind: "page", ID: "102", Space: "DOC", AncestorIDs: []string{"101"}}, true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			request := domain.WriteAuthorizationRequest{Verbs: domain.WriteVerbSet{domain.WriteVerbUpdate}, Targets: []domain.WriteTarget{test.target}}
+			allowed := Decide([]Layer{{Source: "managed", Policy: Policy{Rules: []Rule{allow}}}}, request)
+			if allowed.Allowed != test.confluence || !test.confluence && allowed.Reason != ReasonNoMatchingAllow {
+				t.Fatalf("hierarchy allow decision=%+v", allowed)
+			}
+			denied := Decide([]Layer{{Source: "managed", Policy: Policy{Rules: []Rule{broad, deny}}}}, request)
+			wantReason := ReasonScopeUnresolved
+			if test.confluence {
+				wantReason = ReasonExplicitDeny
+			}
+			if denied.Allowed || denied.Reason != wantReason || !test.confluence && denied.Attribute != "under" {
+				t.Fatalf("hierarchy deny decision=%+v", denied)
+			}
+		})
+	}
+}
+
 func FuzzJiraIssueIDTargetCanonicality(f *testing.F) {
 	for _, seed := range []string{"", "101", "102", "0", "01", "not-numeric", "18446744073709551616", "18446744073709551615"} {
 		f.Add(seed)

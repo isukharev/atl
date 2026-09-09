@@ -237,6 +237,26 @@ func TestGuardedCommentCanonicalIDPolicyIsAuthoritativeAtLastHop(t *testing.T) {
 	}
 }
 
+func TestGuardedCommentCannotUseConfluenceHierarchyGrant(t *testing.T) {
+	var posts atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		posts.Add(1)
+		_, _ = io.WriteString(w, `{"id":"202"}`)
+	}))
+	defer server.Close()
+	authorizer := contentpolicy.NewAuthorizer(&contentpolicy.Resolved{Layers: []contentpolicy.Layer{{
+		Source: "managed", Policy: contentpolicy.Policy{Rules: []contentpolicy.Rule{{
+			ID: "hierarchy", Effect: contentpolicy.EffectAllow, Verbs: domain.WriteVerbSet{domain.WriteVerbComment},
+			Resource: contentpolicy.Selector{Services: []string{"jira", "confluence"}, Kinds: []string{"issue", "page"}, Under: []string{"101"}},
+		}}},
+	}}})
+	_, err := New(server.URL, "token", "test", WithWriteAuthorizer(authorizer)).WriteGuardedComment(domain.WithSingleAttempt(t.Context()), domain.JiraGuardedCommentWrite{ID: "101", Key: "OPS-1", Project: "OPS", Body: []byte("native *wiki*")})
+	var denial *contentpolicy.DenialError
+	if !errors.As(err, &denial) || denial.Reason != contentpolicy.ReasonNoMatchingAllow || posts.Load() != 0 {
+		t.Fatalf("error=%v posts=%d", err, posts.Load())
+	}
+}
+
 func TestDirectCommentJiraIssueIDSelectorRemainsUnresolved(t *testing.T) {
 	for _, test := range []struct {
 		effect contentpolicy.Effect

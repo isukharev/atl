@@ -112,6 +112,8 @@ targets, including the unqualified comment adapter, omit ID. An ID-specific
 allow cannot authorize a target missing ID, while an applicable ID-specific
 deny remains unresolved and fails closed at authoritative evaluation. Policy
 warnings identify this partial coverage; do not assume all Jira writes supply ID.
+`under` matches only Confluence self/ancestor identities. Jira issue and sprint
+IDs do not become hierarchy anchors; an applicable Jira `under` stays unresolved.
 
 Each layer defaults to deny. Explicit deny wins independently of rule order or
 specificity. Compound operations require every verb on every target: a Jira
