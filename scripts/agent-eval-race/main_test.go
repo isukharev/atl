@@ -377,19 +377,50 @@ func TestCollectActiveFilesIncludesCompiledTestsAndEmbeds(t *testing.T) {
 		GoFiles: []string{"pkg.go"}, TestGoFiles: []string{"pkg_test.go"},
 		EmbedFiles: []string{"schema.json"}, TestEmbedFiles: []string{"testdata/fixture.json"},
 	}}
+	product := map[string]bool{}
+	if err := collectActiveFiles(root, packages, product, productBuildSources); err != nil {
+		t.Fatal(err)
+	}
+	for _, relative := range []string{"pkg.go", "schema.json"} {
+		if !product[filepath.Join(dir, relative)] {
+			t.Fatalf("product source omitted %s", relative)
+		}
+	}
+	for _, relative := range []string{"pkg_test.go", "testdata/fixture.json"} {
+		if product[filepath.Join(dir, relative)] {
+			t.Fatalf("product source included unexecuted test input %s", relative)
+		}
+	}
 	active := map[string]bool{}
-	if err := collectActiveFiles(root, packages, active); err != nil {
+	if err := collectActiveFiles(root, packages, active, evaluatorRaceSources); err != nil {
 		t.Fatal(err)
 	}
 	for _, relative := range []string{"pkg.go", "pkg_test.go", "schema.json", "testdata/fixture.json"} {
 		if !active[filepath.Join(dir, relative)] {
-			t.Fatalf("active source omitted %s", relative)
+			t.Fatalf("evaluator race source omitted %s", relative)
 		}
 	}
 	escape := packages
 	escape[0].EmbedFiles = []string{"../../outside"}
-	if err := collectActiveFiles(root, escape, map[string]bool{}); err == nil {
+	if err := collectActiveFiles(root, escape, map[string]bool{}, productBuildSources); err == nil {
 		t.Fatal("accepted escaping embedded source")
+	}
+	if err := collectActiveFiles(root, packages, map[string]bool{}, sourceInventoryRole(99)); err == nil {
+		t.Fatal("accepted unknown source inventory role")
+	}
+}
+
+func TestCombinedActiveSourceInventoryRetainsWholeFileBound(t *testing.T) {
+	product, evaluator := map[string]bool{}, map[string]bool{}
+	for index := range maxSourceFiles {
+		path := fmt.Sprintf("source-%d.go", index)
+		product[path], evaluator[path] = true, true
+	}
+	if err := mergeActiveFiles(product, evaluator); err != nil || len(product) != maxSourceFiles {
+		t.Fatalf("shared inputs must count once: %v", err)
+	}
+	if err := mergeActiveFiles(product, map[string]bool{"one-new-evaluator-file.go": true}); err == nil {
+		t.Fatal("combined source inventory exceeded the whole-file bound")
 	}
 }
 
@@ -481,6 +512,34 @@ func TestSourceCertificationRejectsInjectedActiveSource(t *testing.T) {
 	writeFile(t, filepath.Join(root, "injected_test.go"), "package product\n")
 	if _, _, err := certifySource(context.Background(), root, evaluator, source, false, controlledEnvironment()); err == nil {
 		t.Fatal("accepted ignored injected Go source")
+	}
+}
+
+func TestSourceCertificationScopesVerboseGuardToEvaluatorTests(t *testing.T) {
+	if runtime.GOOS != "linux" || runtime.GOARCH != "amd64" {
+		t.Skip("hosted runner is Linux/amd64-only")
+	}
+	setBootstrapEnvironment(t)
+	root := syntheticRaceRepository(t)
+	evaluator := filepath.Join(root, "internal", "agenteval")
+	old, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(root); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(old) })
+	source := gitCommand(t, root, "rev-parse", "HEAD")
+	if _, _, err := certifySource(context.Background(), root, evaluator, source, false, controlledEnvironment()); err != nil {
+		t.Fatalf("product dependency test incorrectly entered evaluator guard: %v", err)
+	}
+	writeFile(t, filepath.Join(evaluator, "eval_test.go"), "package agenteval\nimport \"testing\"\nfunc TestOne(t *testing.T) { _ = testing.Verbose() }\n")
+	gitCommand(t, root, "add", "internal/agenteval/eval_test.go")
+	gitCommand(t, root, "commit", "-qm", "evaluator verbose fixture")
+	source = gitCommand(t, root, "rev-parse", "HEAD")
+	if _, _, err := certifySource(context.Background(), root, evaluator, source, false, controlledEnvironment()); err == nil || !strings.Contains(err.Error(), "must not branch on verbose") {
+		t.Fatalf("evaluator verbose dependency error=%v", err)
 	}
 }
 
@@ -582,16 +641,22 @@ func syntheticRaceRepository(t *testing.T) string {
 import (
 	"encoding/json"
 	"os"
+
+	"example.test/product/internal/productdep"
 )
 
 var commit = "unknown"
 
 func main() {
+	_ = productdep.Value
 	_ = json.NewEncoder(os.Stdout).Encode(map[string]string{
 		"version": "fixture", "commit": commit, "build_state": "clean",
 	})
 }
 `)
+	writeFile(t, filepath.Join(root, "internal", "productdep", "dep.go"), "package productdep\nconst Value = 1\n")
+	writeFile(t, filepath.Join(root, "internal", "productdep", "dep_cgo.go"), "//go:build cgo\n\npackage wrongcgo\n")
+	writeFile(t, filepath.Join(root, "internal", "productdep", "dep_test.go"), "package productdep\nimport \"testing\"\nfunc TestVerboseProductDependency(t *testing.T) { _ = testing.Verbose() }\n")
 	evaluator := filepath.Join(root, "internal", "agenteval")
 	writeFile(t, filepath.Join(evaluator, "go.mod"), "module example.test/product/internal/agenteval\n\ngo 1.26.6\n")
 	writeFile(t, filepath.Join(evaluator, "go.sum"), "")

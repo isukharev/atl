@@ -59,6 +59,13 @@ type listedPackage struct {
 	Error           *struct{ Err string }
 }
 
+type sourceInventoryRole int
+
+const (
+	productBuildSources sourceInventoryRole = iota
+	evaluatorRaceSources
+)
+
 func certifySource(ctx context.Context, root, evaluator, want string, allowProduct bool, env []string) (goEnvironment, string, error) {
 	checkCtx, cancel := context.WithTimeout(ctx, listTimeout)
 	defer cancel()
@@ -97,11 +104,14 @@ func certifySource(ctx context.Context, root, evaluator, want string, allowProdu
 	if err != nil {
 		return goEnvironment{}, "", err
 	}
-	active := map[string]bool{
+	productActive := map[string]bool{
 		filepath.Join(root, "go.mod"): true, filepath.Join(root, "go.sum"): true,
+	}
+	evaluatorActive := map[string]bool{
 		filepath.Join(evaluator, "go.mod"): true, filepath.Join(evaluator, "go.sum"): true,
 	}
-	rootPackages, err := listSourcePackages(checkCtx, root, []string{"-deps", "-json", "./cmd/atl"}, env)
+	productEnv := environmentWith(env, "CGO_ENABLED", "0")
+	rootPackages, err := listSourcePackages(checkCtx, root, []string{"-deps", "-json", "./cmd/atl"}, productEnv)
 	if err != nil {
 		return goEnvironment{}, "", err
 	}
@@ -109,21 +119,46 @@ func certifySource(ctx context.Context, root, evaluator, want string, allowProdu
 	if err != nil {
 		return goEnvironment{}, "", err
 	}
-	for _, packages := range [][]listedPackage{rootPackages, evaluatorPackages} {
-		if err := collectActiveFiles(root, packages, active); err != nil {
-			return goEnvironment{}, "", err
-		}
-	}
-	if err := verifyActiveFiles(checkCtx, root, tree, active); err != nil {
+	if err := collectActiveFiles(root, rootPackages, productActive, productBuildSources); err != nil {
 		return goEnvironment{}, "", err
 	}
-	if err := rejectVerboseTests(checkCtx, active); err != nil {
+	if err := collectActiveFiles(root, evaluatorPackages, evaluatorActive, evaluatorRaceSources); err != nil {
+		return goEnvironment{}, "", err
+	}
+	if err := mergeActiveFiles(productActive, evaluatorActive); err != nil {
+		return goEnvironment{}, "", err
+	}
+	if err := verifyActiveFiles(checkCtx, root, tree, productActive); err != nil {
+		return goEnvironment{}, "", err
+	}
+	if err := rejectVerboseTests(checkCtx, evaluatorActive); err != nil {
 		return goEnvironment{}, "", err
 	}
 	if err := verifyWorktreeResidue(checkCtx, root, allowProduct, env); err != nil {
 		return goEnvironment{}, "", err
 	}
 	return goEnv, strings.TrimSpace(string(head)), nil
+}
+
+func mergeActiveFiles(target, source map[string]bool) error {
+	for path := range source {
+		target[path] = true
+	}
+	if len(target) > maxSourceFiles {
+		return errors.New("active Go source inventory exceeds its file bound")
+	}
+	return nil
+}
+
+func environmentWith(env []string, key, value string) []string {
+	result := make([]string, 0, len(env)+1)
+	for _, item := range env {
+		name, _, _ := strings.Cut(item, "=")
+		if name != key {
+			result = append(result, item)
+		}
+	}
+	return append(result, key+"="+value)
 }
 
 func rejectVerboseTests(ctx context.Context, active map[string]bool) error {
@@ -266,15 +301,20 @@ func listSourcePackages(ctx context.Context, dir string, args []string, env []st
 	return packages, nil
 }
 
-func collectActiveFiles(root string, packages []listedPackage, active map[string]bool) error {
+func collectActiveFiles(root string, packages []listedPackage, active map[string]bool, role sourceInventoryRole) error {
+	if role != productBuildSources && role != evaluatorRaceSources {
+		return errors.New("active Go source inventory has an unknown role")
+	}
 	for _, pkg := range packages {
 		dir, err := filepath.Abs(pkg.Dir)
 		if err != nil || !withinRoot(root, dir) {
 			continue // Standard-library and module-cache dependencies are toolchain/sum bound.
 		}
 		groups := [][]string{pkg.GoFiles, pkg.CgoFiles, pkg.CFiles, pkg.CXXFiles, pkg.MFiles, pkg.HFiles,
-			pkg.FFiles, pkg.SFiles, pkg.SwigFiles, pkg.SwigCXXFiles, pkg.SysoFiles, pkg.EmbedFiles,
-			pkg.TestGoFiles, pkg.XTestGoFiles, pkg.TestEmbedFiles, pkg.XTestEmbedFiles}
+			pkg.FFiles, pkg.SFiles, pkg.SwigFiles, pkg.SwigCXXFiles, pkg.SysoFiles, pkg.EmbedFiles}
+		if role == evaluatorRaceSources {
+			groups = append(groups, pkg.TestGoFiles, pkg.XTestGoFiles, pkg.TestEmbedFiles, pkg.XTestEmbedFiles)
+		}
 		for _, files := range groups {
 			for _, name := range files {
 				path := filepath.Clean(filepath.Join(dir, filepath.FromSlash(name)))

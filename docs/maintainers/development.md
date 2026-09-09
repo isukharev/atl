@@ -278,7 +278,12 @@ non-race full gates run once alongside the shards.
 
 Every hosted shard checks the source, toolchain, platform, package inventory,
 actual runnable terminal events, and product-binary provenance before emitting
-bounded content-free counts, digests, and timing. Child processes receive a
+bounded content-free counts, digests, and timing. Product dependency discovery
+matches the CGO-free build and certifies production and embedded inputs only;
+the evaluator race discovery uses cgo and additionally certifies its compiled
+test and test-embed inputs. The verbose-mode guard therefore applies only to
+evaluator tests that the JSON race commands execute, not unexecuted product
+dependency tests. Child processes receive a
 narrow build-only environment rather than ambient `ATL_*`, backend, provider,
 or fixture configuration. `GOENV=off`, `GOAMD64=v1`, and empty `GOFLAGS` and
 `GOEXPERIMENT` override user Go settings and are attested with the Go version,
