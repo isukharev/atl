@@ -203,7 +203,7 @@ func validateJiraMirrorSnapshotWireMembers(data []byte) error {
 	}
 	var version int
 	if err := json.Unmarshal(root["schema_version"], &version); err != nil {
-		return fmt.Errorf("Jira mirror snapshot schema_version: %w", err)
+		return fmt.Errorf("jira mirror snapshot schema_version: %w", err)
 	}
 	members := []string{
 		"schema_version", "service", "remote_requested", "complete", "reconciled", "local", "native", "snapshot", "pending", "render", "remote",

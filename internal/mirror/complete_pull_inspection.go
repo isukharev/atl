@@ -275,7 +275,7 @@ func (i *completePullInspector) directory(path string, maximum int) ([]os.DirEnt
 	if err != nil {
 		return nil, err
 	}
-	defer root.Close()
+	defer func() { _ = root.Close() }()
 	rel, err := filepath.Rel(i.m.Root, path)
 	if err != nil {
 		return nil, err
