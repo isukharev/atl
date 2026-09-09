@@ -19,6 +19,17 @@ import (
 	"github.com/isukharev/atl/internal/domain"
 )
 
+func brokerCanonicalTempDir(t *testing.T) string {
+	t.Helper()
+	// Resolve only synthetic storage: Darwin's temporary directory can use a
+	// system symlink alias, while production journal paths remain no-follow.
+	directory, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return directory
+}
+
 func configureBrokerCommentFixture(t *testing.T, path string, policyBackend string) {
 	t.Helper()
 	body, err := os.ReadFile(path)

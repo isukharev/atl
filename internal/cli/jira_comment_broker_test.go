@@ -78,7 +78,7 @@ func TestJiraCommentOutcomeRequiresBrokerAndIndependentObserver(t *testing.T) {
 	out, _, err = executeCLIRaw(t, map[string]string{"ATL_CONFIG_DIR": directory, "ATL_NO_UPDATE": "1", "ATL_READ_ONLY": "1"},
 		"jira", "issue", "comment", "outcome", "--operation-ticket", "ticket-1",
 	)
-	if out != "" || !errors.Is(err, domain.ErrUsage) {
+	if out != "" || !errors.Is(err, domain.ErrConfig) {
 		t.Fatalf("observer stdout=%q err=%v", out, err)
 	}
 }

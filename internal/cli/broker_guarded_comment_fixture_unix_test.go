@@ -170,7 +170,12 @@ func newGuardedProcessFixture(t *testing.T, options guardedProcessFixtureOptions
 		t.Cleanup(options.postBarrier.open)
 	}
 
-	hostRoot := t.TempDir()
+	// Canonicalize only this synthetic root, as the journal's strict no-follow
+	// path traversal correctly rejects Darwin's system temporary symlink alias.
+	hostRoot, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := os.Chmod(hostRoot, 0o700); err != nil {
 		t.Fatal(err)
 	}

@@ -18,7 +18,7 @@ import (
 )
 
 func TestInitializeBrokerJournalIsLocalOnlyAndCreateOnly(t *testing.T) {
-	directory := t.TempDir()
+	directory := brokerCanonicalTempDir(t)
 	if err := os.Chmod(directory, 0o700); err != nil {
 		t.Fatal(err)
 	}

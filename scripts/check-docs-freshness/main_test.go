@@ -94,8 +94,14 @@ func TestCommandCoverageRejectsRegressions(t *testing.T) {
 		{
 			name: "read only route claims mutation safety",
 			edit: func(value *commandManifest) {
-				value.Routes[0].SafetyDocument = "docs/safe-writes.md"
-				value.Routes[0].SafetyEvidence = "## Pre-write checklist"
+				for index := range value.Routes {
+					if value.Routes[index].ID == "common-version" {
+						value.Routes[index].SafetyDocument = "docs/safe-writes.md"
+						value.Routes[index].SafetyEvidence = "## Pre-write checklist"
+						return
+					}
+				}
+				t.Fatal("read-only version route missing")
 			},
 			want: "must not declare mutation safety evidence",
 		},

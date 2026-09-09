@@ -40,7 +40,7 @@ func TestLoadBrokerRuntimeUsesExplicitFilesWithoutStartupProbes(t *testing.T) {
 func brokerRuntimeFixture(t *testing.T) (string, *atomic.Int32, *atomic.Int32) {
 	t.Helper()
 	clearBrokerProxyEnvironment(t)
-	directory := t.TempDir()
+	directory := brokerCanonicalTempDir(t)
 	if err := os.Chmod(directory, 0o700); err != nil {
 		t.Fatal(err)
 	}

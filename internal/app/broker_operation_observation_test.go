@@ -494,14 +494,19 @@ func TestBrokerOperationObservationRejectsInconsistentRecords(t *testing.T) {
 	}
 }
 
-func TestBrokerOperationObservationDoesNotEnableRegistry(t *testing.T) {
+func TestBrokerOperationObservationUsesEnabledReadOnlyRegistry(t *testing.T) {
 	definition, _ := brokercontract.Definition(domain.BrokerOperationOutcomeLookup, brokercontract.OperationVersion)
-	if definition.Available {
-		t.Fatal("internal observation service enabled public registry operation")
+	if !definition.Available || definition.ExecutionProfile != "durable_observation_v1" || len(definition.Effects) != 1 ||
+		definition.Effects[0].Kind != domain.BrokerEffectObserve || definition.Effects[0].ResourceKind != domain.BrokerResourceOperation || len(definition.Effects[0].Fields) != 0 {
+		t.Fatal("public outcome operation lost its read-only observation contract")
 	}
+	count := 0
 	for _, available := range brokercontract.AvailableDefinitions() {
 		if available.ID == domain.BrokerOperationOutcomeLookup {
-			t.Fatal("outcome operation entered available registry")
+			count++
 		}
+	}
+	if count != 1 {
+		t.Fatal("outcome operation must appear exactly once")
 	}
 }
