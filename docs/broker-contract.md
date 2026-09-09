@@ -21,6 +21,12 @@ unchanged v1 qualification request/decision. The normative strict codecs and can
 does not prove duplicate-key rejection, temporal ordering, authority provenance
 or canonical bytes.
 
+A gated bounded-page foundation has its own semantic
+[`schemas/broker-execution-v2.schema.json`](schemas/broker-execution-v2.schema.json).
+It defines one structured Jira project-page operation without changing the v1
+schema, registry or digest namespace. It is not present on an HTTP route,
+remote client, CLI, MCP surface or discovery projection yet.
+
 ## Trust boundary
 
 The client and every value in a `request` envelope are untrusted. A request can
@@ -602,6 +608,88 @@ requires outcome reconciliation. Every Broker recovery has `retry_safe:false`;
 an enclosing runtime must obtain the required fresh state or access and issue
 a separate explicit operation. HTTP status and backend prose never select a
 recovery action. Existing v1 transport failure mappings remain unchanged.
+
+## Gated Jira project-page execution v2 foundation
+
+The separate execution-v2 semantic family defines
+`jira.project.issue_page.read` operation version 1. Its registry entry is
+deliberately unavailable: the strict codec, Jira reader and injected
+application coordinator can be tested, but no runtime catalog or route may
+advertise it. Runtime enablement requires a separately reviewed transport and
+authority adapter plus a contract-family-aware successor to discovery v2.
+Discovery v2 remains bound to the v1 exact-read registry and schema.
+
+The request is semantic rather than JQL. It contains one already canonical
+uppercase project key, a sorted unique subset of `summary` and `description`,
+a `start_at` offset from 0 through 1,000,000, and `max_results` from 1 through
+15. There is no URL, JQL, provider, credential, principal, role, policy,
+default-all field, expansion or automatic continuation. The Jira adapter alone
+constructs `project = <qualified numeric project id> ORDER BY id ASC` and fixed
+field/paging parameters. Jira documents `id` as an issue-key alias; ATL does
+not reinterpret that ordering as numeric immutable-id order or as a backend
+snapshot guarantee.
+
+One invocation has an absolute 60-second ceiling and exactly three
+single-attempt, redirect-free Jira reads under one parent budget:
+
+1. an exact project endpoint response capped at 256 KiB, retaining only the
+   numeric id and canonical key;
+2. an identity-only search page capped at 1 MiB, retaining the paging
+   coordinates and at most 15 ordered issue id/key/project/update identities;
+3. after final authorization, one business search capped at 64 MiB, returning
+   only the selected fields plus mandatory identity evidence.
+
+The exact project endpoint has no field selector and may return documented
+supporting members in addition to id/key. The adapter therefore admits only a
+closed top-level vocabulary, recursively bounds those supporting JSON values,
+discards them, and never follows returned URLs. The qualification plan names
+the retained id/key projection while honestly accounting for the whole
+256-KiB physical response. It never calls the global project inventory.
+
+Qualification authorization binds two ordered steps: project identity at one
+request/256 KiB and page identity at one request/1 MiB. Their aggregate is two
+requests/1.25 MiB. The complete Jira contour is three requests/65.25 MiB
+(68,419,584 bytes). The result permits at most 64 MiB of selected decoded
+values and 129 MiB of JSON wire bytes. Streams remain disabled.
+
+Final authorization contains the qualified project plus every issue and one
+effect for each resource. The project effect covers `id`, `key` and pagination;
+each issue effect covers mandatory `id`, `key`, `project`, and `updated` plus
+exactly the requested optional fields. Fifteen issues plus the project fit the
+fixed 16-resource/16-effect ceiling. Resources and effects use an internal
+numeric-id sort only to produce one canonical authorization set. Separately
+bound page evidence preserves Jira's exact returned row order. A denial of any
+resource denies the whole page before the business read; rows are never
+filtered because that would falsify offsets, totals and absence claims.
+
+The qualification decision is checked before and after both metadata reads.
+The final decision is checked before the business read and again after the
+fully buffered result. These checks implement the existing bounded positive
+lease model, with a maximum five-second lease; they do not claim to observe an
+external revocation committed after the last authority call without another
+mechanism. Project identity, paging coordinates, reported total, exact ordered
+issue identities, project membership facts and update markers must match
+between qualification and business responses or the whole buffer is discarded.
+
+The result keeps three truths distinct:
+
+- top-level `complete:true` means the one authorized envelope is complete;
+- `coordinate_exhausted:true` means only that `start_at + count` equaled the
+  matching responses' reported total;
+- `selection_complete` is always false because separate offset pages cannot
+  prove a stable project set or stable global absence.
+
+A positive row count below the reported total yields only the next decimal
+offset while that offset is at most 1,000,000. A larger next offset is
+`offset_limit` with no cursor; coordinate exhaustion still wins when the last
+row reaches the reported total. An empty page with an advertised remainder is
+`pagination_stalled` and has no cursor. Every later page is a fresh operation
+with fresh authentication and all authorization phases; a cursor is not a
+grant. `identity_snapshot_v1` does not prove atomic current membership, exclude
+an unobserved move or ABA change, stabilize totals/order across calls, or turn
+broad Jira credentials into project-scoped native credentials. An authority
+that requires atomic membership or a stable complete selection must return
+`unsupported_consistency`.
 
 ## Dependent implementation slices
 

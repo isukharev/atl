@@ -1,0 +1,790 @@
+{
+  "$defs": {
+    "admission_decision": {
+      "additionalProperties": false,
+      "properties": {
+        "decision": {
+          "$ref": "broker-v1.schema.json#/$defs/decision_core"
+        },
+        "decision_sha256": {
+          "$ref": "broker-v1.schema.json#/$defs/digest"
+        },
+        "schema_version": {
+          "const": 2
+        }
+      },
+      "required": [
+        "schema_version",
+        "decision",
+        "decision_sha256"
+      ],
+      "type": "object"
+    },
+    "admission_request": {
+      "additionalProperties": false,
+      "properties": {
+        "arguments": {
+          "$ref": "#/$defs/jira_project_issue_page_arguments"
+        },
+        "arguments_sha256": {
+          "$ref": "broker-v1.schema.json#/$defs/digest"
+        },
+        "context": {
+          "$ref": "broker-v1.schema.json#/$defs/verified_context"
+        },
+        "deadline_millis": {
+          "$ref": "broker-v1.schema.json#/$defs/millis"
+        },
+        "features": {
+          "const": [
+            "bounded_project_page_v1",
+            "identity_snapshot_v1"
+          ]
+        },
+        "operation": {
+          "const": "jira.project.issue_page.read"
+        },
+        "operation_version": {
+          "const": 1
+        },
+        "request_id": {
+          "$ref": "broker-v1.schema.json#/$defs/id"
+        },
+        "schema_version": {
+          "const": 2
+        }
+      },
+      "required": [
+        "schema_version",
+        "context",
+        "operation",
+        "operation_version",
+        "request_id",
+        "features",
+        "arguments",
+        "arguments_sha256",
+        "deadline_millis"
+      ],
+      "type": "object"
+    },
+    "effect": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/project_effect"
+        },
+        {
+          "$ref": "#/$defs/issue_effect"
+        }
+      ]
+    },
+    "issue_effect": {
+      "additionalProperties": false,
+      "properties": {
+        "fields": {
+          "items": {
+            "enum": [
+              "description",
+              "id",
+              "key",
+              "project",
+              "summary",
+              "updated"
+            ]
+          },
+          "maxItems": 6,
+          "minItems": 4,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "issue": {
+          "$ref": "#/$defs/qualified_issue"
+        },
+        "kind": {
+          "const": "read"
+        }
+      },
+      "required": [
+        "kind",
+        "issue",
+        "fields"
+      ],
+      "type": "object"
+    },
+    "jira_project_issue_page_arguments": {
+      "additionalProperties": false,
+      "properties": {
+        "fields": {
+          "items": {
+            "enum": [
+              "description",
+              "summary"
+            ]
+          },
+          "maxItems": 2,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "max_results": {
+          "maximum": 15,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "project_key": {
+          "$ref": "#/$defs/project_key"
+        },
+        "start_at": {
+          "maximum": 1000000,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "project_key",
+        "fields",
+        "start_at",
+        "max_results"
+      ],
+      "type": "object"
+    },
+    "jira_project_issue_page_result": {
+      "additionalProperties": false,
+      "properties": {
+        "arguments_sha256": {
+          "$ref": "broker-v1.schema.json#/$defs/digest"
+        },
+        "complete": {
+          "const": true
+        },
+        "consistency_profile": {
+          "const": "identity_snapshot_v1"
+        },
+        "issues": {
+          "items": {
+            "$ref": "#/$defs/result_issue"
+          },
+          "maxItems": 15,
+          "type": "array"
+        },
+        "page": {
+          "$ref": "#/$defs/result_page"
+        },
+        "project_id": {
+          "$ref": "#/$defs/positive_decimal"
+        },
+        "project_key": {
+          "$ref": "#/$defs/project_key"
+        },
+        "schema_version": {
+          "const": 2
+        }
+      },
+      "required": [
+        "schema_version",
+        "arguments_sha256",
+        "consistency_profile",
+        "project_id",
+        "project_key",
+        "issues",
+        "page",
+        "complete"
+      ],
+      "type": "object"
+    },
+    "operation_authorization_request": {
+      "additionalProperties": false,
+      "properties": {
+        "effects": {
+          "items": {
+            "$ref": "#/$defs/effect"
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "type": "array"
+        },
+        "issues": {
+          "items": {
+            "$ref": "#/$defs/qualified_issue"
+          },
+          "maxItems": 15,
+          "type": "array"
+        },
+        "page": {
+          "$ref": "#/$defs/page_evidence"
+        },
+        "project": {
+          "$ref": "#/$defs/qualified_project"
+        },
+        "qualification_decision": {
+          "$ref": "#/$defs/qualification_decision"
+        },
+        "qualification_request": {
+          "$ref": "#/$defs/qualification_request"
+        },
+        "schema_version": {
+          "const": 2
+        }
+      },
+      "required": [
+        "schema_version",
+        "qualification_request",
+        "qualification_decision",
+        "project",
+        "issues",
+        "page",
+        "effects"
+      ],
+      "type": "object"
+    },
+    "operation_decision": {
+      "additionalProperties": false,
+      "properties": {
+        "arguments_sha256": {
+          "$ref": "broker-v1.schema.json#/$defs/digest"
+        },
+        "decision": {
+          "$ref": "broker-v1.schema.json#/$defs/decision_core"
+        },
+        "decision_sha256": {
+          "$ref": "broker-v1.schema.json#/$defs/digest"
+        },
+        "effects_sha256": {
+          "$ref": "broker-v1.schema.json#/$defs/digest"
+        },
+        "operation": {
+          "const": "jira.project.issue_page.read"
+        },
+        "operation_version": {
+          "const": 1
+        },
+        "page_sha256": {
+          "$ref": "broker-v1.schema.json#/$defs/digest"
+        },
+        "qualification_decision_sha256": {
+          "$ref": "broker-v1.schema.json#/$defs/digest"
+        },
+        "resources_sha256": {
+          "$ref": "broker-v1.schema.json#/$defs/digest"
+        },
+        "schema_version": {
+          "const": 2
+        }
+      },
+      "required": [
+        "schema_version",
+        "decision",
+        "qualification_decision_sha256",
+        "operation",
+        "operation_version",
+        "arguments_sha256",
+        "resources_sha256",
+        "page_sha256",
+        "effects_sha256",
+        "decision_sha256"
+      ],
+      "type": "object"
+    },
+    "page_evidence": {
+      "additionalProperties": false,
+      "properties": {
+        "coordinate_exhausted": {
+          "type": "boolean"
+        },
+        "ordered_issue_ids": {
+          "items": {
+            "$ref": "#/$defs/positive_decimal"
+          },
+          "maxItems": 15,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "pagination_stalled": {
+          "type": "boolean"
+        },
+        "requested_max_results": {
+          "maximum": 15,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "requested_start_at": {
+          "maximum": 1000000,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "returned_max_results": {
+          "maximum": 15,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "returned_start_at": {
+          "maximum": 1000000,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "selection_complete": {
+          "const": false
+        },
+        "total": {
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "requested_start_at",
+        "requested_max_results",
+        "returned_start_at",
+        "returned_max_results",
+        "total",
+        "coordinate_exhausted",
+        "pagination_stalled",
+        "selection_complete",
+        "ordered_issue_ids"
+      ],
+      "type": "object"
+    },
+    "positive_decimal": {
+      "pattern": "^[1-9][0-9]*$",
+      "type": "string"
+    },
+    "project_effect": {
+      "additionalProperties": false,
+      "properties": {
+        "fields": {
+          "const": [
+            "id",
+            "key",
+            "pagination"
+          ]
+        },
+        "kind": {
+          "const": "read"
+        },
+        "project": {
+          "$ref": "#/$defs/qualified_project"
+        }
+      },
+      "required": [
+        "kind",
+        "project",
+        "fields"
+      ],
+      "type": "object"
+    },
+    "project_key": {
+      "pattern": "^[A-Z][A-Z0-9_]{1,31}$",
+      "type": "string"
+    },
+    "qualification_decision": {
+      "additionalProperties": false,
+      "properties": {
+        "admission_decision_sha256": {
+          "$ref": "broker-v1.schema.json#/$defs/digest"
+        },
+        "admission_request_sha256": {
+          "$ref": "broker-v1.schema.json#/$defs/digest"
+        },
+        "decision": {
+          "$ref": "broker-v1.schema.json#/$defs/decision_core"
+        },
+        "decision_sha256": {
+          "$ref": "broker-v1.schema.json#/$defs/digest"
+        },
+        "plan_sha256": {
+          "$ref": "broker-v1.schema.json#/$defs/digest"
+        },
+        "schema_version": {
+          "const": 2
+        }
+      },
+      "required": [
+        "schema_version",
+        "decision",
+        "admission_request_sha256",
+        "admission_decision_sha256",
+        "plan_sha256",
+        "decision_sha256"
+      ],
+      "type": "object"
+    },
+    "qualification_plan": {
+      "additionalProperties": false,
+      "properties": {
+        "limits": {
+          "const": {
+            "max_requests": 2,
+            "max_response_bytes": 1310720
+          }
+        },
+        "selector_sha256": {
+          "$ref": "broker-v1.schema.json#/$defs/digest"
+        },
+        "steps": {
+          "items": false,
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/qualification_step"
+                },
+                {
+                  "properties": {
+                    "kind": {
+                      "const": "jira_project_identity"
+                    },
+                    "limits": {
+                      "const": {
+                        "max_requests": 1,
+                        "max_response_bytes": 262144
+                      }
+                    },
+                    "metadata_fields": {
+                      "const": [
+                        "id",
+                        "key"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/qualification_step"
+                },
+                {
+                  "properties": {
+                    "kind": {
+                      "const": "jira_project_issue_page_identity"
+                    },
+                    "limits": {
+                      "const": {
+                        "max_requests": 1,
+                        "max_response_bytes": 1048576
+                      }
+                    },
+                    "metadata_fields": {
+                      "const": [
+                        "issues.id",
+                        "issues.key",
+                        "issues.project.id",
+                        "issues.project.key",
+                        "issues.updated",
+                        "max_results",
+                        "start_at",
+                        "total"
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          ],
+          "type": "array"
+        }
+      },
+      "required": [
+        "selector_sha256",
+        "steps",
+        "limits"
+      ],
+      "type": "object"
+    },
+    "qualification_request": {
+      "additionalProperties": false,
+      "properties": {
+        "admission": {
+          "$ref": "#/$defs/admission_request"
+        },
+        "admission_decision": {
+          "$ref": "#/$defs/admission_decision"
+        },
+        "plan": {
+          "$ref": "#/$defs/qualification_plan"
+        },
+        "schema_version": {
+          "const": 2
+        }
+      },
+      "required": [
+        "schema_version",
+        "admission",
+        "admission_decision",
+        "plan"
+      ],
+      "type": "object"
+    },
+    "qualification_step": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "jira_project_identity",
+            "jira_project_issue_page_identity"
+          ]
+        },
+        "limits": {
+          "$ref": "broker-v1.schema.json#/$defs/phase_limits"
+        },
+        "metadata_fields": {
+          "items": {
+            "enum": [
+              "id",
+              "key",
+              "issues.id",
+              "issues.key",
+              "issues.project.id",
+              "issues.project.key",
+              "issues.updated",
+              "max_results",
+              "start_at",
+              "total"
+            ]
+          },
+          "maxItems": 8,
+          "minItems": 2,
+          "type": "array",
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "kind",
+        "metadata_fields",
+        "limits"
+      ],
+      "type": "object"
+    },
+    "qualified_issue": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/positive_decimal"
+        },
+        "key": {
+          "pattern": "^[A-Z][A-Z0-9_]+-[1-9][0-9]*$",
+          "maxLength": 128,
+          "type": "string"
+        },
+        "project_id": {
+          "$ref": "#/$defs/positive_decimal"
+        },
+        "project_key": {
+          "$ref": "#/$defs/project_key"
+        },
+        "projection_sha256": {
+          "$ref": "broker-v1.schema.json#/$defs/digest"
+        },
+        "updated": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "version_evidence_sha256": {
+          "$ref": "broker-v1.schema.json#/$defs/digest"
+        }
+      },
+      "required": [
+        "id",
+        "key",
+        "project_id",
+        "project_key",
+        "updated",
+        "version_evidence_sha256",
+        "projection_sha256"
+      ],
+      "type": "object"
+    },
+    "qualified_project": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/positive_decimal"
+        },
+        "identity_projection_sha256": {
+          "$ref": "broker-v1.schema.json#/$defs/digest"
+        },
+        "key": {
+          "$ref": "#/$defs/project_key"
+        }
+      },
+      "required": [
+        "id",
+        "key",
+        "identity_projection_sha256"
+      ],
+      "type": "object"
+    },
+    "request": {
+      "additionalProperties": false,
+      "properties": {
+        "arguments": {
+          "$ref": "#/$defs/jira_project_issue_page_arguments"
+        },
+        "expect": {
+          "$ref": "broker-v1.schema.json#/$defs/expect"
+        },
+        "features": {
+          "const": [
+            "bounded_project_page_v1",
+            "identity_snapshot_v1"
+          ]
+        },
+        "operation": {
+          "const": "jira.project.issue_page.read"
+        },
+        "operation_version": {
+          "const": 1
+        },
+        "request_id": {
+          "$ref": "broker-v1.schema.json#/$defs/id"
+        },
+        "schema_version": {
+          "const": 2
+        }
+      },
+      "required": [
+        "schema_version",
+        "operation",
+        "operation_version",
+        "request_id",
+        "features",
+        "expect",
+        "arguments"
+      ],
+      "type": "object"
+    },
+    "result_issue": {
+      "additionalProperties": false,
+      "properties": {
+        "fields": {
+          "items": {
+            "allOf": [
+              {
+                "$ref": "broker-v1.schema.json#/$defs/jira_issue_read_field"
+              },
+              {
+                "properties": {
+                  "field": {
+                    "enum": [
+                      "description",
+                      "summary"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "maxItems": 2,
+          "type": "array"
+        },
+        "id": {
+          "$ref": "#/$defs/positive_decimal"
+        },
+        "key": {
+          "pattern": "^[A-Z][A-Z0-9_]+-[1-9][0-9]*$",
+          "maxLength": 128,
+          "type": "string"
+        },
+        "project_id": {
+          "$ref": "#/$defs/positive_decimal"
+        },
+        "project_key": {
+          "$ref": "#/$defs/project_key"
+        },
+        "updated": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "key",
+        "project_id",
+        "project_key",
+        "updated",
+        "fields"
+      ],
+      "type": "object"
+    },
+    "result_page": {
+      "additionalProperties": false,
+      "properties": {
+        "coordinate_exhausted": {
+          "type": "boolean"
+        },
+        "count": {
+          "maximum": 15,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "max_results": {
+          "maximum": 15,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "next_cursor": {
+          "pattern": "^(0|[1-9][0-9]{0,5}|1000000)$",
+          "type": "string"
+        },
+        "partial_reason": {
+          "enum": [
+            "offset_limit",
+            "pagination_stalled"
+          ]
+        },
+        "selection_complete": {
+          "const": false
+        },
+        "start_at": {
+          "maximum": 1000000,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "total": {
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "start_at",
+        "max_results",
+        "total",
+        "count",
+        "coordinate_exhausted",
+        "selection_complete"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "https://github.com/isukharev/atl/docs/schemas/broker-execution-v2.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/request"
+    },
+    {
+      "$ref": "#/$defs/admission_request"
+    },
+    {
+      "$ref": "#/$defs/admission_decision"
+    },
+    {
+      "$ref": "#/$defs/qualification_request"
+    },
+    {
+      "$ref": "#/$defs/qualification_decision"
+    },
+    {
+      "$ref": "#/$defs/operation_authorization_request"
+    },
+    {
+      "$ref": "#/$defs/operation_decision"
+    },
+    {
+      "$ref": "#/$defs/jira_project_issue_page_result"
+    }
+  ],
+  "title": "ATL Broker bounded execution contract v2"
+}
