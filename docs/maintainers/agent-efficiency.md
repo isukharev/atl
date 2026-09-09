@@ -246,13 +246,14 @@ impact-selected gate set, and release window. Several coherent features may
 use one pull request when those conditions hold. Do not enlarge a PR merely to
 reduce CI if review ownership or risk differs.
 
-Iterate with focused tests, then run the impact-selected contour once on the
-stable integrated head. `make agent-eval-full` is for evaluator/corpus changes
-and release preparation; ordinary product work retains
-`make agent-eval-compat`. Do not repeat locally a gate that hosted CI will run
-on identical bytes unless the repository contract requires local exact-head
-evidence. A material fix starts a new boundary only for paths and gates it can
-affect.
+Iterate with focused local tests, then request the impact-selected hosted contour
+once by moving the reviewed PR from draft to ready at the exact head/current
+base. PR synchronization does not launch full CI. `make agent-eval-full` is for
+evaluator/corpus changes and release preparation; ordinary product work retains
+`make agent-eval-compat`. Do not duplicate full hosted suites locally as an
+admission requirement. A changed head or base needs a new reviewed ready
+transition; focused local reruns cover the affected paths. Inspect the selected
+plan and required `ci-ready` result using the same bounded wait procedure.
 
 ## Keep state outside model context
 

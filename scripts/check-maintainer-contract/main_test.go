@@ -176,21 +176,17 @@ func TestMaintainerContractRejectsDrift(t *testing.T) {
 		{name: "root module boundary", path: "Makefile", old: "go run ./scripts/check-module-boundary -root .", replacement: "echo skipped", want: "exact two-module boundary gate"},
 		{name: "nested ignored failures", path: "internal/agenteval/Makefile", old: ".PHONY: build", replacement: ".IGNORE: build\n.PHONY: build", want: "failure propagation"},
 		{name: "capability catalog generation fail open", path: "internal/agenteval/Makefile", old: "@set -eu;", replacement: "@set +e;", want: "compatibility and deterministic contract commands"},
-		{name: "ci evaluator job condition", path: ".github/workflows/ci.yml", old: "  agent-eval:\n    timeout-minutes: 75\n    runs-on", replacement: "  agent-eval:\n    if: false\n    timeout-minutes: 75\n    runs-on", want: "ci agent-eval job must be unconditional"},
-		{name: "ci evaluator timeout drift", path: ".github/workflows/ci.yml", old: "    timeout-minutes: 75", replacement: "    timeout-minutes: 30", want: "ci agent-eval job must retain timeout-minutes: 75"},
-		{name: "ci evaluator fail-open fallback", path: ".github/workflows/ci.yml", old: "          mode=full", replacement: "          mode=compat", want: "exact required workflow block"},
-		{name: "ci evaluator internal tree coverage", path: ".github/workflows/ci.yml", old: ".claude-plugin .mcp.json cmd internal scripts", replacement: ".claude-plugin .mcp.json cmd scripts", want: "exact required workflow block"},
-		{name: "ci evaluator standalone corpus coverage", path: ".github/workflows/ci.yml", old: "skills skills-src plugins/atl benchmarks; then", replacement: "skills skills-src plugins/atl benchmarks/agent-eval; then", want: "exact required workflow block"},
-		{name: "ci evaluator allowed failure", path: ".github/workflows/ci.yml", old: "        run: make agent-eval-full", replacement: "        run: make agent-eval-full\n        continue-on-error: true", want: "exact required workflow block"},
-		{name: "ci extension runtime selector", path: ".github/workflows/ci.yml", old: "TestExtensionProtocolV1StateMachineIsClosed", replacement: "TestExtensionProtocolV1StateMachine", want: "exact required workflow block"},
-		{name: "ci scheduler runtime selector", path: ".github/workflows/ci.yml", old: "TestSchedulerDispatchIsRoundOrderedBoundedAndCompletionOrderIndependent", replacement: "TestSchedulerDispatchIsRoundOrderedBoundedAndCompletionOrder", want: "exact required workflow block"},
-		{name: "ci Darwin zombie group selector", path: ".github/workflows/ci.yml", old: "|TestDarwinZombieOnlyProcessGroupSignal", replacement: "", want: "exact required workflow block"},
-		{name: "ci Windows extension runner", path: ".github/workflows/ci.yml", old: "  agent-eval-extension-windows:\n    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'\n    runs-on: windows-latest", replacement: "  agent-eval-extension-windows:\n    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'\n    runs-on: ubuntu-latest", want: "ci agent-eval-extension-windows job must retain runs-on: windows-latest"},
-		{name: "ci Windows extension allowed failure", path: ".github/workflows/ci.yml", old: "        shell: pwsh\n        run: |", replacement: "        shell: pwsh\n        continue-on-error: true\n        run: |", want: "exact required workflow block"},
+		{name: "ci evaluator timeout drift", path: ".github/workflows/ci.yml", old: "    timeout-minutes: 75", replacement: "    timeout-minutes: 30", want: "premerge workflow contract"},
+		{name: "ci evaluator allowed failure", path: ".github/workflows/ci.yml", old: "        run: make agent-eval-full", replacement: "        run: make agent-eval-full\n        continue-on-error: true", want: "premerge workflow contract"},
+		{name: "ci extension runtime selector", path: ".github/workflows/ci.yml", old: "TestExtensionProtocolV1StateMachineIsClosed", replacement: "TestExtensionProtocolV1StateMachine", want: "premerge workflow contract"},
+		{name: "ci scheduler runtime selector", path: ".github/workflows/ci.yml", old: "TestSchedulerDispatchIsRoundOrderedBoundedAndCompletionOrderIndependent", replacement: "TestSchedulerDispatchIsRoundOrderedBoundedAndCompletionOrder", want: "premerge workflow contract"},
+		{name: "ci Darwin zombie group selector", path: ".github/workflows/ci.yml", old: "|TestDarwinZombieOnlyProcessGroupSignal", replacement: "", want: "premerge workflow contract"},
+		{name: "ci Windows extension runner", path: ".github/workflows/ci.yml", old: "  agent-eval-extension-windows:\n    needs: binding\n    if: needs.binding.outputs.platform == 'true'\n    runs-on: windows-latest", replacement: "  agent-eval-extension-windows:\n    needs: binding\n    if: needs.binding.outputs.platform == 'true'\n    runs-on: ubuntu-latest", want: "premerge workflow contract"},
+		{name: "ci Windows extension allowed failure", path: ".github/workflows/ci.yml", old: "        shell: pwsh\n        run: |", replacement: "        shell: pwsh\n        continue-on-error: true\n        run: |", want: "premerge workflow contract"},
 		{name: "ci Windows scheduler runtime selector", path: ".github/workflows/ci.yml", old: schedulerWindowsRuntimeStepContract,
 			replacement: strings.Replace(schedulerWindowsRuntimeStepContract,
 				"TestSchedulerResumeCountsTerminalTasksAndDispatchesOnlyPlannedComplement",
-				"TestSchedulerResumeCountsTerminalTasks", 1), want: "exact required workflow block"},
+				"TestSchedulerResumeCountsTerminalTasks", 1), want: "premerge workflow contract"},
 		{name: "release evaluator full", path: ".github/workflows/release.yml", old: "run: make agent-eval-full", replacement: "run: make agent-eval-compat", want: "exact required workflow block"},
 		{name: "CodeQL evaluator build", path: ".github/workflows/codeql.yml", old: "run: make agent-eval-build", replacement: "run: echo skipped", want: "exact workflow block"},
 		{name: "nested Dependabot module", path: ".github/dependabot.yml", old: "directory: \"/internal/agenteval\"", replacement: "directory: \"/internal/evaluator\"", want: "exactly one reviewed gomod entry"},
@@ -624,42 +620,23 @@ full: tidy-check build race lint vet vuln contract windows product-boundary
 concurrency:
   group: fixture
 jobs:
-` + bindingJobContract + readyJobContract + codeQLCallJobContract + `  test:
-    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+` + bindingJobContract + readyJobContract + codeQLCallJobContract + contractsJobContract +
+			lintJobContract + evaluatorJobContract + platformJobContract + windowsRuntimeJobContract + vulnerabilityJobContract + `  test:
+    needs: binding
+    if: needs.binding.outputs.product == 'true'
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
-` + ciCheckoutStepContract + "\n" + setupGoStepContract + "\n" + buildStepContract + "\n" + ciProvenanceStepContract + "\n" + vetStepContract + "\n" + extensionProtocolRuntimeStepContract + "\n" + schedulerRuntimeStepContract + "\n" + coreGateStepContract + "\n" + windowsCompileStepContract + `
+` + ciCheckoutStepContract + "\n" + setupGoStepContract + "\n" + buildStepContract + "\n" + ciProvenanceStepContract + "\n" + vetStepContract + "\n" + coreGateStepContract + "\n" + windowsCompileStepContract + `
   corpus-devcontainer:
+    needs: binding
+    if: needs.binding.outputs.corpus == 'true'
     runs-on: ubuntu-latest
     steps:
 ` + ciCheckoutStepContract + "\n" + setupGoStepContract + `
-  agent-eval:
-    timeout-minutes: 75
-    runs-on: ubuntu-latest
-    steps:
-` + agentEvalCheckoutStepContract + "\n" + setupGoStepContract + "\n" + agentEvalImpactStepContract + "\n" + agentEvalCompatStepContract + "\n" + agentEvalFullStepContract + `
-  agent-eval-extension-windows:
-    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
-    runs-on: windows-latest
-    steps:
-` + ciCheckoutStepContract + "\n" + setupGoStepContract + "\n" + extensionProtocolWindowsRuntimeStepContract + "\n" + schedulerWindowsRuntimeStepContract + `
-  lint:
-    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
-    steps:
-` + lintCheckoutStepContract + "\n" + setupGoStepContract + "\n" + maintainerStepContract + "\n" + supportPolicyStepContract + "\n" + packageBoundaryStepContract + "\n" + maintainabilityStepContract + "\n" + pluginsStepContract + "\n" + docsCatalogStepContract + "\n" + docsFreshnessStepContract + "\n" + repositorySkillsStepContract + "\n" + referenceSplitStepContract + "\n" + context7StepContract + "\n" + onboardingStepContract + "\n" + lintStepContract + `
-  govulncheck:
-    runs-on: ubuntu-latest
-    steps:
-` + ciCheckoutStepContract + "\n" + setupGoStepContract + `
-  smoke:
-    runs-on: ubuntu-latest
-    steps:
-      - run: true
-`,
+` + smokeJobContract,
 		".github/workflows/release.yml": `name: release
 on:
   push:

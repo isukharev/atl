@@ -43,45 +43,64 @@ follow-up only when the finding or fix warrants it.
 
 ## CI and merge
 
-The premerge bootstrap retains all existing automatic checks and adds
-`ci-ready`, an aggregate of the complete hosted contour, including a reusable
-CodeQL scan. Existing required contexts and branch protection remain in force;
-the aggregate does not activate impact-based skipping or replace protection by
-itself. The standalone CodeQL PR and weekly runs remain available during this
-transition.
+Premerge checks run on GitHub-hosted runners only for a `ready_for_review`
+event targeting `main`. Opening, reopening, synchronizing, or labeling a PR
+does not launch the suite; main pushes retain only a bounded build smoke.
+`ci-ready` is the single required aggregate, with strict up-to-date branch
+protection. Weekly CodeQL and full release gates remain automatic.
 
-For a manual full run, update the same-repository PR branch to contain current
-`main`, finish review, and capture the exact PR head and base revisions. Dispatch
-the PR branch, supplying those immutable revisions as inputs:
+Update the same-repository PR branch to contain current `main`, finish focused
+local verification and review, and capture the exact PR head/base revisions. If
+the reviewed PR is already ready, first run `gh pr ready <number> --undo` and
+wait for it to finish. Re-read the PR and confirm that it is draft and that its
+head/base revisions are still the reviewed values before running:
 
 ```sh
-gh workflow run ci.yml --ref <pr-branch> \
-  -f pr=<number> -f head_sha=<reviewed-head-sha> -f base_sha=<current-main-sha>
+gh pr ready <number>
 ```
 
-The workflow checks the dispatched commit, PR branch, open PR, and exact
-head/base against current GitHub metadata before and after the gates. Manual
-runs require the base to be an ancestor of the checked head. Automatic PR runs
-instead validate GitHub's synthetic merge commit and its exact base/head
-parents; fork PRs retain this automatic route. Selecting `main` and merely
-checking out a different commit cannot produce valid manual PR evidence.
+Do not fire-and-forget or overlap the draft and ready transitions. A direct-ready
+PR creation produces no qualifying event; correct or review it as needed, then
+complete the draft-to-ready sequence. A merge conflict cannot produce admitted
+evidence; resolve and review it before another transition. The credential making
+the transition must be the coordinator's user, PAT, or GitHub App credential,
+not a workflow `GITHUB_TOKEN` trampoline whose events can be suppressed.
 
-`ci-ready` succeeds only when every premerge dependency succeeds; a skipped,
-cancelled, failed, or missing dependency fails the aggregate. The final binding
-check rejects head or base movement during the run. If either revision changes,
-update and review the branch as applicable, then dispatch a fresh run. A rerun
-of the old event does not update its bound revisions. Before merge, reconcile
-the run's event, `headSha`, and current PR head/base; retain strict up-to-date
-branch protection when migrating required contexts to the aggregate.
+To widen the selected plan to every hosted gate, apply the exact `ci-full` label
+before requesting ready. The event captures that label snapshot; changing labels
+later neither changes nor starts a run. Callers cannot omit required lanes. The
+maintained impact owner reads the committed base/head policy union, and the
+binding log records the closed plan. See
+[Development](development.md#select-verification-once-the-diff-is-stable) for
+the module-level contour and conservative fallback rules.
 
-The initial binding job deliberately does not gate the legacy jobs: a binding
-failure must not turn existing required checks into skipped jobs while the
-required-check migration is still pending. After the bootstrap is merged and
-the manual aggregate has been observed on a PR head, the separately authorized
-protection migration can add `ci-ready`, verify it, and retire old contexts.
-Do not remove old contexts first or disable required checks between updates.
+The workflow requires an open, non-draft, same-repository PR and checks the
+event's exact head/base branches, synthetic merge ref, and merge checkout. The
+checkout must have the event base/head as ordered parents, the base must be an
+ancestor of the head, and the merge tree must equal the reviewed head tree. The
+same facts are read from current GitHub metadata before and after the gates.
+Fork revisions must first move to a reviewed same-repository branch and PR.
 
-Mark the PR ready only after local gates and review are green. Inspect hosted
+`ci-ready` recomputes the committed plan, requires successful binding/contracts
+and every selected job, and accepts skips only for jobs explicitly excluded by
+that exact plan. Failed, cancelled, missing, or unexpectedly skipped work fails
+the aggregate. If the head or base changes, update and review the branch, finish
+the draft transition, re-confirm current refs, and request ready again. For a
+same-head retry, use the same completed draft-to-ready sequence; rerunning an old
+event does not update its revision or label snapshot. Because synchronization
+does not trigger the workflow, stale runs are not cancelled automatically; the
+coordinator explicitly cancels a superseded run when needed. Final current-ref
+and non-draft checks reject stale evidence. Before merge, reconcile the run's
+event, `headSha`, plan, and current PR head/base; strict protection guards base
+movement after the run completes.
+
+For the required-check migration, first observe the native `ci-ready` aggregate
+on a PR head under existing protection. Add and verify `ci-ready` before retiring
+legacy contexts, then activate ready-event-only selection. Never disable required
+checks between updates. Configuration changes remain separate authorized
+actions; a local workflow patch does not change protection.
+
+Mark the PR ready only after focused local verification and review. Inspect hosted
 checks rather than assuming that a queued workflow passed. Never keep a watch
 alive with model-driven waits. Take a bounded required-check snapshot at a
 natural dependency boundary:

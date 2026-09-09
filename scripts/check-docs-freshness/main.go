@@ -71,9 +71,10 @@ type flagExclusion struct {
 }
 
 type impactManifest struct {
-	SchemaVersion int           `json:"schema_version"`
-	Checks        []impactCheck `json:"checks"`
-	Rules         []impactRule  `json:"rules"`
+	SchemaVersion       int           `json:"schema_version"`
+	HostedSchemaVersion int           `json:"hosted_schema_version,omitempty"`
+	Checks              []impactCheck `json:"checks"`
+	Rules               []impactRule  `json:"rules"`
 }
 
 type impactCheck struct {
@@ -87,6 +88,7 @@ type impactRule struct {
 	Suffix          string   `json:"suffix,omitempty"`
 	ExcludePrefixes []string `json:"exclude_prefixes,omitempty"`
 	Checks          []string `json:"checks"`
+	HostedLanes     []string `json:"hosted_lanes,omitempty"`
 }
 
 type docsCatalog struct {
@@ -120,9 +122,22 @@ type changedPathSet struct {
 
 func main() {
 	root := flag.String("root", ".", "repository root")
+	hostedPlan := flag.Bool("hosted-plan", false, "emit the committed hosted impact plan as JSON")
+	full := flag.Bool("full", false, "widen hosted selection to the complete contour")
 	flag.Parse()
 	if flag.NArg() != 0 {
 		fmt.Fprintln(os.Stderr, "check-docs-freshness: unexpected arguments")
+		os.Exit(1)
+	}
+	if *hostedPlan {
+		if err := runHostedPlan(*root, os.Getenv("ATL_DOCS_BASE"), os.Getenv("ATL_DOCS_HEAD"), *full, os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, "check-docs-freshness:", err)
+			os.Exit(1)
+		}
+		return
+	}
+	if *full {
+		fmt.Fprintln(os.Stderr, "check-docs-freshness: full requires hosted-plan")
 		os.Exit(1)
 	}
 	result, err := validateRepository(*root, os.Getenv("ATL_DOCS_BASE"), os.Getenv("ATL_DOCS_HEAD"), os.Getenv("ATL_PRIVATE_MARKERS_FILE"))
@@ -520,51 +535,24 @@ func requireEvidence(root, document, evidence string) error {
 }
 
 func validateImpactManifest(manifest impactManifest, tracked []string, makeTargets map[string]bool) error {
-	if len(manifest.Checks) == 0 || len(manifest.Rules) == 0 {
-		return errors.New("maintainer impact manifest is empty")
+	if err := validateImpactStructure(manifest); err != nil {
+		return err
 	}
-	checks := map[string]bool{}
-	previous := ""
 	for _, check := range manifest.Checks {
-		if !idPattern.MatchString(check.ID) || check.ID <= previous || checks[check.ID] || !makeTargets[check.MakeTarget] {
-			return fmt.Errorf("impact check %q is stale, duplicated, unsorted, or lacks a Make target", check.ID)
+		if !makeTargets[check.MakeTarget] {
+			return fmt.Errorf("impact check %q lacks a Make target", check.ID)
 		}
-		previous = check.ID
-		checks[check.ID] = true
 	}
-	previous = ""
 	for _, rule := range manifest.Rules {
-		key, err := impactRuleKey(rule)
-		if err != nil || key <= previous {
-			return errors.New("impact rules require valid unique sorted selectors")
-		}
-		previous = key
-		previousExclusion := ""
+		key, _ := impactRuleKey(rule)
 		for _, exclusion := range rule.ExcludePrefixes {
-			if rule.Prefix == "" || exclusion <= previousExclusion ||
-				!strings.HasSuffix(exclusion, "/") || exclusion == rule.Prefix ||
-				!strings.HasPrefix(exclusion, rule.Prefix) ||
-				!canonicalRelative(strings.TrimSuffix(exclusion, "/")) {
-				return fmt.Errorf("impact rule %q has a malformed, duplicated, or unsorted excluded prefix", key)
-			}
-			matchedExclusion := false
+			matched := false
 			for _, path := range tracked {
-				matchedExclusion = matchedExclusion || strings.HasPrefix(path, exclusion)
+				matched = matched || strings.HasPrefix(path, exclusion)
 			}
-			if !matchedExclusion {
+			if !matched {
 				return fmt.Errorf("impact rule %q excluded prefix %q matches no tracked path", key, exclusion)
 			}
-			previousExclusion = exclusion
-		}
-		if len(rule.Checks) == 0 {
-			return fmt.Errorf("impact rule %q has no checks", key)
-		}
-		priorCheck := ""
-		for _, check := range rule.Checks {
-			if check <= priorCheck || !checks[check] {
-				return fmt.Errorf("impact rule %q has a stale, duplicated, or unsorted check", key)
-			}
-			priorCheck = check
 		}
 		matched := false
 		for _, path := range tracked {
@@ -577,10 +565,7 @@ func validateImpactManifest(manifest impactManifest, tracked []string, makeTarge
 	for _, path := range tracked {
 		matched := false
 		for _, rule := range manifest.Rules {
-			if impactRuleMatches(rule, path) {
-				matched = true
-				break
-			}
+			matched = matched || impactRuleMatches(rule, path)
 		}
 		if !matched {
 			return fmt.Errorf("tracked path %q has no maintainer impact classification", path)

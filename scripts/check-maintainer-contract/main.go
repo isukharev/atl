@@ -234,12 +234,8 @@ agent-eval-distribution: agent-eval-distribution-clean
 `
 
 const (
-	checkoutStepContract     = `      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1`
-	lintCheckoutStepContract = `      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          ref: ${{ github.sha }}
-          fetch-depth: 0`
-	setupGoStepContract = `      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+	checkoutStepContract = `      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1`
+	setupGoStepContract  = `      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
         with:
           go-version-file: go.mod
           check-latest: true`
@@ -267,11 +263,6 @@ const (
         run: make check-plugins`
 	docsCatalogStepContract = `      - name: Documentation catalog
         run: make check-docs-catalog`
-	docsFreshnessStepContract = `      - name: Documentation freshness
-        env:
-          ATL_DOCS_BASE: ${{ inputs.base_sha || github.event.pull_request.base.sha }}
-          ATL_DOCS_HEAD: ${{ inputs.head_sha || github.event.pull_request.head.sha }}
-        run: make check-docs-freshness`
 	releaseDocsFreshnessStepContract = `      - name: Documentation freshness
         run: make check-docs-freshness`
 	repositorySkillsStepContract = `      - name: Repository maintainer skills
@@ -296,32 +287,6 @@ const (
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0`
-	agentEvalImpactStepContract = `      - name: Classify evaluation impact
-        id: impact
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-        run: |
-          set -euo pipefail
-          mode=full
-          if [ "${{ github.event_name }}" = "pull_request" ] && \
-            [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]] && \
-            git cat-file -e "${BASE_SHA}^{commit}" && \
-            git cat-file -e "${GITHUB_SHA}^{commit}" && \
-            git merge-base --is-ancestor "$BASE_SHA" "$GITHUB_SHA"; then
-            if git diff --quiet "$BASE_SHA" "$GITHUB_SHA" -- \
-              go.mod go.sum Makefile .golangci.yml .github \
-              .claude-plugin .mcp.json cmd internal scripts \
-              skills skills-src plugins/atl benchmarks; then
-              mode=compat
-            fi
-          fi
-          printf 'mode=%s\n' "$mode" >> "$GITHUB_OUTPUT"`
-	agentEvalCompatStepContract = `      - name: Product compatibility contract
-        if: steps.impact.outputs.mode == 'compat'
-        run: make agent-eval-compat`
-	agentEvalFullStepContract = "      - name: Complete agent-evaluation gate\n" +
-		"        if: steps.impact.outputs.mode == 'full'\n" +
-		"        run: make agent-eval-full"
 	agentEvalReleaseFullStepContract = "      - name: Complete agent-evaluation gate\n" +
 		"        run: make agent-eval-full"
 	codeQLProductBuildStepContract = "      - name: Build product module\n" +
@@ -590,134 +555,7 @@ func validateBootstrap(root string) error {
 	if err != nil {
 		return fmt.Errorf("read ci workflow: %w", err)
 	}
-	if !bytes.Contains(ci, []byte("run: make check-maintainer-contract")) {
-		return errors.New("ci must run the maintainer contract through the reviewed root facade")
-	}
-	if err := validateWorkflowHeader(ci, "ci", "ci"); err != nil {
-		return err
-	}
-	if err := validateWindowsCompileWorkflow(ci); err != nil {
-		return err
-	}
-	if err := validateWorkflowJobSet(ci, "ci", "binding", "test", "corpus-devcontainer", "agent-eval", "agent-eval-extension-windows", "lint", "govulncheck", "codeql", "ci-ready", "smoke"); err != nil {
-		return err
-	}
-	if err := validateBootstrapCI(ci); err != nil {
-		return err
-	}
-	testJob, err := workflowJob(ci, "test")
-	if err != nil {
-		return err
-	}
-	if err := requireWorkflowStepPrefix(testJob, "ci test",
-		ciCheckoutStepContract, setupGoStepContract, buildStepContract,
-		ciProvenanceStepContract, vetStepContract, extensionProtocolRuntimeStepContract, schedulerRuntimeStepContract,
-		coreGateStepContract,
-	); err != nil {
-		return err
-	}
-	if err := requireWorkflowStep(testJob, "Extension protocol runtime", extensionProtocolRuntimeStepContract); err != nil {
-		return fmt.Errorf("ci: %w", err)
-	}
-	if err := requireWorkflowStep(testJob, "Scheduler runtime", schedulerRuntimeStepContract); err != nil {
-		return fmt.Errorf("ci: %w", err)
-	}
-	if err := requireWorkflowStep(testJob, "Core race and coverage gate", coreGateStepContract); err != nil {
-		return fmt.Errorf("ci: %w", err)
-	}
-	if err := requireWorkflowStep(testJob, "Verify stamped build provenance", ciProvenanceStepContract); err != nil {
-		return fmt.Errorf("ci: %w", err)
-	}
-	agentEvalJob, err := workflowJob(ci, "agent-eval")
-	if err != nil {
-		return err
-	}
-	if err := validateRequiredJob(agentEvalJob, "ci agent-eval",
-		workflowField{"timeout-minutes", "75"},
-		workflowField{"runs-on", "ubuntu-latest"},
-		workflowField{"steps", ""},
-	); err != nil {
-		return err
-	}
-	if err := requireWorkflowStepPrefix(agentEvalJob, "ci agent-eval",
-		agentEvalCheckoutStepContract, setupGoStepContract, agentEvalImpactStepContract,
-		agentEvalCompatStepContract, agentEvalFullStepContract,
-	); err != nil {
-		return err
-	}
-	for _, required := range []struct {
-		name, contract string
-	}{
-		{"Classify evaluation impact", agentEvalImpactStepContract},
-		{"Product compatibility contract", agentEvalCompatStepContract},
-		{"Complete agent-evaluation gate", agentEvalFullStepContract},
-	} {
-		if err := requireWorkflowStep(agentEvalJob, required.name, required.contract); err != nil {
-			return fmt.Errorf("ci: %w", err)
-		}
-	}
-	extensionWindowsJob, err := workflowJob(ci, "agent-eval-extension-windows")
-	if err != nil {
-		return err
-	}
-	if err := validateRequiredJob(extensionWindowsJob, "ci agent-eval-extension-windows",
-		workflowField{"if", "github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'"},
-		workflowField{"runs-on", "windows-latest"},
-		workflowField{"steps", ""},
-	); err != nil {
-		return err
-	}
-	if err := requireWorkflowStepPrefix(extensionWindowsJob, "ci agent-eval-extension-windows",
-		ciCheckoutStepContract, setupGoStepContract, extensionProtocolWindowsRuntimeStepContract,
-		schedulerWindowsRuntimeStepContract,
-	); err != nil {
-		return err
-	}
-	if err := requireWorkflowStep(extensionWindowsJob, "Extension protocol runtime", extensionProtocolWindowsRuntimeStepContract); err != nil {
-		return fmt.Errorf("ci: %w", err)
-	}
-	if err := requireWorkflowStep(extensionWindowsJob, "Scheduler runtime", schedulerWindowsRuntimeStepContract); err != nil {
-		return fmt.Errorf("ci: %w", err)
-	}
-	lintJob, err := workflowJob(ci, "lint")
-	if err != nil {
-		return err
-	}
-	if err := validateRequiredJob(lintJob, "ci lint",
-		workflowField{"if", "github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'"},
-		workflowField{"runs-on", "ubuntu-latest"},
-		workflowField{"steps", ""},
-	); err != nil {
-		return err
-	}
-	if err := requireWorkflowStepPrefix(lintJob, "ci lint",
-		lintCheckoutStepContract, setupGoStepContract, maintainerStepContract, supportPolicyStepContract,
-		packageBoundaryStepContract, maintainabilityStepContract, pluginsStepContract, docsCatalogStepContract, docsFreshnessStepContract, repositorySkillsStepContract, referenceSplitStepContract, context7StepContract,
-		onboardingStepContract, lintStepContract,
-	); err != nil {
-		return err
-	}
-	for _, required := range []struct {
-		name, contract string
-	}{
-		{"Maintainer toolchain contract", maintainerStepContract},
-		{"Agent-eval support policy", supportPolicyStepContract},
-		{"Two-module package boundary", packageBoundaryStepContract},
-		{"Maintainability ratchets", maintainabilityStepContract},
-		{"Generated plugin trees are current", pluginsStepContract},
-		{"Documentation catalog", docsCatalogStepContract},
-		{"Documentation freshness", docsFreshnessStepContract},
-		{"Repository maintainer skills", repositorySkillsStepContract},
-		{"Reference split compatibility", referenceSplitStepContract},
-		{"Indexed documentation contract", context7StepContract},
-		{"Onboarding documentation rehearsal", onboardingStepContract},
-		{"golangci-lint", lintStepContract},
-	} {
-		if err := requireWorkflowStep(lintJob, required.name, required.contract); err != nil {
-			return fmt.Errorf("ci: %w", err)
-		}
-	}
-	return nil
+	return validatePremergeWorkflow(ci)
 }
 
 func validateGraphifyInstaller(root string) error {
@@ -1681,7 +1519,7 @@ func validateWindowsCompileWorkflow(contents []byte) error {
 			continue
 		}
 		if key == "if" {
-			if value != "github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'" {
+			if value != "needs.binding.outputs.product == 'true'" {
 				return errors.New("ci test job must retain the exact required event condition")
 			}
 			requiredIfCount++
@@ -1695,10 +1533,10 @@ func validateWindowsCompileWorkflow(contents []byte) error {
 		if key == "continue-on-error" {
 			return errors.New("ci test job must not allow job-level failure")
 		}
-		if key == "needs" {
-			return errors.New("ci test job must not depend on a potentially skipped job")
+		if key == "needs" && value != "binding" {
+			return errors.New("ci test job must depend on binding")
 		}
-		if key != "if" && key != "strategy" && key != "runs-on" && key != "steps" {
+		if key != "if" && key != "needs" && key != "strategy" && key != "runs-on" && key != "steps" {
 			return fmt.Errorf("ci test job has unexpected job-level key %q", key)
 		}
 	}
