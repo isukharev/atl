@@ -154,11 +154,15 @@ func newBrokerRuntime(material *brokerconfig.Material, version string, auditWrit
 	if err != nil {
 		return nil, fmt.Errorf("%w: invalid Broker read service", domain.ErrConfig)
 	}
+	cache, err := app.NewBrokerCacheQualificationService(authority, material.Config.Authority.IssuerSHA256)
+	if err != nil {
+		return nil, fmt.Errorf("%w: invalid Broker cache qualification service", domain.ErrConfig)
+	}
 	guard, err := brokerserver.NewCredentialGuard(guardCredentials...)
 	if err != nil {
 		return nil, fmt.Errorf("%w: invalid Broker credential guard", domain.ErrConfig)
 	}
-	data, err := brokerserver.New(brokerserver.Config{Audience: material.Config.DataAudience, BrokerID: material.Config.BrokerID, MaxConcurrent: 1}, brokerserver.Dependencies{Authenticator: authority, Reads: reads, Guard: guard})
+	data, err := brokerserver.New(brokerserver.Config{Audience: material.Config.DataAudience, BrokerID: material.Config.BrokerID, MaxConcurrent: 1}, brokerserver.Dependencies{Authenticator: authority, Reads: reads, Cache: cache, Guard: guard})
 	if err != nil {
 		guard.Close()
 		return nil, fmt.Errorf("%w: invalid Broker data handler", domain.ErrConfig)

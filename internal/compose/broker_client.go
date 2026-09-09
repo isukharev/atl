@@ -24,6 +24,17 @@ func LoadBrokerDiscovery(service, version string) (domain.BrokerDiscoveryReader,
 	return newBrokerClient(cfg, service, version, nil)
 }
 
+// NewBrokerCacheQualification composes only the Confluence Broker session
+// client used by the explicit qualified handoff. It cannot load an upstream
+// PAT and refuses direct mode.
+func NewBrokerCacheQualification(cfg *config.Config, version string) (domain.BrokerCacheQualificationReader, error) {
+	client, err := newBrokerClient(cfg, domain.ServerProductConfluence, version, nil)
+	if err != nil {
+		return nil, err
+	}
+	return client, nil
+}
+
 func newBrokerClient(cfg *config.Config, service, version string, scheduler *httpx.Scheduler) (*brokerclient.Client, error) {
 	if cfg == nil || cfg.Broker == nil || !brokerMode(cfg) {
 		return nil, fmt.Errorf("%w: Broker client is not configured", domain.ErrConfig)

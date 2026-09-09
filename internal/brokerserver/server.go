@@ -37,6 +37,7 @@ type Config struct {
 type Dependencies struct {
 	Authenticator brokertransport.Authenticator
 	Reads         *app.BrokerReadService
+	Cache         *app.BrokerCacheQualificationService
 	Guard         *CredentialGuard
 }
 
@@ -44,6 +45,7 @@ type Handler struct {
 	config        Config
 	authenticator brokertransport.Authenticator
 	reads         *app.BrokerReadService
+	cache         *app.BrokerCacheQualificationService
 	guard         *CredentialGuard
 	permits       chan struct{}
 	random        io.Reader
@@ -55,7 +57,7 @@ func New(config Config, dependencies Dependencies) (*Handler, error) {
 	if identityErr != nil || config.MaxConcurrent <= 0 || config.MaxConcurrent > 64 || dependencies.Authenticator == nil || dependencies.Reads == nil || dependencies.Guard == nil {
 		return nil, fmt.Errorf("%w: invalid Broker server configuration", domain.ErrUsage)
 	}
-	return &Handler{config: config, authenticator: dependencies.Authenticator, reads: dependencies.Reads, guard: dependencies.Guard, permits: make(chan struct{}, config.MaxConcurrent), random: rand.Reader, now: time.Now}, nil
+	return &Handler{config: config, authenticator: dependencies.Authenticator, reads: dependencies.Reads, cache: dependencies.Cache, guard: dependencies.Guard, permits: make(chan struct{}, config.MaxConcurrent), random: rand.Reader, now: time.Now}, nil
 }
 
 func (h *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
@@ -65,6 +67,10 @@ func (h *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	}
 	if request != nil && request.URL != nil && (request.URL.Path == brokertransport.DiscoveryNegotiatePathV2 || request.URL.Path == brokertransport.DiscoveryPathV2) {
 		h.serveDiscovery(writer, request)
+		return
+	}
+	if request != nil && request.URL != nil && request.URL.Path == brokertransport.CacheQualificationPathV2 {
+		h.serveCacheQualification(writer, request, h.now())
 		return
 	}
 	if request == nil || !h.routeValid(request) {
@@ -207,7 +213,7 @@ func (h *Handler) routeValid(request *http.Request) bool {
 		return false
 	}
 	switch request.URL.Path {
-	case ExecutePath, brokertransport.DiscoveryNegotiatePathV2, brokertransport.DiscoveryPathV2:
+	case ExecutePath, brokertransport.DiscoveryNegotiatePathV2, brokertransport.DiscoveryPathV2, brokertransport.CacheQualificationPathV2:
 		return request.Method == http.MethodPost && len(request.Header.Values("Content-Type")) == 1 && request.Header.Get("Content-Type") == "application/json"
 	case ProtocolPath:
 		return request.Method == http.MethodGet && request.ContentLength == 0 && len(request.TransferEncoding) == 0 && len(request.Header.Values("Content-Type")) == 0

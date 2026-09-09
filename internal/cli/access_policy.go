@@ -168,8 +168,7 @@ func accessPolicyInvariantMetadata(err error) (string, bool) {
 // their mutation guard. Local
 // commands use the explicit "none none" pair. Unguarded rows then use "-";
 // guarded rows declare requirements, phase, and family. Output modes are
-// explicit and canonical: json, json,text, json,id, or
-// json,text,id. Parent groups are derived from path prefixes, so the finalized
+// explicit/canonical. Parent groups are derived from prefixes, so the finalized
 // Cobra tree is checked bidirectionally for groups, leaves, and the two
 // intentional hybrids.
 var commandRegistry, commandRegistryErr = parseCommandRegistry(`
@@ -242,6 +241,7 @@ R local-read json,text corpus cache status
 R local-read-optional-artifact json,text corpus diff
 R local-artifact json,text corpus export
 R local-read-optional-artifact json,text corpus handoff
+R broker-qualified-handoff json,text corpus handoff-qualified
 R diagnostic json,text doctor
 R diagnostic json,text environment inspect
 R prose json,text help

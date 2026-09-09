@@ -94,6 +94,7 @@ atl jira issue search --jql 'order by updated DESC' --limit 5
 Точный read-only scope и приватные session-файлы описаны в разделе
 [Broker client mode](docs/reference/cli/configuration.md#broker-client-mode).
 Текущий доступ: `atl broker discover --service jira|confluence`.
+Проверенное использование кэша: [`corpus handoff-qualified`](docs/reference/cli/local-artifacts.md#atl-corpus-handoff-qualified).
 
 Для Confluence:
 

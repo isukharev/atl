@@ -3,9 +3,9 @@
 This document defines ATL's Broker semantic contracts and authenticated HTTP
 v1. Explicit Broker client mode routes the supported exact Jira issue and
 Confluence page reads through the local host; direct mode remains the default.
-Execution-scoped discovery v2 is available through its separate authenticated
-routes. Guarded writes, durable outcomes and cache reuse remain unavailable
-until their owning slices are composed.
+Execution-scoped discovery v2 and qualified corpus handoff use separate
+authenticated routes. Guarded writes, durable outcomes, Broker capture/refresh,
+and broader cache reuse remain unavailable until their owning slices compose.
 
 The machine-readable shapes are the semantic
 [`schemas/broker-v1.schema.json`](schemas/broker-v1.schema.json) and HTTP
@@ -13,7 +13,10 @@ The machine-readable shapes are the semantic
 Execution-scoped discovery has a separate
 [`schemas/broker-discovery-v2.schema.json`](schemas/broker-discovery-v2.schema.json)
 and [HTTP v2 schema](schemas/broker-discovery-http-v2.schema.json), so its
-evolution does not redefine either v1 digest. The normative strict codecs and canonical vectors live in
+evolution does not redefine either v1 digest. Cache resolution similarly uses
+the separate [semantic v2](schemas/broker-cache-v2.schema.json) and
+[HTTP v2](schemas/broker-cache-http-v2.schema.json) schemas while embedding the
+unchanged v1 qualification request/decision. The normative strict codecs and canonical vectors live in
 `internal/brokercontract` and `internal/brokertransport`. JSON Schema alone
 does not prove duplicate-key rejection, temporal ordering, authority provenance
 or canonical bytes.
@@ -42,8 +45,9 @@ A Broker authorization never replaces the final adapter clearance.
 
 ## Authenticated HTTP server core
 
-The server core has two exact routes: `POST /v1/execute` for the two available
-read operations and authenticated `GET /v1/protocol` for schema, registry,
+The server core has exact typed routes: `POST /v1/execute` for the two available
+read operations, `POST /v2/cache/qualify` for the separate cache family, and
+authenticated `GET /v1/protocol` for schema, registry,
 profile metadata, and the configured Broker id and workload audience. A client
 checks that identity against its fixed configuration before execution. The
 response is compatibility metadata, not
@@ -56,14 +60,20 @@ configured HTTPS authority. Authentication binds a fresh 192-bit server nonce,
 a domain-separated credential digest, the configured issuer, audience and
 Broker id, the complete verified context and a response lease of at most five
 seconds. The credential cannot select the authority URL or provide identity in
-forwarded headers. Admission, qualification and final authorization then use
-three fixed authority routes and the existing exact decision codecs. All four
-authority calls are single-attempt, redirect-free, independently capped at
-128 KiB, bounded to five seconds and never positively cached. Proposal
-authorization remains unsupported.
+forwarded headers. Admission, qualification and final authorization use three
+fixed authority routes and the existing exact decision codecs. Cache source
+resolution uses the separate `POST /v2/authorize/cache` route with a 64 KiB
+request and response cap. Every authority call is single-attempt,
+redirect-free, bounded to five seconds and never positively cached; the other
+four retain their 128 KiB caps. Proposal authorization remains unsupported.
+Cache qualification establishes one five-second connection/context deadline
+before request-body receipt and shares it across workload authentication,
+authority resolution, failures, and response publication; it does not receive
+a new lease per phase or proceed when connection deadlines are unavailable.
 
 The handler caps parsed request headers at 16 KiB, the workload bearer at
-8 KiB and the execute body at 64 KiB before strict decode. A fixed global
+8 KiB, and each execute or cache-qualification body at 64 KiB before strict
+decode. A fixed global
 concurrency semaphore refuses overload before authentication. Successful
 payloads retain the existing Jira or Confluence result bytes without another
 wrapper. Failures use the closed HTTP schema, for example:
@@ -450,6 +460,32 @@ evidence schema, immutable generation and exact content digest. Equal account
 or backend identity is insufficient. Missing, legacy, altered, expired or
 future qualification is unqualified. This disables automatic cross-context
 reuse; it does not claim to delete already downloaded user data.
+
+The implemented positive cache slice is only a clean, fully verified,
+Confluence-only sealed generation with manifest/receipt/capture/cache-binding
+v1, indexer projection v2, native and metadata complete, and comments and
+attachments not requested. The client supplies selector, projection,
+evidence-schema, generation, and native snapshot digests derived from that
+generation. It cannot supply source principal or read scope. The configured
+external authority resolves those two values by the exact trusted
+backend/generation/content tuple, constructs the unchanged semantic-v1 request,
+and returns that request with its decision. The Broker pins the configured
+issuer and verifies every returned request field, digest and hard expiry before
+releasing a response that omits the source bindings.
+The client-visible target-execution digest covers only Broker id, audience,
+execution id and epoch. It is not complete authenticated identity: the
+server-validated request digest binds the full principal, workload, backend
+binding and execution/grant/credential lifetimes without disclosing them.
+
+This is a real external verifier dependency, not an ATL hash-to-grant rule.
+Unknown tuples deny or remain unavailable, and merely configuring an authority
+does not advertise cache availability through discovery v2. ATL stores no
+capture registry or policy. Qualification makes zero Jira/Confluence requests;
+`confluence.page.read` identifies the native content family but cannot reuse a
+single-page execution grant for the aggregate. The authority-owned source scope
+must cover every member and excluded dimension, while the distinct cache digest
+domains bind the aggregate selector, native snapshot, derived projection and
+whole immutable generation.
 
 ## Strict codec and digests
 

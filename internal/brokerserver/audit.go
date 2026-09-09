@@ -185,7 +185,7 @@ func validAuditEvent(event AuditEvent) bool {
 		return false
 	}
 	switch event.Route {
-	case "data_execute", "data_protocol", "data_unknown", "admin_health", "admin_readiness", "admin_unknown":
+	case "data_execute", "data_protocol", "data_cache_qualification", "data_unknown", "admin_health", "admin_readiness", "admin_unknown":
 	default:
 		return false
 	}

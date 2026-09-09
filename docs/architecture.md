@@ -63,8 +63,9 @@ Confluence mirror snapshots into the canonical indexer-v1 members; the CLI only
 parses local roots and emits the content-free receipt and generation summary.
 The same app layer owns qualified corpus-build orchestration over transport-
 neutral Jira/Confluence services and `internal/corpus` recovery state.
-It also owns the transport-neutral Broker exact-read coordinator. That service
-uses narrow Jira/Confluence qualification and business-read ports, an injected
+It also owns the transport-neutral Broker exact-read and cache-qualification
+coordinators. Those services use narrow Jira/Confluence qualification and
+business-read ports, an injected
 authorizer, one parent budget, and buffered request-bound results. The concrete
 adapters resolve only server-owned destinations and expose only a digest of
 their immutable configured base for binding checks. `internal/brokerserver`
@@ -74,11 +75,13 @@ health/readiness and content-minimized audit; it imports no concrete adapter.
 `internal/brokerconfig` exclusively reads the explicit owner-private host file
 and its same-directory secret/TLS references. The fixed HTTPS
 `internal/adapter/brokerauthority` implements opaque authentication and the
-existing authorizer port without policy storage or a positive cache.
+existing authorizer ports without policy or capture-record storage. Cache
+source bindings are resolved only by the configured external authority.
 `internal/compose` exposes the explicit `broker serve` composition, passes
 already-qualified file credentials directly to selected adapters, shares one
 request scheduler, and never uses ordinary client PAT resolution for this
-path. No MCP or remote client route composes the Broker yet.
+path. Explicit client adapters compose exact reads, discovery, and qualified
+corpus handoff only; MCP keeps its separately reviewed read-only inventory.
 
 ---
 

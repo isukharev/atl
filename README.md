@@ -84,9 +84,10 @@ atl jira issue search --jql 'order by updated DESC' --limit 5
 HTTPS; explicit HTTP needs the override. `doctor --service` scopes health and
 `--remote` adds bounded body-free probes. JSON uses stdout; diagnostics stderr.
 
-See [Broker client mode](docs/reference/cli/configuration.md#broker-client-mode)
-for its exact-read scope and owner-private sessions.
+[Broker mode](docs/reference/cli/configuration.md#broker-client-mode):
+exact reads and owner-private sessions.
 Advisory access: `atl broker discover --service jira|confluence`.
+Qualified reuse: [`corpus handoff-qualified`](docs/reference/cli/local-artifacts.md#atl-corpus-handoff-qualified).
 
 For Confluence:
 

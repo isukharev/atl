@@ -11,6 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added explicit `atl corpus handoff-qualified` for a clean, complete,
+  Confluence-only sealed cache generation. It verifies the immutable generation
+  before and after one five-second Broker qualification, uses authority-resolved
+  source scope without loading upstream PATs, and writes only an optional
+  non-authoritative private indexer route. Ordinary `corpus handoff` remains
+  offline; Broker capture, refresh, Jira/mixed caches, comments, and attachments
+  remain unsupported.
+
 - Added `atl broker discover --service jira|confluence` and private zero-TTL
   MCP Broker discovery resources. Each read negotiates discovery v2 and
   refreshes operation-level advisory access without backend PATs or direct

@@ -14,6 +14,7 @@ Local manifest generation, backend-identity hashing, and sealed indexer corpora.
 - [`atl corpus cache retention apply`](#atl-corpus-cache-retention-apply)
 - [`atl corpus diff`](#atl-corpus-diff)
 - [`atl corpus handoff`](#atl-corpus-handoff)
+- [`atl corpus handoff-qualified`](#atl-corpus-handoff-qualified)
 - [`atl corpus export`](#atl-corpus-export)
 <!-- reference-navigation:end -->
 
@@ -382,6 +383,48 @@ consumer must reopen or copy only the named member under its own containment,
 mode, size, and digest checks. The supported dev-container wrapper performs
 those checks and stages a separate copy; see
 [Owner-private corpus in a development container](../../corpus-devcontainer.md).
+
+## `atl corpus handoff-qualified`
+
+Qualify one existing Confluence cache generation for immediate handoff into a
+new Broker execution:
+
+```bash
+atl corpus handoff-qualified --store /private/indexer-corpus \
+  --handoff-artifact /private/indexer-handoff/current.v1.json
+```
+
+This is a separate online command; it never changes `atl corpus handoff` into a
+network operation. It accepts no evidence hashes. ATL fully verifies the
+current clean Confluence-only generation, reusable cache binding, exact clean
+generator and native/metadata-only evidence, derives every candidate digest,
+then loads only the configured Confluence Broker session. Direct mode is
+rejected and the Jira/Confluence PAT store is never read.
+
+One fixed request uses a single five-second deadline established before body
+receipt and shared across Broker authentication, external authority resolution,
+failure and response publication. The authority, not caller metadata, resolves
+source principal/read scope from its trusted capture tuple. Unknown tuples,
+changed scope/content/generation, expired or stale sessions and unavailable
+verification refuse the handoff with no backend request or direct fallback.
+
+After authorization ATL reopens and verifies the generation/current pointer,
+rechecks the session and process-local monotonic lease, optionally creates the
+same exclusive `0600` indexer-handoff v1 route, then rechecks the original
+current generation before the final credential binding and lease validation.
+The opaque credential binding and monotonic deadline are never serialized; the
+wall-clock expiry is output
+only and cannot renew a spent lease. A route is never a grant. A late or
+ambiguous local write can leave the route even when the command fails; the
+runtime must ignore it unless the command returned success. That success proves
+current-at-final-validation, not atomic freshness forever. ATL does not delete
+the artifact, retained mirrors, or generations, and never reseals, refreshes,
+or changes the current pointer.
+
+| flag | description |
+|---|---|
+| `--store` | existing owner-only Confluence cache store root (required) |
+| `--handoff-artifact` | optional absent private indexer-handoff v1 path under an existing `0700` parent outside the store |
 
 ## `atl corpus export`
 

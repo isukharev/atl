@@ -138,6 +138,27 @@ cold capture when no bundle is selected, but cannot authorize a cross-run hit.
 Always-cold cache selections retain ordinary additive CA behavior; the
 no-cache transport and publication path remain unchanged.
 
+Cross-execution consumption uses the separate `corpus handoff-qualified`
+command and never changes the metadata-only cache-hit path above. The supported
+shape is the same clean Confluence-only generation with comments and
+attachments not requested. ATL verifies it, derives selector/projection/schema,
+generation and native snapshot digests, and sends those through one fixed
+Broker qualification request. The external authority resolves source principal
+and aggregate read scope from its independently trusted capture tuple; ATL has
+no capture registry and a caller cannot provide those bindings. An unknown
+tuple, incomplete target scope, changed generation/content, or stale authority
+fails closed with zero upstream backend requests.
+
+After a positive decision ATL verifies the generation and current pointer again
+before writing the optional existing indexer-handoff v1 artifact. It never
+reseals, refreshes, publishes, or changes current. The artifact is a private
+route, not a grant; if a final lease/session check fails after the exclusive
+write, the artifact may remain and the runtime must ignore it. Role changes and
+revocation likewise retain old files. Only the external runtime controls
+workspace admission, mounts, retention, and access to already downloaded data.
+Success proves that the selected generation was current at the final validation
+instant; it is not an atomic promise that the pointer can never change later.
+
 Cache inspection is local and content-free. `corpus cache status` and its exact
 `corpus cache doctor` alias verify all sealed generations, count unsealed
 stages, validate current delta lineage, and report only aggregate counts plus a

@@ -524,6 +524,15 @@ bound, makes the statically validated build its first remote operation, and
 starts ATL/indexer children from explicit clean environments. It invokes the
 indexer only after `atl corpus handoff` verifies one sealed canonical document
 inventory. The handoff artifact must be outside the store and remains private.
+When an enclosing runtime has a trusted external capture verifier, use the
+separate `atl corpus handoff-qualified --store STORE` command for an immediate
+Confluence-only cross-execution handoff. Do not pass hashes or treat its
+optional route artifact as authority: only success from the runtime's own
+still-active bounded invocation permits immediate admission.
+`expires_at_millis` is a content-free wall-clock projection, never a renewal
+input. Ordinary `corpus handoff` remains offline. A denied/expired/ambiguous
+result retains data and may leave a non-authoritative exclusive route; never
+delete or retry by guessing.
 Graphify is optional and not bundled: use an explicit absolute binary, never
 use `--code-only`, and require reviewed egress plus an external network policy
 for every endpoint that is not an exact loopback HTTP host and port.

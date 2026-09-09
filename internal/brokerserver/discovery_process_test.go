@@ -10,7 +10,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -22,20 +21,7 @@ import (
 )
 
 func TestSelectedMCPProcessRefreshesBrokerDiscoveryAndNeverGrantsAdmission(t *testing.T) {
-	binary := filepath.Join(t.TempDir(), "atl")
-	if os.PathSeparator == '\\' {
-		binary += ".exe"
-	}
-	build := exec.Command("go", "build", "-o", binary, "../../cmd/atl")
-	for _, entry := range os.Environ() {
-		if !strings.HasPrefix(entry, "GOROOT=") && !strings.HasPrefix(entry, "GOTOOLCHAIN=") && !strings.HasPrefix(entry, "GOWORK=") {
-			build.Env = append(build.Env, entry)
-		}
-	}
-	build.Env = append(build.Env, "GOTOOLCHAIN=auto", "GOWORK=off")
-	if out, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("build selected binary: %v: %s", err, out)
-	}
+	binary := buildSelectedATLBinary(t, "")
 	f := newBrokerServerFixture(t, "Synthetic", "", nil, []byte("synthetic-upstream-pat"))
 	var fixtureMu sync.Mutex
 	withFixture := func(action func()) { fixtureMu.Lock(); defer fixtureMu.Unlock(); action() }
