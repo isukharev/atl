@@ -2,14 +2,20 @@ package mcpserver
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/isukharev/atl/internal/app"
+	"github.com/isukharev/atl/internal/brokercontract"
 	"github.com/isukharev/atl/internal/domain"
 )
+
+type jiraProjectIssuePageReader interface {
+	ProjectIssuePage(context.Context, domain.BrokerProjectPageArguments) (*app.JiraProjectIssuePageResult, error)
+}
 
 func registerJiraTools(server *mcp.Server, deps Dependencies) {
 	addReadOnlyTool(server, readOnlyTool("jira_fields", "Discover or summarize Jira fields", "List value-free field definitions or return a compact summary with explicit catalog completeness and reconciled counts."),
@@ -70,6 +76,39 @@ func registerJiraTools(server *mcp.Server, deps Dependencies) {
 				return nil, nil, classified(err)
 			}
 			out, err := jira.SearchIssueListView(ctx, in.JQL, columns, in.View, limit, in.Cursor)
+			if err == nil {
+				err = boundedJiraEvidenceOutput(out, maxBytes)
+			}
+			return nil, out, classified(err)
+		})
+
+	addReadOnlyTool(server, readOnlyTool("jira_project_issue_page", "Read a Jira project issue page", "Read one Broker-qualified project page with only summary and description fields. The result preserves ordered identities, field presence, coordinate exhaustion, and always-false selection completeness; it never accepts JQL or continues automatically."),
+		func(ctx context.Context, request *mcp.CallToolRequest, in JiraProjectIssuePageInput) (*mcp.CallToolResult, *app.JiraProjectIssuePageResult, error) {
+			if err := validateJiraProjectIssuePageRawInput(request); err != nil {
+				return nil, nil, classified(err)
+			}
+			limit, err := boundedDefault(in.Limit, domain.BrokerProjectPageMaxResults, domain.BrokerProjectPageMaxResults, "limit")
+			if err != nil {
+				return nil, nil, classified(err)
+			}
+			maxBytes, err := boundedJiraEvidenceBytes(in.MaxBytes)
+			if err != nil {
+				return nil, nil, classified(err)
+			}
+			arguments, err := app.NewJiraProjectIssuePageArguments(in.ProjectKey, in.Fields, limit, in.Cursor)
+			if err != nil {
+				return nil, nil, classified(err)
+			}
+			jira, err := jiraReader(deps)
+			if err != nil {
+				return nil, nil, classified(err)
+			}
+			reader, ok := jira.(jiraProjectIssuePageReader)
+			if !ok {
+				_, err = brokercontract.ErrorForReason(domain.BrokerReasonUnsupported)
+				return nil, nil, classified(err)
+			}
+			out, err := reader.ProjectIssuePage(ctx, arguments)
 			if err == nil {
 				err = boundedJiraEvidenceOutput(out, maxBytes)
 			}
@@ -274,4 +313,37 @@ func registerJiraTools(server *mcp.Server, deps Dependencies) {
 			}
 			return nil, out, nil
 		})
+}
+
+func validateJiraProjectIssuePageRawInput(request *mcp.CallToolRequest) error {
+	var arguments map[string]json.RawMessage
+	if request == nil || request.Params == nil || json.Unmarshal(request.Params.Arguments, &arguments) != nil {
+		return fmt.Errorf("%w: invalid project-page input", domain.ErrUsage)
+	}
+	for _, name := range []string{"fields", "limit", "cursor", "max_bytes"} {
+		if raw, present := arguments[name]; present && strings.TrimSpace(string(raw)) == "null" {
+			return fmt.Errorf("%w: %s must not be null", domain.ErrUsage, name)
+		}
+	}
+	for _, name := range []string{"limit", "max_bytes"} {
+		if raw, present := arguments[name]; present {
+			var value int
+			if json.Unmarshal(raw, &value) != nil || value == 0 {
+				return fmt.Errorf("%w: %s must use its declared positive bound", domain.ErrUsage, name)
+			}
+		}
+	}
+	if raw, present := arguments["fields"]; present {
+		var fields []string
+		if json.Unmarshal(raw, &fields) != nil || fields == nil || len(fields) > 2 {
+			return fmt.Errorf("%w: fields must be an array with at most 2 entries", domain.ErrUsage)
+		}
+	}
+	if raw, present := arguments["cursor"]; present {
+		var cursor string
+		if json.Unmarshal(raw, &cursor) != nil || cursor == "" {
+			return fmt.Errorf("%w: cursor must be a canonical decimal string", domain.ErrUsage)
+		}
+	}
+	return nil
 }

@@ -23,6 +23,14 @@ type JiraIssueSearchInput struct {
 	MaxBytes   int      `json:"max_bytes,omitempty" jsonschema:"maximum encoded result bytes from 1024 to 1048576; default 262144"`
 }
 
+type JiraProjectIssuePageInput struct {
+	ProjectKey string   `json:"project_key" jsonschema:"canonical Jira project key"`
+	Fields     []string `json:"fields,omitempty" jsonschema:"ordered selection containing only summary and description; omitted or empty selects identity only; maximum 2"`
+	Limit      int      `json:"limit,omitempty" jsonschema:"page size from 1 to 15; default 15"`
+	Cursor     string   `json:"cursor,omitempty" jsonschema:"canonical decimal coordinate from 0 to 1000000; default 0"`
+	MaxBytes   int      `json:"max_bytes,omitempty" jsonschema:"maximum encoded result bytes from 1024 to 1048576; default 262144"`
+}
+
 type JiraIssueFieldGetInput struct {
 	Key      string `json:"key" jsonschema:"Jira issue key"`
 	Field    string `json:"field" jsonschema:"exact technical field id or unambiguous display name"`

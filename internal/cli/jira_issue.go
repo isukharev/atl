@@ -361,7 +361,7 @@ func jiraIssueCmd() *cobra.Command {
 	tree.Flags().StringVar(&treeFields, "fields", "", "extra comma-separated fields to fetch")
 	tree.Flags().IntVar(&treeLimit, "limit", 100, "max issues (0 = all; must be non-negative)")
 
-	c.AddCommand(get, jiraIssueViewCmd(), jiraIssueFieldsCmd(), jiraIssueGraphCmd(), search, children, create, jiraIssueUpdateCmd(), edit, jiraTransitionCmd(), check, del, assign, jiraIssueLabelsCmd(), jiraIssueWatchersCmd(), jiraIssueWorklogCmd(), history, refs, tree, comment, link, plan, jiraIssueFieldCmd(), linkEpic, attachment, images)
+	c.AddCommand(get, jiraIssueViewCmd(), jiraIssueFieldsCmd(), jiraIssueGraphCmd(), search, jiraProjectPageCmd(), children, create, jiraIssueUpdateCmd(), edit, jiraTransitionCmd(), check, del, assign, jiraIssueLabelsCmd(), jiraIssueWatchersCmd(), jiraIssueWorklogCmd(), history, refs, tree, comment, link, plan, jiraIssueFieldCmd(), linkEpic, attachment, images)
 	return c
 }
 
