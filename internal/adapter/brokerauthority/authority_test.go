@@ -138,7 +138,7 @@ func TestAuthorityRejectsCrossBoundAuthenticationAndProposalWithoutIO(t *testing
 	if _, err := authority.Authenticate(t.Context(), []byte("synthetic-workload-credential"), brokertransport.AuthenticationChallenge{Nonce: authorityNonce(), Audience: "atl-broker", BrokerID: "broker-1"}); !errors.Is(err, domain.ErrAuth) || requests.Load() != 1 {
 		t.Fatalf("err=%v requests=%d", err, requests.Load())
 	}
-	if _, err := authority.AuthorizeProposal(context.Background(), domain.BrokerProposalAuthorizationRequest{}); !errors.Is(err, domain.ErrUsage) || requests.Load() != 1 {
+	if _, err := authority.AuthorizeProposal(context.Background(), domain.BrokerProposalAuthorizationRequest{}); !errors.Is(err, domain.ErrCheckFailed) || requests.Load() != 1 {
 		t.Fatalf("proposal err=%v requests=%d", err, requests.Load())
 	}
 }
@@ -152,13 +152,17 @@ func TestAuthorityConfigurationRequiresFixedHTTPSOrigin(t *testing.T) {
 }
 
 func newTestAuthority(t *testing.T, server *httptest.Server, issuer string) *Authority {
+	return newTestAuthorityWithScheduler(t, server, issuer, nil)
+}
+
+func newTestAuthorityWithScheduler(t *testing.T, server *httptest.Server, issuer string, scheduler *httpx.Scheduler) *Authority {
 	t.Helper()
 	caPath := filepath.Join(t.TempDir(), "authority-ca.pem")
 	certificate := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.Certificate().Raw})
 	if err := os.WriteFile(caPath, certificate, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	authority, err := New(Config{BaseURL: server.URL, ServerCredential: "synthetic-server-credential", IssuerSHA256: issuer, Version: "test", TLS: httpx.TLSOptions{CABundle: caPath}})
+	authority, err := New(Config{BaseURL: server.URL, ServerCredential: "synthetic-server-credential", IssuerSHA256: issuer, Version: "test", Scheduler: scheduler, TLS: httpx.TLSOptions{CABundle: caPath}})
 	if err != nil {
 		t.Fatal(err)
 	}

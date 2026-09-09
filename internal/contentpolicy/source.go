@@ -247,9 +247,11 @@ func validateRule(raw ruleJSON) (Rule, []Warning, error) {
 	if (len(selector.Spaces) > 0 || len(selector.Under) > 0) && !containsString(selector.Services, "confluence") {
 		warnings = append(warnings, Warning{RuleID: raw.ID, Message: "Confluence selectors cannot be produced by the selected service"})
 	}
-	if len(selector.IDs) > 0 && !containsString(selector.Services, "confluence") &&
-		(!containsString(selector.Services, "jira") || !containsString(selector.Kinds, "sprint")) {
+	if len(selector.IDs) > 0 && !selectorCanProduceID(selector) {
 		warnings = append(warnings, Warning{RuleID: raw.ID, Message: "id cannot be produced by the selected service and kind"})
+	}
+	if len(selector.IDs) > 0 && containsString(selector.Services, "jira") && containsString(selector.Kinds, "issue") {
+		warnings = append(warnings, Warning{RuleID: raw.ID, Message: "Jira issue id is produced only by guarded comment targets; other Jira issue targets omit id"})
 	}
 	return rule, warnings, nil
 }
@@ -259,6 +261,16 @@ func kindProducedByServices(kind string, services []string) bool {
 	confluenceKinds := []string{"page", "blogpost", "attachment", "comment"}
 	return containsString(services, "jira") && containsString(jiraKinds, kind) ||
 		containsString(services, "confluence") && containsString(confluenceKinds, kind)
+}
+
+func selectorCanProduceID(selector Selector) bool {
+	for _, kind := range selector.Kinds {
+		if containsString(selector.Services, "jira") && (kind == "issue" || kind == "sprint") ||
+			containsString(selector.Services, "confluence") && containsString([]string{"page", "blogpost", "attachment", "comment"}, kind) {
+			return true
+		}
+	}
+	return false
 }
 
 func expandVerbs(raw []string) (domain.WriteVerbSet, error) {

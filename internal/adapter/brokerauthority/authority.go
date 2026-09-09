@@ -146,11 +146,6 @@ func (a *Authority) AuthorizeOperation(ctx context.Context, request domain.Broke
 	return decision, nil
 }
 
-func (*Authority) AuthorizeProposal(context.Context, domain.BrokerProposalAuthorizationRequest) (domain.BrokerProposalClearance, error) {
-	_, err := brokercontract.ErrorForReason(domain.BrokerReasonUnsupported)
-	return domain.BrokerProposalClearance{}, err
-}
-
 func (a *Authority) post(ctx context.Context, path string, body []byte, maximum int64) ([]byte, error) {
 	if a == nil || a.client == nil || len(body) == 0 || maximum <= 0 {
 		return nil, authorityError(domain.ErrConfig)

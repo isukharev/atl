@@ -224,7 +224,7 @@ Restart after installing. [Agent setup](docs/agent-setup.md) covers MCP
 
 - `ATL_READ_ONLY=1` / `--read-only` blocks mutations before credentials, files,
   self-update, or network.
-- [Inspect scoped write grants](docs/reference/cli/policy.md) with `atl policy show`.
+- [Scoped grants](docs/reference/cli/policy.md): `atl policy show`; issue-ID grants: guarded-comment-only.
 - PATs are host-scoped; cross-host and HTTPS-downgrade redirects are refused.
   Mutating requests never follow redirects or use generic retries.
 - Stable exit codes distinguish usage, authentication, not-found, version

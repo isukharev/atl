@@ -174,6 +174,9 @@ func matchSelector(selector Selector, target domain.WriteTarget) (matchState, st
 		}
 	}
 	if len(selector.Under) > 0 {
+		if target.Service != "confluence" {
+			return matchUnresolved, "under"
+		}
 		if target.ID != "" && containsString(selector.Under, target.ID) {
 			return matchYes, ""
 		}
@@ -199,10 +202,10 @@ func validTarget(target domain.WriteTarget) bool {
 	}
 	if target.Service == "jira" {
 		if !containsString([]string{"issue", "sprint", "link", "attachment", "worklog", "watcher"}, target.Kind) ||
-			target.Space != "" || target.AncestorIDs != nil || (target.ID != "" && target.Kind != "sprint") {
+			target.Space != "" || target.AncestorIDs != nil || (target.ID != "" && target.Kind != "sprint" && target.Kind != "issue") {
 			return false
 		}
-		if target.Kind == "sprint" && !domain.ValidConfluenceContentID(target.ID) {
+		if (target.Kind == "sprint" || target.ID != "") && !domain.ValidConfluenceContentID(target.ID) {
 			return false
 		}
 	} else if !containsString([]string{"page", "blogpost", "attachment", "comment"}, target.Kind) || target.Project != "" || target.Key != "" {

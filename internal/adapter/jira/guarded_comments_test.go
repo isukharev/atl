@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/isukharev/atl/internal/contentpolicy"
 	"github.com/isukharev/atl/internal/domain"
 )
 
@@ -50,7 +51,7 @@ func TestGuardedCommentStrictReadsAndNumericIDWrite(t *testing.T) {
 	if err != nil || ack.ID != "202" || posted != `{"body":"native *wiki*\n"}` {
 		t.Fatalf("ack=%+v err=%v body=%q", ack, err, posted)
 	}
-	wantAuth := domain.WriteAuthorizationRequest{Verbs: domain.WriteVerbSet{domain.WriteVerbComment}, Targets: []domain.WriteTarget{{Service: "jira", Kind: "issue", Key: "OPS-1", Project: "OPS"}}}
+	wantAuth := domain.WriteAuthorizationRequest{Verbs: domain.WriteVerbSet{domain.WriteVerbComment}, Targets: []domain.WriteTarget{{Service: "jira", Kind: "issue", ID: "101", Key: "OPS-1", Project: "OPS"}}}
 	if len(authorizer.requests) != 1 || !reflect.DeepEqual(authorizer.requests[0], wantAuth) {
 		t.Fatalf("authorization=%+v", authorizer.requests)
 	}
@@ -164,6 +165,132 @@ func TestGuardedCommentWriterRejectsBeforeAuthorizationAndMalformedAckRemainsAtt
 	var noAttempt interface{ DiagnosticWriteAttempted() bool }
 	if !errors.Is(err, domain.ErrCheckFailed) || errors.As(err, &noAttempt) || requests.Load() != 1 {
 		t.Fatalf("malformed ack err=%v requests=%d diagnostic=%T", err, requests.Load(), noAttempt)
+	}
+}
+
+func TestGuardedCommentCanonicalIDPolicyIsAuthoritativeAtLastHop(t *testing.T) {
+	exact := domain.JiraGuardedCommentWrite{ID: "101", Key: "OPS-1", Project: "OPS", Body: []byte("native *wiki*")}
+	policy := func(effect contentpolicy.Effect) *contentpolicy.Authorizer {
+		return contentpolicy.NewAuthorizer(&contentpolicy.Resolved{Layers: []contentpolicy.Layer{{
+			Source: "managed", Policy: contentpolicy.Policy{Rules: []contentpolicy.Rule{{
+				ID: "exact-comment", Effect: effect, Verbs: domain.WriteVerbSet{domain.WriteVerbComment},
+				Resource: contentpolicy.Selector{Services: []string{"jira"}, Kinds: []string{"issue"}, IDs: []string{"101"}, Keys: []string{"OPS-1"}, Projects: []string{"OPS"}},
+			}}},
+		}}})
+	}
+	t.Run("exact allow preserves native bytes", func(t *testing.T) {
+		var posts atomic.Int32
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			posts.Add(1)
+			body, _ := io.ReadAll(r.Body)
+			if r.Method != http.MethodPost || r.URL.Path != "/rest/api/2/issue/101/comment" || string(body) != `{"body":"native *wiki*"}` {
+				t.Errorf("request=%s %s body=%q", r.Method, r.URL.Path, body)
+			}
+			_, _ = io.WriteString(w, `{"id":"202"}`)
+		}))
+		defer server.Close()
+		ack, err := New(server.URL, "token", "test", WithWriteAuthorizer(policy(contentpolicy.EffectAllow))).WriteGuardedComment(domain.WithSingleAttempt(t.Context()), exact)
+		if err != nil || ack.ID != "202" || posts.Load() != 1 {
+			t.Fatalf("ack=%+v err=%v posts=%d", ack, err, posts.Load())
+		}
+	})
+
+	tests := []struct {
+		name       string
+		write      domain.JiraGuardedCommentWrite
+		effect     contentpolicy.Effect
+		wantReason contentpolicy.DenialReason
+	}{
+		{name: "explicit exact denial", write: exact, effect: contentpolicy.EffectDeny, wantReason: contentpolicy.ReasonExplicitDeny},
+		{name: "drifted id", write: domain.JiraGuardedCommentWrite{ID: "102", Key: "OPS-1", Project: "OPS", Body: []byte("x")}, effect: contentpolicy.EffectAllow, wantReason: contentpolicy.ReasonNoMatchingAllow},
+		{name: "missing id", write: domain.JiraGuardedCommentWrite{Key: "OPS-1", Project: "OPS", Body: []byte("x")}, effect: contentpolicy.EffectAllow},
+		{name: "non-numeric id", write: domain.JiraGuardedCommentWrite{ID: "id", Key: "OPS-1", Project: "OPS", Body: []byte("x")}, effect: contentpolicy.EffectAllow},
+		{name: "noncanonical id", write: domain.JiraGuardedCommentWrite{ID: "01", Key: "OPS-1", Project: "OPS", Body: []byte("x")}, effect: contentpolicy.EffectAllow},
+		{name: "overflow id", write: domain.JiraGuardedCommentWrite{ID: "18446744073709551616", Key: "OPS-1", Project: "OPS", Body: []byte("x")}, effect: contentpolicy.EffectAllow},
+		{name: "drifted key", write: domain.JiraGuardedCommentWrite{ID: "101", Key: "OPS-2", Project: "OPS", Body: []byte("x")}, effect: contentpolicy.EffectAllow, wantReason: contentpolicy.ReasonNoMatchingAllow},
+		{name: "missing key", write: domain.JiraGuardedCommentWrite{ID: "101", Project: "OPS", Body: []byte("x")}, effect: contentpolicy.EffectAllow},
+		{name: "drifted project", write: domain.JiraGuardedCommentWrite{ID: "101", Key: "ALT-1", Project: "ALT", Body: []byte("x")}, effect: contentpolicy.EffectAllow, wantReason: contentpolicy.ReasonNoMatchingAllow},
+		{name: "missing project", write: domain.JiraGuardedCommentWrite{ID: "101", Key: "OPS-1", Body: []byte("x")}, effect: contentpolicy.EffectAllow},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var posts atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				posts.Add(1)
+				_, _ = io.WriteString(w, `{"id":"202"}`)
+			}))
+			defer server.Close()
+			_, err := New(server.URL, "token", "test", WithWriteAuthorizer(policy(test.effect))).WriteGuardedComment(domain.WithSingleAttempt(t.Context()), test.write)
+			if !errors.Is(err, domain.ErrCheckFailed) || posts.Load() != 0 {
+				t.Fatalf("err=%v posts=%d", err, posts.Load())
+			}
+			var denial *contentpolicy.DenialError
+			if test.wantReason != "" {
+				if !errors.As(err, &denial) || denial.Reason != test.wantReason || denial.Details.Target.ID != test.write.ID ||
+					denial.Details.Target.Key != test.write.Key || denial.Details.Target.Project != test.write.Project {
+					t.Fatalf("denial=%+v", denial)
+				}
+			} else if errors.As(err, &denial) {
+				t.Fatalf("invalid input reached policy: %+v", denial)
+			}
+		})
+	}
+}
+
+func TestGuardedCommentCannotUseConfluenceHierarchyGrant(t *testing.T) {
+	var posts atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		posts.Add(1)
+		_, _ = io.WriteString(w, `{"id":"202"}`)
+	}))
+	defer server.Close()
+	authorizer := contentpolicy.NewAuthorizer(&contentpolicy.Resolved{Layers: []contentpolicy.Layer{{
+		Source: "managed", Policy: contentpolicy.Policy{Rules: []contentpolicy.Rule{{
+			ID: "hierarchy", Effect: contentpolicy.EffectAllow, Verbs: domain.WriteVerbSet{domain.WriteVerbComment},
+			Resource: contentpolicy.Selector{Services: []string{"jira", "confluence"}, Kinds: []string{"issue", "page"}, Under: []string{"101"}},
+		}}},
+	}}})
+	_, err := New(server.URL, "token", "test", WithWriteAuthorizer(authorizer)).WriteGuardedComment(domain.WithSingleAttempt(t.Context()), domain.JiraGuardedCommentWrite{ID: "101", Key: "OPS-1", Project: "OPS", Body: []byte("native *wiki*")})
+	var denial *contentpolicy.DenialError
+	if !errors.As(err, &denial) || denial.Reason != contentpolicy.ReasonNoMatchingAllow || posts.Load() != 0 {
+		t.Fatalf("error=%v posts=%d", err, posts.Load())
+	}
+}
+
+func TestDirectCommentJiraIssueIDSelectorRemainsUnresolved(t *testing.T) {
+	for _, test := range []struct {
+		effect contentpolicy.Effect
+		reason contentpolicy.DenialReason
+	}{
+		{effect: contentpolicy.EffectAllow, reason: contentpolicy.ReasonNoMatchingAllow},
+		{effect: contentpolicy.EffectDeny, reason: contentpolicy.ReasonScopeUnresolved},
+	} {
+		t.Run(string(test.effect), func(t *testing.T) {
+			var gets, posts atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.Method {
+				case http.MethodGet:
+					gets.Add(1)
+					_, _ = io.WriteString(w, `{"id":"101","key":"OPS-1","fields":{"project":{"key":"OPS"}}}`)
+				case http.MethodPost:
+					posts.Add(1)
+					_, _ = io.WriteString(w, `{"id":"202"}`)
+				}
+			}))
+			defer server.Close()
+			authorizer := contentpolicy.NewAuthorizer(&contentpolicy.Resolved{Layers: []contentpolicy.Layer{{
+				Source: "managed", Policy: contentpolicy.Policy{Rules: []contentpolicy.Rule{{
+					ID: "id-rule", Effect: test.effect, Verbs: domain.WriteVerbSet{domain.WriteVerbComment},
+					Resource: contentpolicy.Selector{Services: []string{"jira"}, Kinds: []string{"issue"}, IDs: []string{"101"}},
+				}}},
+			}}})
+			_, err := New(server.URL, "token", "test", WithWriteAuthorizer(authorizer)).AddComment(domain.WithSingleAttempt(t.Context()), "OPS-1", []byte("native"))
+			var denial *contentpolicy.DenialError
+			if !errors.As(err, &denial) || denial.Reason != test.reason || denial.Details.Target.ID != "" ||
+				denial.Details.Target.Key != "OPS-1" || gets.Load() != 1 || posts.Load() != 0 {
+				t.Fatalf("err=%v denial=%+v gets=%d posts=%d", err, denial, gets.Load(), posts.Load())
+			}
+		})
 	}
 }
 
