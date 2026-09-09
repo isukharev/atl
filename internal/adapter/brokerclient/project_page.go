@@ -171,10 +171,13 @@ func (c *Client) requireCurrentSession(selected Session) error {
 }
 
 func acceptedProjectPageBody(response httpx.BoundedResponse) ([]byte, error) {
-	if !validCorrelation(response.CorrelationID) {
+	if response.CorrelationID != "" && !validCorrelation(response.CorrelationID) {
 		return nil, clientError(domain.ErrCheckFailed)
 	}
 	if response.Status == http.StatusOK {
+		if response.CorrelationID == "" {
+			return nil, clientError(domain.ErrCheckFailed)
+		}
 		return response.Body, nil
 	}
 	failure, err := brokertransport.DecodeExecutionFailureV2(response.Body)

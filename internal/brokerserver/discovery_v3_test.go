@@ -24,7 +24,12 @@ func familyDiscoveryServerHello(fixture projectPageServerFixture) brokertranspor
 	}
 }
 
-func familyDiscoveryTLSRequest(t *testing.T, handler http.Handler, path string, body []byte) (*http.Response, []byte) {
+type bufferedBrokerHTTPResponse struct {
+	StatusCode int
+	Header     http.Header
+}
+
+func familyDiscoveryTLSRequest(t *testing.T, handler http.Handler, path string, body []byte) (bufferedBrokerHTTPResponse, []byte) {
 	t.Helper()
 	server := httptest.NewTLSServer(handler)
 	t.Cleanup(server.Close)
@@ -43,7 +48,7 @@ func familyDiscoveryTLSRequest(t *testing.T, handler http.Handler, path string, 
 	if err != nil {
 		t.Fatal(err)
 	}
-	return response, wire
+	return bufferedBrokerHTTPResponse{StatusCode: response.StatusCode, Header: response.Header.Clone()}, wire
 }
 
 func TestFamilyDiscoveryV3NegotiatesAndProjectsAvailableDefinitionsWithoutJiraIO(t *testing.T) {

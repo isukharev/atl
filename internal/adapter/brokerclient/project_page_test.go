@@ -103,25 +103,50 @@ func TestProjectPageRequiresExactAllowedDiscoveryRow(t *testing.T) {
 }
 
 func TestProjectPageFailureDecoderIsStrictAndContentFree(t *testing.T) {
-	denied, err := brokertransport.EncodeDiscoveryFailureV2(domain.BrokerReasonDenied)
+	denied, err := brokertransport.EncodeExecutionFailureV2(domain.BrokerReasonDenied)
+	if err != nil {
+		t.Fatal(err)
+	}
+	v1Failure, err := brokertransport.NewFailure(domain.BrokerReasonDenied)
+	if err != nil {
+		t.Fatal(err)
+	}
+	v1Denied, err := brokertransport.EncodeFailureV1(v1Failure)
+	if err != nil {
+		t.Fatal(err)
+	}
+	v3Denied, err := brokertransport.EncodeDiscoveryFailureV3(domain.BrokerReasonDenied)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, response := range []struct {
-		name   string
-		status int
-		body   []byte
-		id     string
+		name       string
+		status     int
+		body       []byte
+		id         string
+		wantReason domain.BrokerReason
+		wantBody   bool
 	}{
 		{name: "missing correlation", status: 200, body: []byte(`{}`)},
 		{name: "invalid correlation", status: 200, body: []byte(`{}`), id: "bad correlation"},
-		{name: "raw private failure", status: 503, body: []byte("private-response-canary"), id: "correlation-1"},
-		{name: "strict denial", status: 403, body: denied, id: "correlation-1"},
+		{name: "correlated success", status: 200, body: []byte(`{}`), id: "correlation-1", wantBody: true},
+		{name: "raw private failure", status: 503, body: []byte("private-response-canary")},
+		{name: "invalid failure correlation", status: 403, body: denied, id: "bad correlation"},
+		{name: "execution v1 failure", status: 403, body: v1Denied},
+		{name: "discovery v3 failure", status: 403, body: v3Denied},
+		{name: "preauthentication denial", status: 403, body: denied, wantReason: domain.BrokerReasonDenied},
+		{name: "correlated denial", status: 403, body: denied, id: "correlation-1", wantReason: domain.BrokerReasonDenied},
 	} {
 		t.Run(response.name, func(t *testing.T) {
-			_, err := acceptedProjectPageBody(httpx.BoundedResponse{Status: response.status, Body: response.body, CorrelationID: response.id})
-			if response.name == "strict denial" {
-				if reason, _ := brokercontract.Reason(err); reason != domain.BrokerReasonDenied {
+			body, err := acceptedProjectPageBody(httpx.BoundedResponse{Status: response.status, Body: response.body, CorrelationID: response.id})
+			if response.wantBody {
+				if err != nil || string(body) != string(response.body) {
+					t.Fatalf("body=%s err=%v", body, err)
+				}
+				return
+			}
+			if response.wantReason != "" {
+				if reason, _ := brokercontract.Reason(err); reason != response.wantReason {
 					t.Fatalf("reason=%s err=%v", reason, err)
 				}
 				return

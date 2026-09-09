@@ -285,8 +285,9 @@ func (b *ReadBudget) Usage() ReadBudgetUsage {
 	return ReadBudgetUsage{Attempts: leaf.attempts, ResponseBytes: leaf.responseBytes}
 }
 
-// WithSingleAttempt limits a request to one transport hop: the generic
-// replay-safe retry loop is disabled and redirect responses are not followed.
+// WithSingleAttempt limits a request to one transport hop: the generic retry
+// loop and redirects are disabled, and HTTP dispatch uses a fresh HTTP/1
+// connection without protocol-internal replay.
 func WithSingleAttempt(ctx context.Context) context.Context {
 	return context.WithValue(ctx, singleAttemptContextKey{}, true)
 }

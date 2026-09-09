@@ -135,10 +135,13 @@ func (c *Client) ValidateCacheGrant(candidate domain.BrokerCacheCandidate, grant
 }
 
 func acceptedCacheQualificationBody(response httpx.BoundedResponse) ([]byte, error) {
-	if !validCorrelation(response.CorrelationID) {
+	if response.CorrelationID != "" && !validCorrelation(response.CorrelationID) {
 		return nil, clientError(domain.ErrCheckFailed)
 	}
 	if response.Status == http.StatusOK {
+		if response.CorrelationID == "" {
+			return nil, clientError(domain.ErrCheckFailed)
+		}
 		return response.Body, nil
 	}
 	failure, err := brokertransport.DecodeCacheFailureV2(response.Body)

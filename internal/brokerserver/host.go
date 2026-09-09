@@ -249,9 +249,7 @@ func (h *Host) lifecycleHandler(next http.Handler) http.Handler {
 		id, registered := h.register(cancel)
 		if !registered {
 			cancel()
-			writer.Header().Set("Cache-Control", "no-store")
-			writer.Header().Set("Content-Length", "0")
-			writer.WriteHeader(http.StatusServiceUnavailable)
+			h.writeHostFailure(writer, request)
 			return
 		}
 		defer h.unregister(id, cancel)
@@ -277,8 +275,37 @@ func (h *Host) writeHostFailure(writer http.ResponseWriter, request *http.Reques
 		credential, _ = workloadBearer(request)
 	}
 	defer clear(credential)
+	reason := domain.BrokerReasonAuthorizationUnavailable
 	server := &Handler{guard: h.guard}
-	server.writeFailure(writer, domain.BrokerReasonAuthorizationUnavailable, credential, "")
+	if request != nil && request.URL != nil {
+		switch request.URL.Path {
+		case brokertransport.DiscoveryNegotiatePathV2, brokertransport.DiscoveryPathV2:
+			body, err := brokertransport.EncodeDiscoveryFailureV2(reason)
+			if err == nil {
+				server.writeFailureBody(writer, reason, body, credential, "")
+			}
+			return
+		case brokertransport.CacheQualificationPathV2:
+			body, err := brokertransport.EncodeCacheFailureV2(reason)
+			if err == nil {
+				server.writeFailureBody(writer, reason, body, credential, "")
+			}
+			return
+		case brokertransport.ExecutePathV2:
+			body, err := brokertransport.EncodeExecutionFailureV2(reason)
+			if err == nil {
+				server.writeFailureBody(writer, reason, body, credential, "")
+			}
+			return
+		case brokertransport.DiscoveryNegotiatePathV3, brokertransport.DiscoveryPathV3:
+			body, err := brokertransport.EncodeDiscoveryFailureV3(reason)
+			if err == nil {
+				server.writeFailureBody(writer, reason, body, credential, "")
+			}
+			return
+		}
+	}
+	server.writeFailure(writer, reason, credential, "")
 }
 
 func (h *Host) auditedData(next http.Handler) http.Handler {

@@ -61,9 +61,9 @@ func TestTransportResponsibilityOwnersStayClosed(t *testing.T) {
 		},
 		"tls_qualified.go": {"QualifiedTLSOptionsBytes"},
 		"transport.go": {
-			"(*Client).newRequest", "(*Client).newRequestReader", "(*Client).resolveURL", "(readBudgetTransport).RoundTrip", "readBudgetTransport",
+			"(*Client).newRequest", "(*Client).newRequestReader", "(*Client).resolveURL", "(readBudgetTransport).RoundTrip", "(strictDispatchTransport).RoundTrip", "errStrictTransportUnavailable", "newStrictHTTP1Transport", "readBudgetTransport", "strictDispatchTransport",
 		},
-		"lifecycle.go": {"(readBudgetTransport).CloseIdleConnections", "(redirectIdleTransport).CloseIdleConnections", "(scheduledRoundTripper).CloseIdleConnections", "closeIdleConnections", "idleConnectionCloser"},
+		"lifecycle.go": {"(readBudgetTransport).CloseIdleConnections", "(redirectIdleTransport).CloseIdleConnections", "(scheduledRoundTripper).CloseIdleConnections", "(strictDispatchTransport).CloseIdleConnections", "closeIdleConnections", "idleConnectionCloser"},
 	}
 
 	actual := map[string][]string{}

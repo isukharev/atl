@@ -3,6 +3,7 @@ package httpx
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"fmt"
 	"io"
 	"net/http"
@@ -12,8 +13,62 @@ import (
 	"github.com/isukharev/atl/internal/domain"
 )
 
-// readBudgetTransport charges immediately before the underlying RoundTrip, so
-// retries and redirects are physical attempts while scheduler waits are not.
+var errStrictTransportUnavailable = fmt.Errorf("%w: strict physical-attempt transport is unavailable", domain.ErrCheckFailed)
+
+// strictDispatchTransport keeps ordinary unbudgeted traffic on its pooled
+// transport while routing every single-attempt or budgeted request through a
+// transport whose one RoundTrip is one fresh HTTP/1 connection.
+type strictDispatchTransport struct {
+	ordinary http.RoundTripper
+	strict   http.RoundTripper
+}
+
+func (t strictDispatchTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	strict := domain.SingleAttempt(req.Context()) || domain.ReadBudgetFromContext(req.Context()) != nil
+	if !strict {
+		return t.ordinary.RoundTrip(req)
+	}
+	if t.strict == nil {
+		if req.Body != nil {
+			_ = req.Body.Close()
+		}
+		return nil, errStrictTransportUnavailable
+	}
+	return t.strict.RoundTrip(req)
+}
+
+// newStrictHTTP1Transport clones the complete supported transport policy but
+// removes every standard-library replay path. DisableKeepAlives prevents an
+// HTTP/1 connection from becoming reused; the explicit protocol and ALPN
+// settings also remove HTTP/2's independent internal retry loop.
+//
+// An arbitrary RoundTripper may replay internally, and a custom TLS dialer may
+// negotiate a protocol outside TLSClientConfig. Strict requests fail closed for
+// those shapes while ordinary unbudgeted requests retain the injected behavior.
+func newStrictHTTP1Transport(base http.RoundTripper) http.RoundTripper {
+	transport, ok := base.(*http.Transport)
+	if !ok || transport == nil {
+		return nil
+	}
+	// DialTLS is deprecated but remains a supported field whose caller-owned
+	// handshake policy cannot be safely rewritten for the strict clone.
+	if transport.DialTLS != nil || transport.DialTLSContext != nil { //nolint:staticcheck // compatibility guard for the supported deprecated field
+		return nil
+	}
+	strict := transport.Clone()
+	strict.DisableKeepAlives = true
+	strict.ForceAttemptHTTP2 = false
+	strict.Protocols = &http.Protocols{}
+	strict.Protocols.SetHTTP1(true)
+	strict.TLSNextProto = map[string]func(string, *tls.Conn) http.RoundTripper{}
+	if strict.TLSClientConfig != nil {
+		strict.TLSClientConfig.NextProtos = []string{"http/1.1"}
+	}
+	return strict
+}
+
+// readBudgetTransport charges immediately before strict dispatch, so each
+// admitted retry or redirect is bounded independently of scheduler waits.
 // An absent context budget leaves transport behavior unchanged.
 type readBudgetTransport struct {
 	base http.RoundTripper

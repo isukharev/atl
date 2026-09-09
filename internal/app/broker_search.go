@@ -68,6 +68,7 @@ func (s *BrokerProjectPageService) Execute(ctx context.Context, request domain.B
 		Context: verified, Operation: request.Operation, OperationVersion: request.OperationVersion, RequestID: request.RequestID,
 		Features: append([]string{}, request.Features...), Arguments: request.Arguments, ArgumentsSHA256: argumentsSHA256, DeadlineMillis: deadlineMillis,
 	}
+	admissionStarted := execution.currentMillis()
 	admissionDecision, err := s.authorizer.AdmitProjectPage(bounded, admission)
 	if err == nil {
 		err = execution.contextError()
@@ -81,15 +82,22 @@ func (s *BrokerProjectPageService) Execute(ctx context.Context, request domain.B
 		return BrokerProjectPageResult{}, brokerProjectPageError(err)
 	}
 	qualification := domain.BrokerProjectPageQualificationRequestV2{Admission: admission, AdmissionDecision: admissionDecision, Plan: plan}
-	qualificationDecision, err := s.authorizer.AuthorizeProjectPageQualification(bounded, qualification)
-	if err == nil {
-		err = execution.contextError()
+	authorityCtx, authorityCancel, err := execution.decisionContext(execution.decisionDeadline(admissionDecision.BrokerDecisionCore, admissionStarted))
+	if err != nil {
+		return BrokerProjectPageResult{}, brokerProjectPageError(err)
 	}
+	qualificationStarted := execution.currentMillis()
+	qualificationDecision, err := s.authorizer.AuthorizeProjectPageQualification(authorityCtx, qualification)
+	if err == nil {
+		err = authorityCtx.Err()
+	}
+	authorityCancel()
 	validationErr = brokercontract.ValidateProjectPageQualificationDecisionV2(qualificationDecision, qualification, execution.currentMillis())
 	if err != nil || validationErr != nil {
 		return BrokerProjectPageResult{}, brokerProjectPageError(firstBrokerReadError(err, validationErr))
 	}
-	project, page, err := s.qualifyBrokerProjectPage(execution, request, qualification, qualificationDecision)
+	qualificationDeadline := execution.decisionDeadline(qualificationDecision.BrokerDecisionCore, qualificationStarted)
+	project, page, err := s.qualifyBrokerProjectPage(execution, request, qualification, qualificationDecision, qualificationDeadline)
 	if err != nil {
 		return BrokerProjectPageResult{}, err
 	}
@@ -97,15 +105,22 @@ func (s *BrokerProjectPageService) Execute(ctx context.Context, request domain.B
 	if err != nil {
 		return BrokerProjectPageResult{}, brokerProjectPageError(err)
 	}
-	decision, err := s.authorizer.AuthorizeProjectPage(bounded, operation)
-	if err == nil {
-		err = execution.contextError()
+	authorityCtx, authorityCancel, err = execution.decisionContext(qualificationDeadline)
+	if err != nil {
+		return BrokerProjectPageResult{}, brokerProjectPageError(err)
 	}
+	operationStarted := execution.currentMillis()
+	decision, err := s.authorizer.AuthorizeProjectPage(authorityCtx, operation)
+	if err == nil {
+		err = authorityCtx.Err()
+	}
+	authorityCancel()
 	validationErr = brokercontract.ValidateProjectPageOperationDecisionV2(decision, operation, execution.currentMillis())
 	if err != nil || validationErr != nil {
 		return BrokerProjectPageResult{}, brokerProjectPageError(firstBrokerReadError(err, validationErr))
 	}
-	phaseCtx, phaseCancel, err := execution.businessContext(decision.ExpiresAtMillis)
+	operationDeadline := execution.decisionDeadline(decision.BrokerDecisionCore, operationStarted)
+	phaseCtx, phaseCancel, err := execution.businessContext(operationDeadline)
 	if err != nil {
 		return BrokerProjectPageResult{}, brokerProjectPageError(err)
 	}
@@ -124,7 +139,10 @@ func (s *BrokerProjectPageService) Execute(ctx context.Context, request domain.B
 	if err := brokercontract.ValidateProjectPageOperationDecisionV2(decision, operation, execution.currentMillis()); err != nil {
 		return BrokerProjectPageResult{}, brokerProjectPageError(err)
 	}
-	return BrokerProjectPageResult{Page: &result, ReleaseDeadline: execution.releaseDeadline(decision.ExpiresAtMillis)}, nil
+	if err := execution.decisionError(operationDeadline); err != nil {
+		return BrokerProjectPageResult{}, brokerProjectPageError(err)
+	}
+	return BrokerProjectPageResult{Page: &result, ReleaseDeadline: execution.releaseDeadline(operationDeadline)}, nil
 }
 
 func prepareBrokerProjectPageRequest(request domain.BrokerProjectPageRequestV2) (domain.BrokerProjectPageRequestV2, domain.BrokerProjectPageOperationDefinitionV2, error) {
@@ -143,11 +161,11 @@ func prepareBrokerProjectPageRequest(request domain.BrokerProjectPageRequestV2) 
 	return request, definition, nil
 }
 
-func (s *BrokerProjectPageService) qualifyBrokerProjectPage(execution *brokerReadExecution, request domain.BrokerProjectPageRequestV2, qualification domain.BrokerProjectPageQualificationRequestV2, decision domain.BrokerProjectPageQualificationDecisionV2) (domain.BrokerJiraProjectIdentityV2, domain.BrokerJiraProjectPageIdentitySnapshotV2, error) {
+func (s *BrokerProjectPageService) qualifyBrokerProjectPage(execution *brokerReadExecution, request domain.BrokerProjectPageRequestV2, qualification domain.BrokerProjectPageQualificationRequestV2, decision domain.BrokerProjectPageQualificationDecisionV2, leaseDeadline int64) (domain.BrokerJiraProjectIdentityV2, domain.BrokerJiraProjectPageIdentitySnapshotV2, error) {
 	if err := brokercontract.ValidateProjectPageQualificationDecisionV2(decision, qualification, execution.currentMillis()); err != nil {
 		return domain.BrokerJiraProjectIdentityV2{}, domain.BrokerJiraProjectPageIdentitySnapshotV2{}, brokerProjectPageError(err)
 	}
-	phaseCtx, cancel, err := execution.qualificationContext(decision.ExpiresAtMillis)
+	phaseCtx, cancel, err := execution.qualificationContext(leaseDeadline)
 	if err != nil {
 		return domain.BrokerJiraProjectIdentityV2{}, domain.BrokerJiraProjectPageIdentitySnapshotV2{}, brokerProjectPageError(err)
 	}
@@ -165,7 +183,7 @@ func (s *BrokerProjectPageService) qualifyBrokerProjectPage(execution *brokerRea
 	if err := brokercontract.ValidateProjectPageQualificationDecisionV2(decision, qualification, execution.currentMillis()); err != nil {
 		return domain.BrokerJiraProjectIdentityV2{}, domain.BrokerJiraProjectPageIdentitySnapshotV2{}, brokerProjectPageError(err)
 	}
-	phaseCtx, cancel, err = execution.qualificationContext(decision.ExpiresAtMillis)
+	phaseCtx, cancel, err = execution.qualificationContext(leaseDeadline)
 	if err != nil {
 		return domain.BrokerJiraProjectIdentityV2{}, domain.BrokerJiraProjectPageIdentitySnapshotV2{}, brokerProjectPageError(err)
 	}
@@ -178,6 +196,9 @@ func (s *BrokerProjectPageService) qualifyBrokerProjectPage(execution *brokerRea
 		return domain.BrokerJiraProjectIdentityV2{}, domain.BrokerJiraProjectPageIdentitySnapshotV2{}, brokerProjectPageError(firstBrokerReadError(err, domain.ErrCheckFailed))
 	}
 	if err := brokercontract.ValidateProjectPageQualificationDecisionV2(decision, qualification, execution.currentMillis()); err != nil {
+		return domain.BrokerJiraProjectIdentityV2{}, domain.BrokerJiraProjectPageIdentitySnapshotV2{}, brokerProjectPageError(err)
+	}
+	if err := execution.decisionError(leaseDeadline); err != nil {
 		return domain.BrokerJiraProjectIdentityV2{}, domain.BrokerJiraProjectPageIdentitySnapshotV2{}, brokerProjectPageError(err)
 	}
 	return project, page, nil

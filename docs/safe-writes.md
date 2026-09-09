@@ -58,6 +58,15 @@ also refuse redirects for reads. After an ambiguous result, inspect the exact
 target before deciding whether a separately reviewed command is justified;
 never wrap a write in a retry loop.
 
+Requests with an explicit single-attempt context or physical read budget use
+an isolated, non-reusing HTTP/1 transport. Each admitted request gets a fresh
+connection; ordinary unbudgeted reads retain pooling, HTTP/2 and replay-safe
+retries. Strict requests retain their TLS trust, origin/proxy policy, scheduler
+and byte/deadline limits, but incur a connection and TLS handshake per request.
+Unsupported injected transports or custom TLS dialers fail closed in strict
+mode. Budgeted redirects and application retries still consume separate
+attempts; single-attempt requests permit neither.
+
 ## Jira: guarded issue creation
 
 Build the final candidate with the read-only child, review its content-free

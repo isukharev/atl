@@ -159,12 +159,18 @@ func newWithScheduler(base, token, version string, scheduler *Scheduler, transpo
 		genericConflict:       options.genericConflict,
 		requireWriteClearance: options.requireWriteClearance,
 		hc: &http.Client{
-			Transport:     scheduleTransport(readBudgetTransport{base: transport}, scheduler),
+			Transport: scheduleTransport(readBudgetTransport{base: strictDispatchTransport{
+				ordinary: transport,
+				strict:   newStrictHTTP1Transport(transport),
+			}}, scheduler),
 			Timeout:       defaultTimeout,
 			CheckRedirect: checkRedirect,
 		},
 		dl: &http.Client{
-			Transport:     scheduleTransport(readBudgetTransport{base: redirectIdleTransport{base: dlTransport}}, scheduler),
+			Transport: scheduleTransport(readBudgetTransport{base: redirectIdleTransport{base: strictDispatchTransport{
+				ordinary: dlTransport,
+				strict:   newStrictHTTP1Transport(dlTransport),
+			}}}, scheduler),
 			CheckRedirect: checkRedirect,
 		},
 	}

@@ -15,6 +15,7 @@ import (
 	"github.com/isukharev/atl/internal/brokercontract"
 	"github.com/isukharev/atl/internal/brokertransport"
 	"github.com/isukharev/atl/internal/domain"
+	"github.com/isukharev/atl/internal/httpx"
 )
 
 type changingCacheSessionLoader struct{ calls atomic.Int32 }
@@ -31,6 +32,66 @@ type stableCacheSessionLoader struct {
 	calls             atomic.Int32
 	replaceCredential int32
 	onLoad            func()
+}
+
+func TestCacheFailureDecoderAllowsOnlyPreauthenticationCorrelationOmission(t *testing.T) {
+	reason := domain.BrokerReasonAuthorizationUnavailable
+	v2Failure, err := brokertransport.EncodeCacheFailureV2(reason)
+	if err != nil {
+		t.Fatal(err)
+	}
+	v1, err := brokertransport.NewFailure(reason)
+	if err != nil {
+		t.Fatal(err)
+	}
+	v1Failure, err := brokertransport.EncodeFailureV1(v1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	v3Failure, err := brokertransport.EncodeDiscoveryFailureV3(reason)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, response := range []struct {
+		name        string
+		status      int
+		body        []byte
+		correlation string
+		wantReason  domain.BrokerReason
+		wantBody    bool
+	}{
+		{name: "missing success correlation", status: http.StatusOK, body: []byte(`{}`)},
+		{name: "invalid success correlation", status: http.StatusOK, body: []byte(`{}`), correlation: "bad correlation"},
+		{name: "correlated success", status: http.StatusOK, body: []byte(`{}`), correlation: "correlation-1", wantBody: true},
+		{name: "raw private failure", status: http.StatusServiceUnavailable, body: []byte("private-response-canary")},
+		{name: "invalid failure correlation", status: http.StatusServiceUnavailable, body: v2Failure, correlation: "bad correlation"},
+		{name: "execution v1 failure", status: http.StatusServiceUnavailable, body: v1Failure},
+		{name: "discovery v3 failure", status: http.StatusServiceUnavailable, body: v3Failure},
+		{name: "preauthentication failure", status: http.StatusServiceUnavailable, body: v2Failure, wantReason: reason},
+		{name: "correlated failure", status: http.StatusServiceUnavailable, body: v2Failure, correlation: "correlation-1", wantReason: reason},
+	} {
+		t.Run(response.name, func(t *testing.T) {
+			body, err := acceptedCacheQualificationBody(httpx.BoundedResponse{Status: response.status, Body: response.body, CorrelationID: response.correlation})
+			if response.wantBody {
+				if err != nil || string(body) != string(response.body) {
+					t.Fatalf("body=%s err=%v", body, err)
+				}
+				return
+			}
+			if response.wantReason != "" {
+				if got, _ := brokercontract.Reason(err); got != response.wantReason {
+					t.Fatalf("reason=%s err=%v", got, err)
+				}
+				return
+			}
+			if !errors.Is(err, domain.ErrCheckFailed) {
+				t.Fatalf("err=%v", err)
+			}
+			if err != nil && err.Error() == "private-response-canary" {
+				t.Fatal("private response content escaped")
+			}
+		})
+	}
 }
 
 func (loader *stableCacheSessionLoader) Load() (Session, error) {

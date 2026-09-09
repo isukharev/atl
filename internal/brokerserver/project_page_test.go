@@ -4,9 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"io"
 	"net/http"
-	"net/http/httptest"
 	"reflect"
 	"sync"
 	"sync/atomic"
@@ -202,26 +200,9 @@ func newProjectPageServerFixture(t *testing.T, deny domain.BrokerAuthorizationPh
 	return projectPageServerFixture{base: base, authorizer: authorizer, reader: reader, request: request, body: body}
 }
 
-func projectPageTLSRequest(t *testing.T, handler http.Handler, body []byte) (*http.Response, []byte) {
+func projectPageTLSRequest(t *testing.T, handler http.Handler, body []byte) (bufferedBrokerHTTPResponse, []byte) {
 	t.Helper()
-	server := httptest.NewTLSServer(handler)
-	t.Cleanup(server.Close)
-	request, err := http.NewRequestWithContext(t.Context(), http.MethodPost, server.URL+brokertransport.ExecutePathV2, bytes.NewReader(body))
-	if err != nil {
-		t.Fatal(err)
-	}
-	request.Header.Set("Authorization", "Bearer synthetic-workload-credential")
-	request.Header.Set("Content-Type", "application/json")
-	response, err := server.Client().Do(request)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer response.Body.Close()
-	wire, err := io.ReadAll(response.Body)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return response, wire
+	return familyDiscoveryTLSRequest(t, handler, brokertransport.ExecutePathV2, body)
 }
 
 func TestProjectPageRouteUsesInjectedServiceAndPreservesPhaseBoundaries(t *testing.T) {

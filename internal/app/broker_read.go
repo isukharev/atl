@@ -74,6 +74,7 @@ func (s *BrokerReadService) Execute(ctx context.Context, request domain.BrokerRe
 		Context: verified, Operation: request.Operation, OperationVersion: request.OperationVersion, RequestID: request.RequestID,
 		Features: append([]string{}, request.Features...), Arguments: request.Arguments, ArgumentsSHA256: argumentsSHA256, DeadlineMillis: deadlineMillis,
 	}
+	admissionStarted := execution.currentMillis()
 	admissionDecision, err := s.authorizer.Admit(bounded, admission)
 	if err == nil {
 		err = execution.contextError()
@@ -85,20 +86,27 @@ func (s *BrokerReadService) Execute(ctx context.Context, request domain.BrokerRe
 	qualification := domain.BrokerQualificationRequest{Admission: admission, AdmissionDecision: admissionDecision, Plan: domain.BrokerQualificationPlan{
 		SelectorSHA256: argumentsSHA256, MetadataFields: append([]string{}, definition.QualificationFields...), Limits: definition.Limits.Qualification,
 	}}
-	qualificationDecision, err := s.authorizer.AuthorizeQualification(bounded, qualification)
-	if err == nil {
-		err = execution.contextError()
+	authorityCtx, authorityCancel, err := execution.decisionContext(execution.decisionDeadline(admissionDecision.BrokerDecisionCore, admissionStarted))
+	if err != nil {
+		return BrokerExactReadResult{}, brokerReadError(err)
 	}
+	qualificationStarted := execution.currentMillis()
+	qualificationDecision, err := s.authorizer.AuthorizeQualification(authorityCtx, qualification)
+	if err == nil {
+		err = authorityCtx.Err()
+	}
+	authorityCancel()
 	validationErr = brokercontract.ValidateQualificationDecisionForV1(qualificationDecision, qualification, execution.currentMillis())
 	if err != nil || validationErr != nil {
 		return BrokerExactReadResult{}, brokerReadError(firstBrokerReadError(err, validationErr))
 	}
 
+	qualificationDeadline := execution.decisionDeadline(qualificationDecision.BrokerDecisionCore, qualificationStarted)
 	switch request.Operation {
 	case domain.BrokerOperationJiraIssueRead:
-		return s.executeJiraBrokerRead(execution, request, qualification, qualificationDecision)
+		return s.executeJiraBrokerRead(execution, request, qualification, qualificationDecision, qualificationDeadline)
 	case domain.BrokerOperationConfluencePageRead:
-		return s.executeConfluenceBrokerRead(execution, request, qualification, qualificationDecision)
+		return s.executeConfluenceBrokerRead(execution, request, qualification, qualificationDecision, qualificationDeadline)
 	default:
 		return BrokerExactReadResult{}, brokerReadError(domain.ErrUsage)
 	}

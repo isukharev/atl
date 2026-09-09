@@ -228,6 +228,12 @@ and checks identity, scope, version, projection, request binding and the current
 final decision again before returning it to a future transport. Expiry or
 observed drift discards the result without publishing resource content.
 
+Exact and project-page reads additionally anchor every decision's
+`expires_at_ms - issued_at_ms` duration to a local monotonic observation before
+the authorization call. The earlier local lease or signed expiry bounds the
+next phase and final release; allowed authority clock skew does not extend it.
+Signed decision bytes and their digest bindings are unchanged.
+
 Version 1 offers `identity_snapshot_v1` consistency. Project, space, ancestors
 and revision are qualified snapshot facts for one immutable resource. Matching
 two reads does not prove atomic current membership or exclude an unobserved ABA
@@ -734,6 +740,10 @@ and never grant execution permission. Unknown families do not fall back to v2
 or v1. CLI `broker discover --family atl.broker.execution.v2` and the matching
 private zero-TTL MCP resource expose this advisory projection. Existing v1
 and discovery-v2 wire bytes and digest namespaces remain unchanged.
+
+Early overload or drain failures keep the request route's failure-envelope
+version. They can omit correlation before authentication has assigned one;
+successful execution and discovery replies always require valid correlation.
 
 The authority adapter posts exact strict v2 requests to
 `/v2/authorize/project-page/admission`, `/v2/authorize/project-page/qualification`

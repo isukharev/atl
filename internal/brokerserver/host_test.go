@@ -160,6 +160,113 @@ func TestHostAdmissionLimiterRefusesWithoutQueue(t *testing.T) {
 	}
 }
 
+type hostBoundaryRoute struct {
+	name    string
+	method  string
+	path    string
+	version int
+	decode  func([]byte) (brokertransport.Failure, error)
+}
+
+func hostBoundaryRoutes() []hostBoundaryRoute {
+	return []hostBoundaryRoute{
+		{name: "protocol v1", method: http.MethodGet, path: ProtocolPath, version: 1, decode: brokertransport.DecodeFailureV1},
+		{name: "execution v1", method: http.MethodPost, path: ExecutePath, version: 1, decode: brokertransport.DecodeFailureV1},
+		{name: "discovery v2 negotiation", method: http.MethodPost, path: brokertransport.DiscoveryNegotiatePathV2, version: 2, decode: brokertransport.DecodeDiscoveryFailureV2},
+		{name: "discovery v2", method: http.MethodPost, path: brokertransport.DiscoveryPathV2, version: 2, decode: brokertransport.DecodeDiscoveryFailureV2},
+		{name: "cache v2", method: http.MethodPost, path: brokertransport.CacheQualificationPathV2, version: 2, decode: brokertransport.DecodeCacheFailureV2},
+		{name: "execution v2", method: http.MethodPost, path: brokertransport.ExecutePathV2, version: 2, decode: brokertransport.DecodeExecutionFailureV2},
+		{name: "discovery v3 negotiation", method: http.MethodPost, path: brokertransport.DiscoveryNegotiatePathV3, version: 3, decode: brokertransport.DecodeDiscoveryFailureV3},
+		{name: "discovery v3", method: http.MethodPost, path: brokertransport.DiscoveryPathV3, version: 3, decode: brokertransport.DecodeDiscoveryFailureV3},
+	}
+}
+
+func TestHostBoundaryFailuresUseRequestRouteVersionBeforeHandler(t *testing.T) {
+	boundaries := []struct {
+		name      string
+		configure func(*Host, *admissionLimiter, http.Handler) http.Handler
+	}{
+		{name: "host unavailable", configure: func(host *Host, limiter *admissionLimiter, next http.Handler) http.Handler {
+			host.state.Store(0)
+			return host.admissionHandler(true, limiter, next)
+		}},
+		{name: "rate overload", configure: func(host *Host, limiter *admissionLimiter, next http.Handler) http.Handler {
+			host.state.Store(1)
+			limiter.tokens = 0
+			return host.admissionHandler(true, limiter, next)
+		}},
+		{name: "lifecycle drain", configure: func(host *Host, _ *admissionLimiter, next http.Handler) http.Handler {
+			host.state.Store(2)
+			return host.lifecycleHandler(next)
+		}},
+	}
+
+	for _, route := range hostBoundaryRoutes() {
+		for _, boundary := range boundaries {
+			t.Run(route.name+"/"+boundary.name, func(t *testing.T) {
+				guard, err := NewCredentialGuard([]byte("synthetic-upstream-credential"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer guard.Close()
+				host := &Host{guard: guard, active: map[uint64]context.CancelFunc{}}
+				if boundary.name != "lifecycle drain" {
+					host.accepting = true
+				}
+				limiter := newAdmissionLimiter(1, 1, time.Now)
+				var handlerCalls atomic.Int32
+				next := http.HandlerFunc(func(http.ResponseWriter, *http.Request) { handlerCalls.Add(1) })
+				handler := boundary.configure(host, limiter, next)
+				var requestBody io.Reader
+				if route.method == http.MethodPost {
+					requestBody = strings.NewReader(`{}`)
+				}
+				request := httptest.NewRequest(route.method, route.path, requestBody)
+				if route.method == http.MethodPost {
+					request.Header.Set("Content-Type", "application/json")
+				}
+				request.Header.Set("Authorization", "Bearer synthetic-workload-credential")
+				response := httptest.NewRecorder()
+				handler.ServeHTTP(response, request)
+
+				failure, decodeErr := route.decode(response.Body.Bytes())
+				if response.Code != http.StatusServiceUnavailable || decodeErr != nil || failure.SchemaVersion != route.version || failure.Reason != domain.BrokerReasonAuthorizationUnavailable || handlerCalls.Load() != 0 {
+					t.Fatalf("status=%d failure=%+v decode=%v handler_calls=%d body=%s", response.Code, failure, decodeErr, handlerCalls.Load(), response.Body.Bytes())
+				}
+				if response.Header().Get("X-ATL-Correlation-ID") != "" || response.Header().Get("Cache-Control") != "no-store" || response.Header().Get("Content-Type") != "application/json" || response.Header().Get("X-Content-Type-Options") != "nosniff" {
+					t.Fatalf("headers=%v", response.Header())
+				}
+			})
+		}
+	}
+}
+
+func TestHostBoundaryPositiveRoutesReachHandler(t *testing.T) {
+	for _, route := range hostBoundaryRoutes() {
+		t.Run(route.name, func(t *testing.T) {
+			guard, err := NewCredentialGuard()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer guard.Close()
+			host := &Host{guard: guard, active: map[uint64]context.CancelFunc{}, accepting: true}
+			host.state.Store(1)
+			limiter := newAdmissionLimiter(1, 1, time.Now)
+			var handlerCalls atomic.Int32
+			next := http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				handlerCalls.Add(1)
+				writer.WriteHeader(http.StatusNoContent)
+			})
+			request := httptest.NewRequest(route.method, route.path, nil)
+			response := httptest.NewRecorder()
+			host.lifecycleHandler(host.admissionHandler(true, limiter, next)).ServeHTTP(response, request)
+			if response.Code != http.StatusNoContent || handlerCalls.Load() != 1 {
+				t.Fatalf("status=%d handler_calls=%d", response.Code, handlerCalls.Load())
+			}
+		})
+	}
+}
+
 func TestAuditRefusesEventVocabularyMatchingWorkloadCredential(t *testing.T) {
 	guard, err := NewCredentialGuard()
 	if err != nil {
@@ -246,20 +353,23 @@ func TestHostAdmissionFailureDoesNotEchoWorkloadCredential(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer guard.Close()
-	host := &Host{guard: guard, active: map[uint64]context.CancelFunc{}}
-	host.state.Store(1)
-	now := time.Now()
-	limiter := newAdmissionLimiter(1, 1, func() time.Time { return now })
-	if !limiter.Allow() {
-		t.Fatal("failed to consume test admission token")
-	}
-	next := http.HandlerFunc(func(http.ResponseWriter, *http.Request) { t.Fatal("rejected request reached handler") })
-	request := httptest.NewRequest(http.MethodGet, ProtocolPath, nil)
-	request.Header.Set("Authorization", "Bearer authorization_unavailable")
-	response := httptest.NewRecorder()
-	host.admissionHandler(true, limiter, next).ServeHTTP(response, request)
-	if response.Code != http.StatusServiceUnavailable || response.Body.Len() != 0 {
-		t.Fatalf("status=%d body=%q", response.Code, response.Body.String())
+	for _, route := range hostBoundaryRoutes() {
+		t.Run(route.name, func(t *testing.T) {
+			host := &Host{guard: guard, active: map[uint64]context.CancelFunc{}}
+			host.state.Store(1)
+			limiter := newAdmissionLimiter(1, 1, time.Now)
+			if !limiter.Allow() {
+				t.Fatal("failed to consume test admission token")
+			}
+			next := http.HandlerFunc(func(http.ResponseWriter, *http.Request) { t.Fatal("rejected request reached handler") })
+			request := httptest.NewRequest(route.method, route.path, nil)
+			request.Header.Set("Authorization", "Bearer authorization_unavailable")
+			response := httptest.NewRecorder()
+			host.admissionHandler(true, limiter, next).ServeHTTP(response, request)
+			if response.Code != http.StatusServiceUnavailable || response.Body.Len() != 0 {
+				t.Fatalf("status=%d body=%q", response.Code, response.Body.String())
+			}
+		})
 	}
 }
 
