@@ -115,7 +115,7 @@
   ],
   "package_totals": [
     {"owner":"adapter-confluence","path":"internal/adapter/confluence/","max_lines":5249,"rationale":"Include the narrow Broker page reader and its explicit long-running-host idle-connection shutdown seam."},
-    {"owner":"adapter-jira","path":"internal/adapter/jira/","max_lines":6773,"rationale":"Include the bounded Broker project identity and two-page reader alongside qualified graph snapshot projection through shared single-attempt decoding and selected property-section validation."},
+    {"owner":"adapter-jira","path":"internal/adapter/jira/","max_lines":7213,"rationale":"Include strict bounded attachment metadata qualification, exact private content-URI binding, and a one-shot cancelable handle while preserving existing direct-mode attachment paths."},
     {"owner":"app","path":"internal/app/","max_lines":56293,"rationale":"Include bounded structural remote-link failure classification and strict optional diagnostic validation/projection while preserving coarse source outcomes; human graph rendering has its own focused owner."},
     {"owner":"cli","path":"internal/cli/","max_lines":14040,"rationale":"Include explicit journal initialization, guarded-comment host opt-in, ticket-bound client apply and independent outcome observation while retaining direct-mode behavior."},
     {"owner":"compose","path":"internal/compose/","max_lines":1354,"rationale":"Include frozen backend-bound local policy, Open-only journal ownership through host drain, guarded-comment services and separately selected observer client without ambient credentials."},
