@@ -22,6 +22,7 @@ func TestJiraPaginationOwnerInventoryIsClosed(t *testing.T) {
 		"agile.go:agileNext":                                  {"advance", "matches", "requested", "requested", "requested", "requested"},
 		"agile.go:boardIssuePage":                             {"agileNext", "requestStartAt"},
 		"agile.go:qualifiedAgileValuesPage":                   {"advance", "matches", "requested", "requested", "requested"},
+		"broker_search.go:brokerProjectPage":                  {"requestStartAt"},
 		"create_metadata.go:collectQualifiedCreateFields":     {"advance", "matches", "requestStartAt", "requested"},
 		"create_metadata.go:collectQualifiedCreateIssueTypes": {"advance", "matches", "requestStartAt", "requested"},
 		"create_metadata.go:readCreateFields":                 {"advance", "matches", "requestStartAt", "requested", "requested"},
@@ -115,6 +116,18 @@ broker_read.go:brokerJiraProjectMetadata:range:2
 broker_read.go:brokerJiraTransportFailure:range:1
 broker_read.go:decodeBrokerJiraIssue:range:1
 broker_read.go:decodeBrokerJiraIssue:range:2
+broker_search.go:brokerJiraBoundedSupportingDecoded:range:1
+broker_search.go:brokerJiraBoundedSupportingDecoded:range:2
+broker_search.go:brokerProjectPage:range:1
+broker_search.go:decodeBrokerJiraProjectBusinessPage:range:1
+broker_search.go:decodeBrokerJiraProjectIdentity:range:1
+broker_search.go:decodeBrokerJiraProjectIdentityPage:range:1
+broker_search.go:decodeBrokerJiraProjectPageIssue:range:1
+broker_search.go:decodeBrokerJiraProjectPageIssue:range:2
+broker_search.go:decodeBrokerJiraProjectPageIssue:range:3
+broker_search.go:decodeBrokerJiraProjectPageIssue:range:4
+broker_search.go:decodeBrokerJiraProjectPageRoot:range:1
+broker_search.go:validBrokerProjectPageFields:range:1
 create_metadata.go:ReadCreateIssueTypes:range:1
 create_metadata.go:ReadQualifiedCreateMetadata:range:1
 create_metadata.go:ReadQualifiedCreateMetadata:range:2

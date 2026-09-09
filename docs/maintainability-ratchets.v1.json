@@ -115,8 +115,8 @@
   ],
   "package_totals": [
     {"owner":"adapter-confluence","path":"internal/adapter/confluence/","max_lines":5249,"rationale":"Include the narrow Broker page reader and its explicit long-running-host idle-connection shutdown seam."},
-    {"owner":"adapter-jira","path":"internal/adapter/jira/","max_lines":6447,"rationale":"Include the qualified graph snapshot projection through shared single-attempt decoding and selected property-section validation."},
-    {"owner":"app","path":"internal/app/","max_lines":53968,"rationale":"Include selected graph collectors, checkpoint inspection and advisory discovery plus bounded qualified corpus handoff and cache qualification without broader cache or capture behavior."},
+    {"owner":"adapter-jira","path":"internal/adapter/jira/","max_lines":6773,"rationale":"Include the bounded Broker project identity and two-page reader alongside qualified graph snapshot projection through shared single-attempt decoding and selected property-section validation."},
+    {"owner":"app","path":"internal/app/","max_lines":54253,"rationale":"Include the gated project-page coordinator with ordered qualification, per-resource authorization and bounded pagination truth alongside selected graph collectors, checkpoint inspection, advisory discovery, bounded qualified corpus handoff and cache qualification without broader cache or capture behavior."},
     {"owner":"cli","path":"internal/cli/","max_lines":13712,"rationale":"Include graph source selectors, checkpoint progress and read-only Broker discovery plus the explicit qualified corpus handoff leaf and its closed classification."},
     {"owner":"compose","path":"internal/compose/","max_lines":1172,"rationale":"Include lazy per-service discovery and cache-qualification client construction plus Broker cache-route dependency wiring without PAT resolution or direct fallback."},
     {"owner":"contentpolicy","path":"internal/contentpolicy/","max_lines":1281,"rationale":"Keep policy parsing, resolved and deny-only evaluation, source-denial envelopes, freeze, static scope requirements, and hierarchy hazards at the reviewed public-surface total."},
