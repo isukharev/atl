@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/isukharev/atl/docs/schemas/broker-execution-http-v3.schema.json",
+  "title": "ATL Broker bounded attachment HTTP execution v3",
+  "oneOf": [
+    {"$ref": "broker-execution-v3.schema.json#/$defs/request"},
+    {"$ref": "broker-execution-v3.schema.json#/$defs/stream_line"},
+    {"$ref": "#/$defs/failure"}
+  ],
+  "$defs": {
+    "failure": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schema_version", "status", "reason", "recovery", "retry_safe", "complete"],
+      "properties": {
+        "schema_version": {"const": 3}, "status": {"const": "rejected"},
+        "reason": {"enum": ["unsupported", "malformed", "denied", "revoked", "grant_expired", "credential_expired", "stale_execution", "stale_authority", "decision_expired", "authorization_unavailable", "unsupported_consistency", "proposal_clearance_required", "outcome_unknown"]},
+        "recovery": {"enum": ["adjust_request", "inspect_failure", "reauthenticate", "request_access", "reread_then_reselect", "request_human_approval", "reconcile_write_outcome"]},
+        "retry_safe": {"const": false}, "complete": {"const": true}
+      }
+    }
+  }
+}
