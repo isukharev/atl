@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 
 	"github.com/isukharev/atl/internal/domain"
 )
@@ -19,6 +20,21 @@ func (c *Client) GetStream(ctx context.Context, path string) (io.ReadCloser, err
 	if err := validateNoReplayReadBudget(ctx); err != nil {
 		return nil, err
 	}
+	return c.getStream(ctx, path)
+}
+
+// GetStreamBefore performs one budgeted GET whose physical dispatch must be
+// admitted no later than dispatchNotAfter. The returned body retains the
+// caller context's independent finite lifetime after dispatch.
+func (c *Client) GetStreamBefore(ctx context.Context, path string, dispatchNotAfter time.Time) (io.ReadCloser, error) {
+	ctx, err := prepareStreamDispatchContext(ctx, dispatchNotAfter)
+	if err != nil {
+		return nil, err
+	}
+	return c.getStream(ctx, path)
+}
+
+func (c *Client) getStream(ctx context.Context, path string) (io.ReadCloser, error) {
 	url, err := c.resolveURL(path)
 	if err != nil {
 		return nil, err
@@ -53,6 +69,9 @@ func (c *Client) GetStream(ctx context.Context, path string) (io.ReadCloser, err
 			c.tracef("× GET %s (transport error: %s)\n", traceRequestURL(ctx, req.URL), transportErrorCategory(err))
 			if budgetErr := readBudgetExhaustion(err); budgetErr != nil {
 				return nil, budgetErr
+			}
+			if errors.Is(err, domain.ErrReadDispatchExpired) {
+				return nil, domain.ErrReadDispatchExpired
 			}
 			lastErr = transportError(http.MethodGet, req.URL, err)
 			if interrupted || errors.Is(err, errRedirectLimit) {

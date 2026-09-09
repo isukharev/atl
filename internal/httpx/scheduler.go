@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"sync"
 	"time"
+
+	"github.com/isukharev/atl/internal/domain"
 )
 
 type scheduledRoundTripper struct {
@@ -15,8 +17,16 @@ type scheduledRoundTripper struct {
 }
 
 func (t scheduledRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
-	release, err := t.scheduler.acquire(req.Context())
+	waitCtx, cancelWait, dispatchBounded := readDispatchWaitContext(req.Context())
+	defer cancelWait()
+	release, err := t.scheduler.acquire(waitCtx)
 	if err != nil {
+		if contextErr := req.Context().Err(); contextErr != nil {
+			return nil, contextErr
+		}
+		if dispatchBounded && waitCtx.Err() == context.DeadlineExceeded {
+			return nil, domain.ErrReadDispatchExpired
+		}
 		return nil, err
 	}
 	resp, err := t.base.RoundTrip(req)
