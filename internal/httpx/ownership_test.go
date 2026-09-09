@@ -41,7 +41,7 @@ func TestTransportResponsibilityOwnersStayClosed(t *testing.T) {
 		},
 		"errors.go": {
 			"(*APIError).Error", "(*APIError).HTTPStatus", "(*APIError).Unwrap", "(*TransportError).Error", "(*TransportError).Format",
-			"(*TransportError).Is", "(*unclearedWriteError).DiagnosticWriteAttempted", "(*unclearedWriteError).DiagnosticWriteClearanceFailure",
+			"(*TransportError).DiagnosticTransportFailure", "(*TransportError).Is", "(*unclearedWriteError).DiagnosticWriteAttempted", "(*unclearedWriteError).DiagnosticWriteClearanceFailure",
 			"(*unclearedWriteError).Error", "(*unclearedWriteError).Unwrap", "APIError", "TransportError", "classify",
 			"errRedirectLimit", "errUnclearedWrite", "redactURLString", "sameHost", "traceURL", "transportError", "transportErrorCategory", "unclearedWriteError",
 		},

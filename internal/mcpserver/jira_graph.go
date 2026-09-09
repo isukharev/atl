@@ -157,16 +157,22 @@ type JiraIssueGraphEdgeOutput struct {
 }
 
 type JiraIssueGraphSourceOutput struct {
-	NodeID        string                           `json:"node_id"`
-	NodeDepth     int                              `json:"node_depth"`
-	Kind          string                           `json:"kind"`
-	Requested     bool                             `json:"requested"`
-	Status        domain.ArtifactGraphSourceStatus `json:"status"`
-	Complete      bool                             `json:"complete"`
-	Count         int                              `json:"count"`
-	Truncated     bool                             `json:"truncated"`
-	PartialReason string                           `json:"partial_reason,omitempty"`
-	Stability     domain.ArtifactGraphStability    `json:"stability"`
+	NodeID        string                             `json:"node_id"`
+	NodeDepth     int                                `json:"node_depth"`
+	Kind          string                             `json:"kind"`
+	Requested     bool                               `json:"requested"`
+	Status        domain.ArtifactGraphSourceStatus   `json:"status"`
+	Complete      bool                               `json:"complete"`
+	Count         int                                `json:"count"`
+	Truncated     bool                               `json:"truncated"`
+	PartialReason string                             `json:"partial_reason,omitempty"`
+	Stability     domain.ArtifactGraphStability      `json:"stability"`
+	Failure       *JiraIssueGraphSourceFailureOutput `json:"failure,omitempty"`
+}
+
+type JiraIssueGraphSourceFailureOutput struct {
+	Class      domain.ArtifactGraphSourceFailureClass `json:"class"`
+	HTTPStatus *int                                   `json:"http_status,omitempty"`
 }
 
 type JiraIssueGraphFrontier struct {
@@ -177,10 +183,7 @@ type JiraIssueGraphFrontier struct {
 
 func registerJiraIssueGraphTool(server *mcp.Server, deps Dependencies) {
 	tool := readOnlyTool("jira_issue_graph", "Build a bounded Jira issue graph", "Return one provenance-qualified full schema-v2 graph (the default) or compact schema-v1 qualified fact projection from an exact canonical Jira key. Compact defaults to urls, plus scm when include_development is true. Its select accepts only urls, scm, or none; select is invalid for full, none cannot be combined, and scm requires include_development. include_sources and exclude_sources choose collectors before reads; source_selection reports selected and omitted sources and required supporting snapshot fields. Empty selectors are invalid, omitted sources never prove absence, and development still requires include_development and cannot be excluded with that opt-in. Depth is limited to 0..2 and follows only exact structured Jira relations. The default uses stable Jira sources only. include_development explicitly adds bounded experimental GitLab SCM identities from Jira; those nodes remain unfetched stubs, compact never returns their web URLs, and ATL never contacts GitLab or follows artifact URLs. The tool performs no Confluence reads.")
-	tool.OutputSchema = oneOfOutputSchema(tool.Name,
-		reflect.TypeFor[JiraIssueGraphOutput](),
-		reflect.TypeFor[app.JiraIssueGraphCompactResult](),
-	)
+	tool.OutputSchema = jiraIssueGraphOutputSchema(tool.Name)
 	addReadOnlyTool(server, tool,
 		func(ctx context.Context, request *mcp.CallToolRequest, in JiraIssueGraphInput) (*mcp.CallToolResult, any, error) {
 			// The SDK permits JSON null for optional slices. Source selection
@@ -228,6 +231,75 @@ func registerJiraIssueGraphTool(server *mcp.Server, deps Dependencies) {
 			}
 			return nil, out, nil
 		})
+}
+
+func jiraIssueGraphOutputSchema(toolName string) map[string]any {
+	schema := oneOfOutputSchema(toolName,
+		reflect.TypeFor[JiraIssueGraphOutput](),
+		reflect.TypeFor[app.JiraIssueGraphCompactResult](),
+	)
+	replaceJiraGraphFailureSchemas(schema)
+	return schema
+}
+
+func replaceJiraGraphFailureSchemas(value any) {
+	switch current := value.(type) {
+	case map[string]any:
+		if properties, ok := current["properties"].(map[string]any); ok {
+			if _, present := properties["failure"]; present {
+				properties["failure"] = jiraGraphFailureOutputSchema()
+			}
+		}
+		for _, child := range current {
+			replaceJiraGraphFailureSchemas(child)
+		}
+	case []any:
+		for _, child := range current {
+			replaceJiraGraphFailureSchemas(child)
+		}
+	}
+}
+
+func jiraGraphFailureOutputSchema() map[string]any {
+	status := func(values ...int) map[string]any {
+		out := map[string]any{"type": "integer"}
+		if len(values) != 0 {
+			enum := make([]any, len(values))
+			for index, value := range values {
+				enum[index] = value
+			}
+			out["enum"] = enum
+		}
+		return out
+	}
+	branch := func(class string, statusSchema map[string]any, requireStatus bool) map[string]any {
+		properties := map[string]any{"class": map[string]any{"const": class}}
+		required := []any{"class"}
+		if statusSchema != nil {
+			properties["http_status"] = statusSchema
+			if requireStatus {
+				required = append(required, "http_status")
+			}
+		}
+		return map[string]any{
+			"type": "object", "additionalProperties": false,
+			"properties": properties, "required": required,
+		}
+	}
+	httpStatus := status()
+	httpStatus["minimum"], httpStatus["maximum"] = 300, 599
+	httpStatus["not"] = map[string]any{"enum": []any{401, 403, 404}}
+	return map[string]any{
+		"type": "object",
+		"oneOf": []any{
+			branch("authentication", status(401), false),
+			branch("permission", status(403), false),
+			branch("not_found", status(404), false),
+			branch("http", httpStatus, true),
+			branch("transport", nil, false),
+			branch("request", nil, false),
+		},
+	}
 }
 
 func validatedJiraIssueGraphInput(in JiraIssueGraphInput) (string, app.JiraIssueGraphOptions, int, error) {
@@ -374,12 +446,20 @@ func projectJiraIssueGraph(result *app.JiraIssueGraphResult, key string, opts ap
 			source.Kind == "development" && source.Stability != domain.ArtifactStabilityExperimentalAPI {
 			return invalid()
 		}
-		out.Sources = append(out.Sources, JiraIssueGraphSourceOutput{
+		projected := JiraIssueGraphSourceOutput{
 			NodeID: source.NodeID, NodeDepth: *source.NodeDepth, Kind: source.Kind,
 			Requested: source.Requested, Status: source.Status, Complete: source.Complete,
 			Count: source.Count, Truncated: source.Truncated, PartialReason: source.PartialReason,
 			Stability: source.Stability,
-		})
+		}
+		if source.Failure != nil {
+			projected.Failure = &JiraIssueGraphSourceFailureOutput{Class: source.Failure.Class}
+			if source.Failure.HTTPStatus != nil {
+				status := *source.Failure.HTTPStatus
+				projected.Failure.HTTPStatus = &status
+			}
+		}
+		out.Sources = append(out.Sources, projected)
 	}
 	for _, item := range result.Frontier {
 		out.Frontier = append(out.Frontier, JiraIssueGraphFrontier{NodeID: item.NodeID, Depth: item.Depth, Reason: item.Reason})

@@ -136,16 +136,17 @@ type JiraIssueGraphEdge struct {
 }
 
 type JiraIssueGraphSource struct {
-	NodeID        string `json:"node_id"`
-	NodeDepth     int    `json:"node_depth"`
-	Kind          string `json:"kind"`
-	Requested     bool   `json:"requested"`
-	Status        string `json:"status"`
-	Complete      bool   `json:"complete"`
-	Count         int    `json:"count"`
-	Truncated     bool   `json:"truncated"`
-	PartialReason string `json:"partial_reason,omitempty"`
-	Stability     string `json:"stability"`
+	NodeID        string                       `json:"node_id"`
+	NodeDepth     int                          `json:"node_depth"`
+	Kind          string                       `json:"kind"`
+	Requested     bool                         `json:"requested"`
+	Status        string                       `json:"status"`
+	Complete      bool                         `json:"complete"`
+	Count         int                          `json:"count"`
+	Truncated     bool                         `json:"truncated"`
+	PartialReason string                       `json:"partial_reason,omitempty"`
+	Stability     string                       `json:"stability"`
+	Failure       *JiraIssueGraphSourceFailure `json:"failure,omitempty"`
 }
 
 type JiraIssueGraphFrontier struct {
@@ -287,12 +288,6 @@ func validateJiraGraphEdgeMembers(edge map[string]json.RawMessage, owner string)
 			[]string{"collector", "source_kind", "extraction"},
 			[]string{"source_node_id", "source_id", "json_pointer"})
 	})
-}
-
-func validateJiraGraphSourceMembers(source map[string]json.RawMessage, owner string) error {
-	return jiraGraphWireMembers(source, owner,
-		[]string{"node_id", "node_depth", "kind", "requested", "status", "complete", "count", "truncated", "stability"},
-		[]string{"partial_reason"})
 }
 
 func jiraGraphWireMembers(object map[string]json.RawMessage, owner string, required, optional []string) error {
@@ -660,6 +655,9 @@ func validateJiraGraphWireSource(source JiraIssueGraphSource, nodes map[string]J
 	}
 	if source.Stability != wantStability || node.Kind != "jira_issue" {
 		return fmt.Errorf("stability or owner is invalid")
+	}
+	if !validJiraGraphWireRemoteLinkFailure(source) {
+		return fmt.Errorf("remote-link failure diagnostic is invalid")
 	}
 	if source.Kind == "development" {
 		if source.Complete && source.Count != developmentArtifacts[source.NodeID] || !source.Complete && developmentEdges[source.NodeID] != 0 {

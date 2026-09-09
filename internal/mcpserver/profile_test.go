@@ -122,8 +122,9 @@ func TestDefaultProfilePreservesNewToolSchemasAndInstructions(t *testing.T) {
 	if string(legacyJSON) != string(profileJSON) {
 		t.Fatal("default profile changed the legacy tool inventory or schemas")
 	}
-	// Add the bounded project-page tool; every older tool is frozen below.
-	if got := sha256.Sum256(profileJSON); hex.EncodeToString(got[:]) != "35ba8458dc699fac4940af23846748f20f6799b647acf9e3263d866c2a4e3fc3" {
+	// The bounded project-page tool and additive Jira graph diagnostic are
+	// included; all other tool contracts remain frozen below.
+	if got := sha256.Sum256(profileJSON); hex.EncodeToString(got[:]) != "0a60fbed49c013c34fd9c5c40fdfcee1ac18d29cb8c10551247235bb42876292" {
 		t.Fatalf("default tool contract hash=%x", got)
 	}
 	previous := make([]*mcp.Tool, 0, len(profile.Tools)-1)
@@ -136,8 +137,8 @@ func TestDefaultProfilePreservesNewToolSchemasAndInstructions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := sha256.Sum256(previousJSON); hex.EncodeToString(got[:]) != "f14165c610127c5219a0124c2288089ef0c3496f682b6fea799735f45370b8cd" {
-		t.Fatalf("project-page addition changed an existing tool: %x", got)
+	if got := sha256.Sum256(previousJSON); hex.EncodeToString(got[:]) != "b1acf435c9733e1f4e752c7222ea8d5ea318ca56244acba404759f56daf7a6e0" {
+		t.Fatalf("existing tool contracts changed outside the reviewed Jira graph diagnostic: %x", got)
 	}
 	if legacyClient.InitializeResult().Instructions != Instructions ||
 		profileClient.InitializeResult().Instructions != Instructions {

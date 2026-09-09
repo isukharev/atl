@@ -233,6 +233,14 @@ static content-free reasons. Malformed, request-failed, inspection-limited, and
 output-limited sources remain visibly incomplete. `empty` proves absence only
 for that selected source. Source stability is fixed per kind: `issue_properties`
 and opt-in `development` are `experimental_api`; other source kinds are `public_api`.
+When the `remote_links` request itself fails, that source may also carry a
+content-free `failure` with closed class `authentication`, `permission`,
+`not_found`, `http`, `transport`, or `request`, plus an observed
+`http_status` only when one exists. A 404 records only the observed remote-link
+response; it does not prove that the endpoint is unsupported or distinguish a
+permission-hiding deployment. No error message, URL, header, response body or
+recovery command enters the graph. Other source kinds and successful or omitted
+remote-link sources never carry this object.
 `issue_properties` remains ordered; its count is the returned property count,
 while completeness means that set was processed under the fixed privacy
 exclusions and bounds. Auxiliary failures keep the
@@ -241,6 +249,9 @@ invalid graph invariant, or failed reconciliation exits non-zero. The top-level
 summary proves that node, edge, evidence, source, status-bucket,
 incomplete-source, expanded-node, and completeness counts match the final
 arrays.
+
+Human text adds `Failure` and `HTTP status` source columns only when at least one
+diagnostic is present. Successful graph text remains byte-compatible.
 
 Edges distinguish structured relations (`jira_link`, hierarchy,
 `attached`, `remote_link`) from heuristic `mentions`. The same target may
