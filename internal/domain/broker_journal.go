@@ -76,6 +76,13 @@ type BrokerJournalCompletion struct {
 	ResultSHA256 string
 }
 
+// BrokerJournalLookup is the only journal capability exposed to metadata-only
+// outcome observers. Callers must independently authorize the exact ticket
+// before invoking it; knowledge of an ID is never a grant.
+type BrokerJournalLookup interface {
+	Lookup(context.Context, BrokerJournalOwner, string) (BrokerJournalRecord, error)
+}
+
 // BrokerJournal is a storage-only port. Reserve durably mints an ID before Bind
 // fixes the prospective apply arguments containing it. Admit durably stores the
 // separate recovery artifact. A successful ClaimDispatch is the sole dispatch
@@ -85,12 +92,12 @@ type BrokerJournalCompletion struct {
 // upstream, including exact ticket scope; knowledge of an ID is never a grant.
 // There is no listing, retry, deletion, automatic reconciliation or GC API.
 type BrokerJournal interface {
+	BrokerJournalLookup
 	Reserve(context.Context, BrokerJournalReservation) (BrokerJournalRecord, error)
 	Bind(context.Context, BrokerJournalOwner, string, BrokerJournalIntent) (BrokerJournalRecord, error)
 	Admit(context.Context, BrokerJournalCompare, []byte, string) (BrokerJournalRecord, error)
 	ClaimDispatch(context.Context, BrokerJournalCompare) (BrokerJournalRecord, error)
 	Complete(context.Context, BrokerJournalCompare, BrokerJournalCompletion) (BrokerJournalRecord, error)
-	Lookup(context.Context, BrokerJournalOwner, string) (BrokerJournalRecord, error)
 	ReadArtifact(context.Context, BrokerJournalOwner, string) ([]byte, error)
 	Fenced(context.Context, string) (bool, error)
 }
