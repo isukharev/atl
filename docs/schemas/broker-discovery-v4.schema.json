@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/isukharev/atl/docs/schemas/broker-discovery-v4.schema.json",
+  "title": "ATL Broker fixed-family attachment discovery v4",
+  "$defs": {
+    "digest": {"$ref": "broker-v1.schema.json#/$defs/digest"},
+    "id": {"$ref": "broker-v1.schema.json#/$defs/id"},
+    "expect": {
+      "type": "object", "additionalProperties": false,
+      "required": ["execution_id", "execution_epoch", "authority_revision"],
+      "properties": {"execution_id": {"$ref": "#/$defs/id"}, "execution_epoch": {"$ref": "#/$defs/id"}, "authority_revision": {"$ref": "#/$defs/id"}}
+    },
+    "request": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schema_version", "request_id", "contract_family", "service", "broker_id", "audience", "context_sha256", "not_after_millis", "expect"],
+      "properties": {"schema_version": {"const": 4}, "request_id": {"$ref": "#/$defs/id"}, "contract_family": {"const": "atl.broker.execution.v3"}, "service": {"const": "jira"}, "broker_id": {"$ref": "#/$defs/id"}, "audience": {"$ref": "#/$defs/id"}, "context_sha256": {"$ref": "#/$defs/digest"}, "not_after_millis": {"type": "integer", "minimum": 1}, "expect": {"$ref": "#/$defs/expect"}}
+    },
+    "authorization_request": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schema_version", "request", "context", "request_sha256"],
+      "properties": {"schema_version": {"const": 4}, "request": {"$ref": "#/$defs/request"}, "context": {"$ref": "broker-v1.schema.json#/$defs/verified_context"}, "request_sha256": {"$ref": "#/$defs/digest"}}
+    },
+    "operation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "version", "supported", "access", "features", "limits", "effects", "max_metadata_items", "max_jira_attempts", "max_authentication_attempts", "max_decision_attempts", "max_total_host_outbound_attempts", "max_command_host_outbound_attempts", "max_jira_response_bytes", "max_authority_response_bytes", "max_total_host_response_bytes", "max_manifest_line_bytes", "max_data_line_bytes", "max_terminal_line_bytes", "max_framed_response_bytes"],
+      "properties": {
+        "id": {"const": "jira.issue.attachment.download"}, "version": {"const": 1}, "supported": {"const": true},
+        "access": {"enum": ["allowed", "access_request_required", "unavailable"]},
+        "request_access_correlation": {"type": "string", "minLength": 1, "maxLength": 64},
+        "features": {"const": ["atomic_local_publish_v1", "attachment_id_v1", "step_snapshot_v1"]},
+        "limits": {"const": {"max_request_bytes": 65536, "max_response_bytes": 25165824, "max_total_upstream_requests": 73, "max_total_upstream_response_bytes": 42729472, "qualification": {"max_requests": 18, "max_response_bytes": 18874368}, "business": {"max_requests": 1, "max_response_bytes": 16777216}, "max_resources": 2, "max_fields": 0, "max_native_body_bytes": 16777216, "max_stream_chunks": 16, "max_stream_chunk_bytes": 1048576, "max_operation_millis": 60000, "max_decision_lease_millis": 5000}},
+        "effects": {"const": [{"kind": "read", "resource_kind": "jira_issue", "fields": ["id", "key", "project", "updated"]}, {"kind": "read", "resource_kind": "jira_attachment", "fields": ["body", "created", "filename", "id", "media_type", "parent_id", "size"]}]},
+        "max_metadata_items": {"const": 10000}, "max_jira_attempts": {"const": 19}, "max_authentication_attempts": {"const": 17}, "max_decision_attempts": {"const": 37}, "max_total_host_outbound_attempts": {"const": 73}, "max_command_host_outbound_attempts": {"const": 76},
+        "max_jira_response_bytes": {"const": 35651584}, "max_authority_response_bytes": {"const": 7077888}, "max_total_host_response_bytes": {"const": 42729472},
+        "max_manifest_line_bytes": {"const": 65536}, "max_data_line_bytes": {"const": 1441792}, "max_terminal_line_bytes": {"const": 16384}, "max_framed_response_bytes": {"const": 25165824}
+      },
+      "allOf": [
+        {"if": {"properties": {"access": {"const": "access_request_required"}}}, "then": {"required": ["request_access_correlation"]}, "else": {"not": {"required": ["request_access_correlation"]}}}
+      ]
+    },
+    "projection": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schema_version", "request_id", "request_sha256", "context_sha256", "execution_id", "execution_epoch", "audience", "broker_id", "authority_revision", "contract_family", "service", "registry_sha256", "contract_schema_sha256", "discovery_schema_sha256", "issued_at_millis", "expires_at_millis", "operations", "complete"],
+      "properties": {"schema_version": {"const": 4}, "request_id": {"$ref": "#/$defs/id"}, "request_sha256": {"$ref": "#/$defs/digest"}, "context_sha256": {"$ref": "#/$defs/digest"}, "execution_id": {"$ref": "#/$defs/id"}, "execution_epoch": {"$ref": "#/$defs/id"}, "audience": {"$ref": "#/$defs/id"}, "broker_id": {"$ref": "#/$defs/id"}, "authority_revision": {"$ref": "#/$defs/id"}, "contract_family": {"const": "atl.broker.execution.v3"}, "service": {"const": "jira"}, "registry_sha256": {"$ref": "#/$defs/digest"}, "contract_schema_sha256": {"$ref": "#/$defs/digest"}, "discovery_schema_sha256": {"$ref": "#/$defs/digest"}, "issued_at_millis": {"type": "integer", "minimum": 1}, "expires_at_millis": {"type": "integer", "minimum": 1}, "operations": {"type": "array", "maxItems": 1, "items": {"$ref": "#/$defs/operation"}}, "complete": {"const": true}}
+    }
+  },
+  "oneOf": [{"$ref": "#/$defs/request"}, {"$ref": "#/$defs/authorization_request"}, {"$ref": "#/$defs/projection"}]
+}
