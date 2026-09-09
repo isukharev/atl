@@ -93,6 +93,18 @@ func DefinitionV2(id domain.BrokerOperationID, version int) (domain.BrokerProjec
 	return domain.BrokerProjectPageOperationDefinitionV2{}, false
 }
 
+// AvailableDefinitionsV2 returns only execution-v2 definitions whose complete
+// runtime has passed the registry availability gate.
+func AvailableDefinitionsV2() []domain.BrokerProjectPageOperationDefinitionV2 {
+	var definitions []domain.BrokerProjectPageOperationDefinitionV2
+	for _, definition := range RegistryV2() {
+		if definition.Definition.Available {
+			definitions = append(definitions, cloneProjectPageDefinitionV2(definition))
+		}
+	}
+	return definitions
+}
+
 func RegistrySHA256V2() string {
 	definitions := RegistryV2()
 	projection := make([]any, len(definitions))
