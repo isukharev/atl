@@ -346,6 +346,50 @@ another principal's operations and may remain unknown. Retained tombstones must
 cover the full acceptance window plus clock allowance; unresolved writes stay
 fenced or are explicitly retired as non-replayable.
 
+The internal operation-observation service implements the authorization and
+metadata boundary without registering a runtime route. It strictly validates
+one current `broker.operation.outcome` invocation, admits it, authorizes its
+zero-request `operation_id` qualification, then authorizes the exact
+`observe/operation` resource before its sole journal lookup. The operation
+resource is derived from the input ticket and proves only that exact selector;
+it does not assert that a record exists or reveal its owner or phase. Unknown,
+foreign, malformed journal and internally issued-but-unbound identifiers all
+produce the same content-free denial. The service has a lookup-only journal
+port, so it cannot read a recovery artifact, enumerate operations, transition a
+phase or contact Jira.
+
+After final authorization, the sole lookup receives a child context capped by
+the remaining operation/context deadline and final decision lease. The service
+cancels that child immediately after lookup and repeats cancellation, current
+context, decision and release checks before returning metadata.
+
+Stable journal ownership hashes Broker id, complete backend binding, principal,
+workload and audience as separately domain-separated canonical values. Original
+execution id/epoch and authority revision have separate writer hashes and are
+not compared with a later observer. A later execution can inspect an old ticket
+only with its own current credential, execution expectations, qualification and
+final observe authorization and only while the record's fixed observation
+deadline remains open. That read does not renew the old writer or any deadline.
+The service recomputes the journal's exact immutable intent binding and rejects
+a well-shaped but changed binding or intent. This is consistency checking, not
+independent authenticity proof: the trusted lookup adapter still owns durable
+history, phase and dispatch evidence. Journal sequence remains an opaque
+nonzero compare token and is never interpreted as a lifecycle ordinal.
+Returned `complete` and `reconciled` describe stored evidence: only durable
+`applied` with its qualified result digest is reconciled; observation performs
+no fresh backend reconciliation. Response release is capped by the current
+decision/operation deadlines and the original observation deadline.
+
+The current storage-backed observation subset is `admitted`, `dispatching`,
+`applied`, `not_applied` and `outcome_unknown`. Although the general v1 codec
+reserves `retired_non_replayable`, this slice has no retirement transition and
+rejects that phase from an injected lookup port rather than advertising it.
+
+`broker.operation.outcome` remains unavailable in the registry. Server, client,
+CLI and MCP wiring wait for a supported guarded-comment ticket producer and an
+authenticated synthetic integration proving the complete no-enumeration and
+zero-backend-request boundary.
+
 The storage-only foundation in `internal/adapter/brokerjournal` implements the
 domain journal port without enabling comment, outcome, server, client or CLI
 routes. Creation requires an absent root under an existing current-owner `0700`
