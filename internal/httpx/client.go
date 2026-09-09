@@ -71,9 +71,15 @@ func New(base, token, version string, options ...Option) *Client {
 // NewWithScheduler builds a client whose every transport attempt shares the
 // supplied command-scoped concurrency/rate policy.
 func NewWithScheduler(base, token, version string, scheduler *Scheduler, options ...Option) *Client {
+	resolved := resolveOptions(options)
+	transport := http.DefaultTransport
 	dlTransport := http.DefaultTransport.(*http.Transport).Clone()
+	if resolved.noProxy {
+		dlTransport.Proxy = nil
+		transport = dlTransport.Clone()
+	}
 	dlTransport.ResponseHeaderTimeout = dlHeaderTimeout
-	return newWithScheduler(base, token, version, scheduler, http.DefaultTransport, dlTransport, resolveOptions(options))
+	return newWithScheduler(base, token, version, scheduler, transport, dlTransport, resolved)
 }
 
 // NewWithSchedulerTLS builds a client with an isolated backend-specific trust
@@ -90,9 +96,13 @@ func NewWithSchedulerTLS(base, token, version string, scheduler *Scheduler, tlsO
 	if err != nil {
 		return nil, err
 	}
+	resolved := resolveOptions(options)
+	if resolved.noProxy {
+		transport.Proxy = nil
+	}
 	dlTransport := transport.Clone()
 	dlTransport.ResponseHeaderTimeout = dlHeaderTimeout
-	return newWithScheduler(base, token, version, scheduler, transport, dlTransport, resolveOptions(options)), nil
+	return newWithScheduler(base, token, version, scheduler, transport, dlTransport, resolved), nil
 }
 
 func newWithScheduler(base, token, version string, scheduler *Scheduler, transport http.RoundTripper, dlTransport http.RoundTripper, options clientOptions) *Client {

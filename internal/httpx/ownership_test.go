@@ -46,7 +46,7 @@ func TestTransportResponsibilityOwnersStayClosed(t *testing.T) {
 			"errRedirectLimit", "errUnclearedWrite", "redactURLString", "sameHost", "traceURL", "transportError", "transportErrorCategory", "unclearedWriteError",
 		},
 		"options.go": {
-			"(*Client).tracef", "Option", "WithGenericConflict", "WithRequiredWriteClearance", "WithTrace", "clientOptions",
+			"(*Client).tracef", "Option", "WithGenericConflict", "WithNoProxy", "WithRequiredWriteClearance", "WithTrace", "clientOptions",
 			"resolveOptions", "traceRequestURL", "traceResponsePath", "writerIsNil",
 		},
 		"retry.go": {

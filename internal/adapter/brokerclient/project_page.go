@@ -12,8 +12,6 @@ import (
 	"github.com/isukharev/atl/internal/httpx"
 )
 
-const projectPageExecutePathV2 = "/v2/execute"
-
 // ReadJiraProjectIssuePage executes the sole bounded execution-v2 operation.
 // Discovery is a fresh compatibility and availability check, not an
 // authorization grant; the Broker performs authorization during execution.
@@ -91,7 +89,7 @@ func (c *Client) ReadJiraProjectIssuePage(ctx context.Context, arguments domain.
 		return domain.BrokerJiraProjectPageResultV2{}, discoveryClientError(domain.BrokerReasonDecisionExpired)
 	}
 
-	response, err := httpClient.DoBoundedResponse(requestContext, http.MethodPost, projectPageExecutePathV2, requestBody, map[string]string{"Content-Type": "application/json"}, definition.Definition.Limits.MaxResponseBytes, brokertransport.MaxTransportFailureBytes)
+	response, err := httpClient.DoBoundedResponse(requestContext, http.MethodPost, brokertransport.ExecutePathV2, requestBody, map[string]string{"Content-Type": "application/json"}, definition.Definition.Limits.MaxResponseBytes, brokertransport.MaxTransportFailureBytes)
 	if err != nil {
 		return domain.BrokerJiraProjectPageResultV2{}, closedTransportError(err)
 	}
@@ -179,9 +177,7 @@ func acceptedProjectPageBody(response httpx.BoundedResponse) ([]byte, error) {
 	if response.Status == http.StatusOK {
 		return response.Body, nil
 	}
-	// The generic execution-v2 failure aliases are integrated by the host
-	// lane. Discovery-v2 already owns the identical strict schema-v2 bytes.
-	failure, err := brokertransport.DecodeDiscoveryFailureV2(response.Body)
+	failure, err := brokertransport.DecodeExecutionFailureV2(response.Body)
 	if err != nil {
 		return nil, clientError(domain.ErrCheckFailed)
 	}

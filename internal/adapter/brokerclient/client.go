@@ -154,7 +154,7 @@ func (c *Client) execute(ctx context.Context, request domain.BrokerRequest) ([]b
 }
 
 func (c *Client) newHTTPClient(session Session) (*httpx.Client, error) {
-	return httpx.NewWithSchedulerTLS(c.config.BaseURL, string(session.Credential), c.config.Version, c.config.Scheduler, c.config.TLS)
+	return httpx.NewWithSchedulerTLS(c.config.BaseURL, string(session.Credential), c.config.Version, c.config.Scheduler, c.config.TLS, httpx.WithNoProxy())
 }
 
 func acceptedBody(response httpx.BoundedResponse) ([]byte, error) {
