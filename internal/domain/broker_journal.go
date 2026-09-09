@@ -78,7 +78,8 @@ type BrokerJournalCompletion struct {
 
 // BrokerJournalLookup is the only journal capability exposed to metadata-only
 // outcome observers. Callers must independently authorize the exact ticket
-// before invoking it; knowledge of an ID is never a grant.
+// before invoking it: either the current request-digest-bound apply operation
+// or the external observe operation. Knowledge of an ID is never a grant.
 type BrokerJournalLookup interface {
 	Lookup(context.Context, BrokerJournalOwner, string) (BrokerJournalRecord, error)
 }

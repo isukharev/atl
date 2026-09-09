@@ -29,6 +29,47 @@ func (s *JiraService) buildGuardedCommentSnapshot(ctx context.Context, port doma
 	if requestedKey == "" {
 		requestedKey = issue.Key
 	}
+	backendHash, err := backendid.OriginSHA256(s.baseURL)
+	if err != nil {
+		return nil, fmt.Errorf("%w: invalid Jira backend identity", domain.ErrCheckFailed)
+	}
+	return buildGuardedCommentSnapshotFromEvidence(ctx, port, backendHash, actor, issue, updatedTime, requestedKey, opts)
+}
+
+func buildGuardedCommentSnapshotWithBackendHash(ctx context.Context, port domain.JiraGuardedCommentPort, backendHash, reference, requestedKey, expectedID string, opts JiraCommentAddOpts) (*jiraGuardedCommentSnapshot, error) {
+	actor, err := port.ReadGuardedCommentActor(ctx)
+	if err != nil {
+		return nil, errors.Join(domain.ErrCheckFailed, err)
+	}
+	if !validGuardedCommentActor(actor) {
+		return nil, fmt.Errorf("%w: Jira returned malformed or incomplete authenticated actor evidence", domain.ErrCheckFailed)
+	}
+	issue, updatedTime, err := readGuardedCommentIssue(ctx, port, reference, requestedKey, expectedID)
+	if err != nil {
+		return nil, err
+	}
+	return buildGuardedCommentSnapshotFromEvidence(ctx, port, backendHash, actor, issue, updatedTime, requestedKey, opts)
+}
+
+// buildGuardedCommentSnapshotFromQualifiedIssue reuses an already-authorized
+// Broker qualification request. It deliberately does not reread the issue.
+func buildGuardedCommentSnapshotFromQualifiedIssue(ctx context.Context, port domain.JiraGuardedCommentPort, backendHash string, identity domain.BrokerJiraIssueIdentity, requestedKey string, opts JiraCommentAddOpts) (*jiraGuardedCommentSnapshot, error) {
+	issue := domain.JiraGuardedCommentIssue(identity)
+	issue, updatedTime, err := validateGuardedCommentIssue(issue, requestedKey, identity.ID)
+	if err != nil {
+		return nil, err
+	}
+	actor, err := port.ReadGuardedCommentActor(ctx)
+	if err != nil {
+		return nil, errors.Join(domain.ErrCheckFailed, err)
+	}
+	if !validGuardedCommentActor(actor) {
+		return nil, fmt.Errorf("%w: Jira returned malformed or incomplete authenticated actor evidence", domain.ErrCheckFailed)
+	}
+	return buildGuardedCommentSnapshotFromEvidence(ctx, port, backendHash, actor, issue, updatedTime, requestedKey, opts)
+}
+
+func buildGuardedCommentSnapshotFromEvidence(ctx context.Context, port domain.JiraGuardedCommentPort, backendHash string, actor domain.JiraGuardedCommentActor, issue domain.JiraGuardedCommentIssue, updatedTime time.Time, requestedKey string, opts JiraCommentAddOpts) (*jiraGuardedCommentSnapshot, error) {
 	inventory, err := port.ListJiraCommentsQualified(ctx, issue.ID, domain.JiraCommentReadOptions{
 		MaxPages: domain.JiraCommentReadMaxPages, MaxItems: domain.JiraCommentReadMaxItems, MaxBytes: jiraGuardedCommentMaxInventoryBytes,
 	})
@@ -38,10 +79,6 @@ func (s *JiraService) buildGuardedCommentSnapshot(ctx context.Context, port doma
 	records, err := qualifyGuardedCommentInventory(inventory)
 	if err != nil {
 		return nil, err
-	}
-	backendHash, err := backendid.OriginSHA256(s.baseURL)
-	if err != nil {
-		return nil, fmt.Errorf("%w: invalid Jira backend identity", domain.ErrCheckFailed)
 	}
 	body := append([]byte(nil), opts.Body...)
 	result := newJiraCommentAddResult(requestedKey, opts)
@@ -85,6 +122,10 @@ func readGuardedCommentIssue(ctx context.Context, port domain.JiraGuardedComment
 	if err != nil {
 		return domain.JiraGuardedCommentIssue{}, time.Time{}, err
 	}
+	return validateGuardedCommentIssue(issue, requestedKey, expectedID)
+}
+
+func validateGuardedCommentIssue(issue domain.JiraGuardedCommentIssue, requestedKey, expectedID string) (domain.JiraGuardedCommentIssue, time.Time, error) {
 	if !issue.Complete || !canonicalPositiveNumericString(issue.ID) || requestedKey != "" && issue.Key != requestedKey ||
 		!domain.ValidJiraIssueKey(issue.Key) || !domain.ValidJiraIssueKey(issue.Project+"-1") ||
 		!strings.HasPrefix(issue.Key, issue.Project+"-") || expectedID != "" && issue.ID != expectedID {
