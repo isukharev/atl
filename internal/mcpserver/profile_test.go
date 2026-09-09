@@ -122,8 +122,8 @@ func TestDefaultProfilePreservesNewToolSchemasAndInstructions(t *testing.T) {
 	if string(legacyJSON) != string(profileJSON) {
 		t.Fatal("default profile changed the legacy tool inventory or schemas")
 	}
-	// Jira snapshot v2 adds only the required complete_pull output property.
-	if got := sha256.Sum256(profileJSON); hex.EncodeToString(got[:]) != "a2851e1f989f1cbb049ba9e2dfe2413c57d9eebd26204212076b68959c8ad5df" {
+	// Include checkpoint progress and the explicit graph source-selection contract.
+	if got := sha256.Sum256(profileJSON); hex.EncodeToString(got[:]) != "f14165c610127c5219a0124c2288089ef0c3496f682b6fea799735f45370b8cd" {
 		t.Fatalf("default tool contract hash=%x", got)
 	}
 	if legacyClient.InitializeResult().Instructions != Instructions ||
@@ -134,8 +134,8 @@ func TestDefaultProfilePreservesNewToolSchemasAndInstructions(t *testing.T) {
 
 func TestServiceProfileInstructionDigestsAreStable(t *testing.T) {
 	want := map[ServiceProfile]string{
-		ServiceDefault:    "597bcaf0f7c500f492a6c222f0a8a1d557b07a04fc59c207a776f227763c7b4a",
-		ServiceJira:       "50ce5c2d3f0fa71dff44762ab56f70ba3e284c2e099b949cf021bd30f6cb9764",
+		ServiceDefault:    "a31069ccd92cb3977c3ac53c18ebe4ab4132ed25fbadb8467dcec6aaf5c80a6f",
+		ServiceJira:       "2212ae751da2bd25749cf335d1140ecd46e43f18d17e878370650b0e0f801b01",
 		ServiceConfluence: "8c44ef6db40ecdf4af22b91a8716210c669bbebb4ae0ab1d72f6cb6cbd56eb1d",
 		ServiceOffline:    "9ab393f7baf37c2249e099d8c1682c00e4cd7768ed5211371b4f25888c6b7aaa",
 	}
