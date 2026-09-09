@@ -346,6 +346,50 @@ another principal's operations and may remain unknown. Retained tombstones must
 cover the full acceptance window plus clock allowance; unresolved writes stay
 fenced or are explicitly retired as non-replayable.
 
+The internal operation-observation service implements the authorization and
+metadata boundary without registering a runtime route. It strictly validates
+one current `broker.operation.outcome` invocation, admits it, authorizes its
+zero-request `operation_id` qualification, then authorizes the exact
+`observe/operation` resource before its sole journal lookup. The operation
+resource is derived from the input ticket and proves only that exact selector;
+it does not assert that a record exists or reveal its owner or phase. Unknown,
+foreign, malformed journal and internally issued-but-unbound identifiers all
+produce the same content-free denial. The service has a lookup-only journal
+port, so it cannot read a recovery artifact, enumerate operations, transition a
+phase or contact Jira.
+
+After final authorization, the sole lookup receives a child context capped by
+the remaining operation/context deadline and final decision lease. The service
+cancels that child immediately after lookup and repeats cancellation, current
+context, decision and release checks before returning metadata.
+
+Stable journal ownership hashes Broker id, complete backend binding, principal,
+workload and audience as separately domain-separated canonical values. Original
+execution id/epoch and authority revision have separate writer hashes and are
+not compared with a later observer. A later execution can inspect an old ticket
+only with its own current credential, execution expectations, qualification and
+final observe authorization and only while the record's fixed observation
+deadline remains open. That read does not renew the old writer or any deadline.
+The service recomputes the journal's exact immutable intent binding and rejects
+a well-shaped but changed binding or intent. This is consistency checking, not
+independent authenticity proof: the trusted lookup adapter still owns durable
+history, phase and dispatch evidence. Journal sequence remains an opaque
+nonzero compare token and is never interpreted as a lifecycle ordinal.
+Returned `complete` and `reconciled` describe stored evidence: only durable
+`applied` with its qualified result digest is reconciled; observation performs
+no fresh backend reconciliation. Response release is capped by the current
+decision/operation deadlines and the original observation deadline.
+
+The current storage-backed observation subset is `admitted`, `dispatching`,
+`applied`, `not_applied` and `outcome_unknown`. Although the general v1 codec
+reserves `retired_non_replayable`, this slice has no retirement transition and
+rejects that phase from an injected lookup port rather than advertising it.
+
+`broker.operation.outcome` remains unavailable in the registry. Server, client,
+CLI and MCP wiring wait for a supported guarded-comment ticket producer and an
+authenticated synthetic integration proving the complete no-enumeration and
+zero-backend-request boundary.
+
 The storage-only foundation in `internal/adapter/brokerjournal` implements the
 domain journal port without enabling comment, outcome, server, client or CLI
 routes. Creation requires an absent root under an existing current-owner `0700`
@@ -459,6 +503,58 @@ detect coordinated historical rollback of records and their matching independent
 commitments: trusted runtime execution/epoch invalidation is required before
 resuming writes after that storage rollback. This foundation provides no authority
 service, backend reconciliation or universal exactly-once delivery guarantee.
+
+### Injectable guarded Jira comment core
+
+The internal application core implements `jira.comment.preview` and
+`jira.comment.apply` version 1 without registering either operation. Its sole
+canonical `exact_jira_comment_v1` qualification profile is the
+`identity_snapshot_v1` consistency described above: the exact operation and
+version bind that profile through every authorization request. A synthetic or
+future production authority must opt into those weaker immutable-resource
+semantics. Credential possession, a successful late metadata read or an allowed
+decision for another profile is not consent. An authority whose maximum requires
+atomic current-project membership returns `unsupported_consistency` before
+protected dispatch.
+
+Preview uses one authorized issue-identity request and reuses that evidence for
+the actor and complete comment-inventory proposal, so qualification plus
+business work retains the 102-request total. It durably reserves the random
+operation ID before constructing the prospective apply arguments that contain
+it, then binds the apply ticket, proposal, operation-specific native digest,
+complete backend, immutable issue target, effects and version evidence before
+releasing `proposed`. Preview and apply native-body digests remain distinct.
+
+Apply reauthorizes the exact issue/effects and proposal around the ordinary
+prewrite snapshot. It durably publishes a private immutable recovery artifact
+and admitted target fence, repeats operation/proposal authorization and a
+deny-only full-identity local preflight, then claims dispatch durably. Only a
+successful new claim reaches the operation-specific guarded write port. That
+port remains responsible for authoritative last-hop local clearance immediately
+before its single POST. The apply path retains 306 total upstream requests and
+one shared 16 MiB response cap, including its one qualification request.
+
+The recovery artifact is strict canonical versioned JSON capped and reserved at
+4 MiB. It contains the exact native Jira-wiki candidate, immutable issue
+identity/revision, actor digest and sorted baseline comment-ID/record-digest
+pairs, bound to the operation ticket and journal intent. It contains no
+credential, actor value, approval prose, raw response or unrelated comment
+body, and is never rewritten. The maximum accepted 1 MiB candidate plus 10,000
+longest accepted numeric IDs is exercised as a real encoded fixture below both
+the application cap and the journal's 16 MiB artifact ceiling.
+
+No-attempt proof may terminalize a consumed claim as `not_applied`; possible
+send, unproved readback or failed terminal persistence remains non-replayable
+and fenced. Applied or recovered success is released only after the existing
+qualified readback and durable result completion. The separately authorized
+metadata observer reports stored state only; this core adds no backend
+reconciliation, replay, retry, policy store or generic dispatch hook.
+
+The current Jira adapter's last-hop comment clearance does not yet include the
+immutable numeric issue ID, and a project metadata check cannot make a later
+numeric-ID POST atomically project-scoped. Adapter/runtime composition,
+authenticated strong-scope evidence and client/server/CLI availability remain
+required separate work. Registry availability therefore remains false.
 
 Cache qualification binds issuer/backend, source principal and read-scope
 digests, target execution, authority revision, operation/selector/projection,

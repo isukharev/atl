@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/isukharev/atl/internal/brokercontract"
 	"github.com/isukharev/atl/internal/domain"
 )
 
@@ -23,6 +24,21 @@ func rawSlot(payload []byte) []byte {
 	copy(data[4:36], sum[:])
 	copy(data[36:], payload)
 	return data
+}
+
+func TestIntentBindingMatchesSharedKnownAnswer(t *testing.T) {
+	reservation := testReservation()
+	record := domain.BrokerJournalRecord{
+		OperationID: digest([]byte("known operation")), Reservation: reservation,
+		IssuedAtMillis: testMillis, AcceptUntilMillis: testMillis + domain.BrokerMaxOperationMillis,
+	}
+	intent := testIntent(record)
+	privateBinding, privateErr := intentBinding(record, intent)
+	sharedBinding, sharedErr := brokercontract.BrokerJournalIntentBindingSHA256V1(record, intent)
+	const want = "7ef99e38feb2397f1e10a51ff00251a1d99f86757b2fdd5ee4eb2b4258158b3f"
+	if privateErr != nil || sharedErr != nil || privateBinding != sharedBinding || privateBinding != want {
+		t.Fatalf("private=%q shared=%q errors=%v/%v", privateBinding, sharedBinding, privateErr, sharedErr)
+	}
 }
 
 func TestStrictPrivateCodecAndCorruptRestart(t *testing.T) {

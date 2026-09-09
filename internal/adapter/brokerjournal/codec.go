@@ -168,33 +168,11 @@ func validReservation(r domain.BrokerJournalReservation, issued, accept int64) b
 }
 
 func intentBinding(record domain.BrokerJournalRecord, intent domain.BrokerJournalIntent) (string, error) {
-	ticket := intent.Ticket
-	owner := record.Reservation.Owner
-	if ticket.Operation != domain.BrokerOperationJiraCommentApply || ticket.OperationID != record.OperationID ||
-		ticket.PrincipalSHA256 != owner.PrincipalSHA256 || ticket.ExecutionSHA256 != record.Reservation.ExecutionSHA256 ||
-		ticket.AudienceSHA256 != owner.AudienceSHA256 || ticket.BackendSHA256 != owner.BackendSHA256 ||
-		ticket.IssuedAtMillis != record.IssuedAtMillis || ticket.AcceptUntilMillis != record.AcceptUntilMillis ||
-		!validDigest(intent.NativeSHA256) || !validDigest(intent.TargetSHA256) || !validDigest(intent.EffectSHA256) || !validDigest(intent.EvidenceSHA256) {
-		return "", errInvalid
-	}
-	ticketDigest, err := brokercontract.OperationTicketSHA256(ticket)
+	binding, err := brokercontract.BrokerJournalIntentBindingSHA256V1(record, intent)
 	if err != nil {
 		return "", errInvalid
 	}
-	// Reuse the public ticket digest without redefining its fields. The private
-	// binding adds the stable owner, original authority and operation evidence.
-	data, err := json.Marshal(struct {
-		Reservation    domain.BrokerJournalReservation
-		TicketSHA256   string
-		NativeSHA256   string
-		TargetSHA256   string
-		EffectSHA256   string
-		EvidenceSHA256 string
-	}{record.Reservation, ticketDigest, intent.NativeSHA256, intent.TargetSHA256, intent.EffectSHA256, intent.EvidenceSHA256})
-	if err != nil {
-		return "", errInvalid
-	}
-	return digest(append([]byte("atl.broker.journal.v1/binding\x00"), data...)), nil
+	return binding, nil
 }
 
 func validateRecord(r domain.BrokerJournalRecord) error {
