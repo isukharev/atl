@@ -63,10 +63,11 @@ Confluence mirror snapshots into the canonical indexer-v1 members; the CLI only
 parses local roots and emits the content-free receipt and generation summary.
 The same app layer owns qualified corpus-build orchestration over transport-
 neutral Jira/Confluence services and `internal/corpus` recovery state.
-It also owns the transport-neutral Broker exact-read, project-page and cache-qualification
+It also owns the transport-neutral Broker exact-read, project-page,
+cache-qualification, guarded Jira comment, and durable operation-observation
 coordinators. Those services use narrow Jira/Confluence qualification and
-business-read ports, an injected
-authorizer, one parent budget, and buffered request-bound results. The concrete
+business ports, injected authority and policy boundaries, parent budgets, and
+buffered request-bound results. The concrete
 adapters resolve only server-owned destinations and expose only a digest of
 their immutable configured base for binding checks. `internal/brokerserver`
 owns the closed authenticated HTTP routes, release deadline, response
@@ -79,10 +80,12 @@ existing authorizer ports without policy or capture-record storage. Cache
 source bindings are resolved only by the configured external authority.
 `internal/compose` exposes the explicit `broker serve` composition, passes
 already-qualified file credentials directly to selected adapters, shares one
-request scheduler, and never uses ordinary client PAT resolution for this
-path. Explicit client adapters compose exact reads, bounded project pages,
-fixed-family discovery, and qualified
-corpus handoff only; MCP keeps its separately reviewed read-only inventory.
+request scheduler, opens an explicitly configured guarded-comment journal and
+pinned policy, and never uses ordinary client PAT resolution for this path.
+Explicit client adapters compose exact reads, bounded project pages,
+fixed-family discovery, qualified corpus handoff, guarded comment execution,
+and same-ticket outcome observation. MCP keeps its separately reviewed
+read-only inventory and exposes no comment mutation tool.
 
 Project pages use a distinct execution-v2 family and discovery-v3 contract;
 they do not widen ordinary Tracker search or parse client JQL. Server-owned
@@ -704,6 +707,46 @@ their transport-specific envelopes.
 The explicit registration list is the security boundary. There is no generic
 command dispatcher, raw REST tool, mutation, arbitrary filesystem access, or
 mirror-writing tool. See [mcp.md](mcp.md) for the public inventory and bounds.
+
+---
+
+## Broker guarded Jira comment boundary
+
+The Broker comment runtime is an explicit CLI-only composition of the existing
+`jira.comment.preview`, `jira.comment.apply`, and `broker.operation.outcome`
+v1 contracts. Host configuration must contain the `jira_comment` block with
+`qualification_profile:"exact_jira_comment_v1"` and the operator must also pass
+`broker serve --enable-jira-comments`; either one without the other is invalid.
+With neither, the host retains its read-only behavior. The command remains
+statically described by its maximum write-capable effect profile, while dynamic
+read-only enforcement treats it as mutating only when the flag is present and
+rejects that flag before config, credentials, or network access.
+
+The host reads one digest-pinned local policy, requires its Jira backend binding
+to match the configured origin, and opens—never creates—the existing bounded
+journal. `broker journal initialize` is the separate create-only local operator
+boundary: it derives deployment identity and limits from the owner-private
+config, loads no credential or policy, and performs no network request. Restore
+or coherent storage rollback is not locally detectable; invalidate or rotate
+Broker/session execution identity before resuming writes after a restore.
+
+Preview durably issues an opaque operation ticket and performs no comment POST.
+Apply accepts only the same native Jira-wiki bytes, reviewed proposal hash,
+ticket, and original writer binding, then permits at most one non-replayed POST.
+The journal persists admission before dispatch and fences uncertain operations.
+Valid `not_applied` and `outcome_unknown` results remain publishable together
+with a nonzero terminal error. Transport, response, post-buffer session, or
+deadline ambiguity directs the caller to observe the same ticket and never
+authorizes replay.
+
+Outcome observation uses only the separately selected observer session, may
+run under a newer execution for the same stable owner, performs an independently
+authorized journal lookup, and never reads Jira. It cannot enumerate tickets,
+recover a result, or fall back to the writer session. The qualification profile
+binds immutable numeric issue identity plus point-in-time key/project/update;
+it does not prove atomic current-project membership or native workload
+isolation. Authorities requiring that stronger property must refuse the
+profile rather than downgrade it.
 
 ---
 

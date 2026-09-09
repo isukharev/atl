@@ -19,17 +19,37 @@ import (
 )
 
 func TestLoadBrokerRuntimeUsesExplicitFilesWithoutStartupProbes(t *testing.T) {
+	configPath, authorityCalls, jiraCalls := brokerRuntimeFixture(t)
+	directory := filepath.Dir(configPath)
+	t.Setenv("ATL_CONFIG_DIR", filepath.Join(directory, "ordinary-client"))
+	t.Setenv("ATL_JIRA_TOKEN", "ambient-client-token")
+	runtime, err := LoadBrokerRuntime(configPath, "test", io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runtime.host == nil || authorityCalls.Load() != 0 || jiraCalls.Load() != 0 || runtime.material.Config.Confluence != nil {
+		t.Fatalf("runtime=%+v authority=%d jira=%d", runtime, authorityCalls.Load(), jiraCalls.Load())
+	}
+	retained := runtime.material.JiraCredential
+	runtime.Close()
+	if !bytes.Equal(retained, make([]byte, len(retained))) {
+		t.Fatal("runtime close did not clear loaded credential")
+	}
+}
+
+func brokerRuntimeFixture(t *testing.T) (string, *atomic.Int32, *atomic.Int32) {
+	t.Helper()
 	clearBrokerProxyEnvironment(t)
-	directory := t.TempDir()
+	directory := brokerCanonicalTempDir(t)
 	if err := os.Chmod(directory, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	var authorityCalls atomic.Int32
 	authority := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { authorityCalls.Add(1) }))
-	defer authority.Close()
+	t.Cleanup(authority.Close)
 	var jiraCalls atomic.Int32
 	jira := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { jiraCalls.Add(1) }))
-	defer jira.Close()
+	t.Cleanup(jira.Close)
 	identity := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
 	identity.Close()
 	certificate, privateKey := encodeTLSIdentity(t, identity.TLS.Certificates[0])
@@ -52,20 +72,7 @@ func TestLoadBrokerRuntimeUsesExplicitFilesWithoutStartupProbes(t *testing.T) {
 	}
 	configPath := filepath.Join(directory, "broker.json")
 	writeBrokerFile(t, directory, "broker.json", body)
-	t.Setenv("ATL_CONFIG_DIR", filepath.Join(directory, "ordinary-client"))
-	t.Setenv("ATL_JIRA_TOKEN", "ambient-client-token")
-	runtime, err := LoadBrokerRuntime(configPath, "test", io.Discard)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if runtime.host == nil || authorityCalls.Load() != 0 || jiraCalls.Load() != 0 || runtime.material.Config.Confluence != nil {
-		t.Fatalf("runtime=%+v authority=%d jira=%d", runtime, authorityCalls.Load(), jiraCalls.Load())
-	}
-	retained := runtime.material.JiraCredential
-	runtime.Close()
-	if !bytes.Equal(retained, make([]byte, len(retained))) {
-		t.Fatal("runtime close did not clear loaded credential")
-	}
+	return configPath, &authorityCalls, &jiraCalls
 }
 
 func TestBrokerCompositionDoesNotImportAmbientCredentialOwner(t *testing.T) {

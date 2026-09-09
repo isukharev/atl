@@ -80,14 +80,15 @@ export ATL_READ_ONLY=1
 atl jira issue search --jql 'order by updated DESC' --limit 5
 ```
 
-`auth login` reads PAT from a hidden prompt, stdin, or file. Bare hosts become
-HTTPS; explicit HTTP needs the override. `doctor --service` scopes health and
-`--remote` adds bounded body-free probes. JSON uses stdout; diagnostics stderr.
+`auth login` accepts PAT via hidden prompt, stdin or file. Bare hosts use
+HTTPS; HTTP requires opt-in. `doctor --service --remote` runs bounded metadata
+probes. JSON: stdout; diagnostics: stderr.
 
 [Broker](docs/reference/cli/configuration.md#broker-client-mode): exact reads,
 [project pages](docs/reference/cli/jira-issues.md#atl-jira-issue-project-page), private sessions.
 Access: `atl broker discover --service jira|confluence`.
 Reuse: [`corpus handoff-qualified`](docs/reference/cli/local-artifacts.md#atl-corpus-handoff-qualified).
+Guarded [Broker comments](docs/safe-writes.md#jira-reviewed-comment) require explicit opt-in and a journal.
 
 For Confluence:
 

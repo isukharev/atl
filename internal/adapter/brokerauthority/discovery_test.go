@@ -88,8 +88,13 @@ func TestAuthorityDiscoveryUsesStrictCurrentContextAndClosedFailures(t *testing.
 				t.Fatalf("calls=%d", calls.Load())
 			}
 			if test.name == "current" {
-				if err != nil || len(p.Operations) != 1 || p.Operations[0].Access != domain.BrokerDiscoveryAccessUnavailable {
-					t.Fatalf("projection=%+v err=%v", p, err)
+				if err != nil || len(p.Operations) != 4 {
+					t.Fatalf("operation count=%d err=%v", len(p.Operations), err)
+				}
+				for index, id := range []domain.BrokerOperationID{domain.BrokerOperationOutcomeLookup, domain.BrokerOperationJiraCommentApply, domain.BrokerOperationJiraCommentPreview, domain.BrokerOperationJiraIssueRead} {
+					if p.Operations[index].ID != id || p.Operations[index].Access != domain.BrokerDiscoveryAccessUnavailable {
+						t.Fatal("closed Jira discovery operation or advisory access changed")
+					}
 				}
 				return
 			}

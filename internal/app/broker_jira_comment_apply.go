@@ -14,18 +14,24 @@ func (s *BrokerJiraCommentService) apply(prepared *brokerJiraCommentPrepared, ve
 		return BrokerJiraCommentResult{}, brokerJiraCommentError(domain.ErrCheckFailed)
 	}
 	id := prepared.request.Arguments.JiraComment.OperationTicket
-	record, err := s.journal.Lookup(execution.base, prepared.owner, id)
+	applyCtx, applyCancel, err := execution.decisionContext(prepared.decisionDeadline)
 	if err != nil {
 		return BrokerJiraCommentResult{}, brokerJiraCommentError(err)
+	}
+	defer applyCancel()
+	record, err := s.journal.Lookup(applyCtx, prepared.owner, id)
+	if err != nil || applyCtx.Err() != nil {
+		return BrokerJiraCommentResult{}, brokerJiraCommentError(firstBrokerReadError(err, applyCtx.Err()))
 	}
 	if err := s.validateApplyRecord(prepared, verified, record); err != nil {
 		return BrokerJiraCommentResult{}, brokerJiraCommentError(err)
 	}
-	clearance, err := s.authorizeProposal(execution.base, prepared, prepared.operation, prepared.decision)
+	_, clearanceDeadline, err := s.authorizeProposal(applyCtx, prepared, prepared.operation, prepared.decision)
 	if err != nil {
 		return BrokerJiraCommentResult{}, err
 	}
-	phaseCtx, phaseCancel, err := execution.businessContext(record.AcceptUntilMillis, prepared.decision.ExpiresAtMillis, clearance.ExpiresAtMillis)
+	initialDeadline := min(record.AcceptUntilMillis, prepared.decisionDeadline, clearanceDeadline)
+	phaseCtx, phaseCancel, err := execution.businessContext(initialDeadline)
 	if err != nil {
 		return BrokerJiraCommentResult{}, brokerJiraCommentError(err)
 	}
@@ -53,27 +59,59 @@ func (s *BrokerJiraCommentService) apply(prepared *brokerJiraCommentPrepared, ve
 	if err != nil {
 		return BrokerJiraCommentResult{}, brokerJiraCommentError(err)
 	}
-	admitted, err := s.journal.Admit(execution.base, brokerJiraCommentCompare(record), artifact, sha256Hex(artifact))
+	admitCtx, admitCancel, err := execution.decisionContext(initialDeadline)
 	if err != nil {
 		return BrokerJiraCommentResult{}, brokerJiraCommentError(err)
 	}
+	admitted, err := s.journal.Admit(admitCtx, brokerJiraCommentCompare(record), artifact, sha256Hex(artifact))
+	admitContextErr := admitCtx.Err()
+	admitCancel()
+	if err != nil {
+		return BrokerJiraCommentResult{}, brokerJiraCommentError(err)
+	}
+	if admitContextErr != nil {
+		return s.completeNeverDispatched(admitted, brokerJiraCommentError(admitContextErr))
+	}
 	operation := domain.BrokerOperationAuthorizationRequest{QualificationRequest: prepared.qualification, QualificationDecision: prepared.qualificationDecision, QualifiedResources: []domain.BrokerQualifiedResource{prewriteResource}, Effects: prewriteEffects}
-	decision, err := s.authorizeOperation(execution.base, operation, execution)
+	authorityCtx, authorityCancel, err := execution.decisionContext(initialDeadline)
+	if err != nil {
+		return s.completeNeverDispatched(admitted, brokerJiraCommentError(err))
+	}
+	decision, decisionDeadline, err := s.authorizeOperation(authorityCtx, operation, execution)
+	authorityCancel()
 	if err != nil {
 		return s.completeNeverDispatched(admitted, err)
 	}
-	prepared.operation, prepared.decision, prepared.resource = operation, decision, prewriteResource
-	clearance, err = s.authorizeProposal(execution.base, prepared, operation, decision)
+	prepared.operation, prepared.decision, prepared.decisionDeadline, prepared.resource = operation, decision, decisionDeadline, prewriteResource
+	proposalCtx, proposalCancel, err := execution.decisionContext(record.AcceptUntilMillis, decisionDeadline)
+	if err != nil {
+		return s.completeNeverDispatched(admitted, brokerJiraCommentError(err))
+	}
+	clearance, clearanceDeadline, err := s.authorizeProposal(proposalCtx, prepared, operation, decision)
+	proposalCancel()
 	if err != nil {
 		return s.completeNeverDispatched(admitted, err)
 	}
+	dispatchDeadline := min(record.AcceptUntilMillis, decisionDeadline, clearanceDeadline)
 	preflight := domain.WriteAuthorizationRequest{Verbs: domain.WriteVerbSet{domain.WriteVerbComment}, Targets: []domain.WriteTarget{{Service: "jira", Kind: "issue", ID: prewrite.issue.ID, Key: prewrite.issue.Key, Project: prewrite.issue.Project}}}
 	if err := s.preflight.Preflight(preflight); err != nil {
 		return s.completeNeverDispatched(admitted, brokerJiraCommentError(err))
 	}
-	dispatching, err := s.journal.ClaimDispatch(execution.base, brokerJiraCommentCompare(admitted))
+	if err := execution.decisionError(dispatchDeadline); err != nil {
+		return s.completeNeverDispatched(admitted, brokerJiraCommentError(err))
+	}
+	dispatchCtx, dispatchCancel, err := execution.decisionContext(dispatchDeadline)
+	if err != nil {
+		return s.completeNeverDispatched(admitted, brokerJiraCommentError(err))
+	}
+	dispatching, err := s.journal.ClaimDispatch(dispatchCtx, brokerJiraCommentCompare(admitted))
+	dispatchContextErr := dispatchCtx.Err()
+	dispatchCancel()
 	if err != nil {
 		return BrokerJiraCommentResult{}, brokerJiraCommentError(err)
+	}
+	if dispatchContextErr != nil {
+		return s.completeClaimedNoDispatch(dispatching, dispatchContextErr)
 	}
 	if err := brokercontract.MatchRequestContextV1(prepared.request, verified, execution.currentMillis(), execution.deadline.UnixMilli()); err != nil {
 		return s.completeClaimedNoDispatch(dispatching, err)
@@ -84,7 +122,10 @@ func (s *BrokerJiraCommentService) apply(prepared *brokerJiraCommentPrepared, ve
 	if err := brokercontract.ValidateProposalClearanceForV1(clearance, brokerJiraCommentProposalRequest(prepared, operation, decision), execution.currentMillis()); err != nil {
 		return s.completeClaimedNoDispatch(dispatching, err)
 	}
-	phaseCtx, phaseCancel, err = execution.businessContext(record.AcceptUntilMillis, decision.ExpiresAtMillis, clearance.ExpiresAtMillis)
+	if err := execution.decisionError(dispatchDeadline); err != nil {
+		return s.completeClaimedNoDispatch(dispatching, err)
+	}
+	phaseCtx, phaseCancel, err = execution.businessContext(dispatchDeadline)
 	if err != nil {
 		return s.completeClaimedNoDispatch(dispatching, err)
 	}
@@ -101,7 +142,7 @@ func (s *BrokerJiraCommentService) apply(prepared *brokerJiraCommentPrepared, ve
 		if resultErr != nil {
 			return BrokerJiraCommentResult{}, resultErr
 		}
-		return s.completeResult(prepared, dispatching, result, domain.BrokerOperationNotApplied, writeErr, min(record.AcceptUntilMillis, decision.ExpiresAtMillis, clearance.ExpiresAtMillis))
+		return s.completeResult(prepared, dispatching, result, domain.BrokerOperationNotApplied, writeErr, dispatchDeadline)
 	}
 	if contextErr != nil && writeErr == nil {
 		writeErr = contextErr
@@ -116,19 +157,23 @@ func (s *BrokerJiraCommentService) closeoutApply(prepared *brokerJiraCommentPrep
 		return s.completeUnknown(dispatching, err)
 	}
 	defer cancel()
-	decision, err := s.authorizeOperation(closeout, prepared.operation, execution)
+	decision, decisionDeadline, err := s.authorizeOperation(closeout, prepared.operation, execution)
 	if err != nil {
 		return s.completeUnknown(dispatching, err)
 	}
-	readback, cancelReadback, err := execution.closeoutContext(dispatching.AcceptUntilMillis, decision.ExpiresAtMillis)
+	readback, cancelReadback, err := execution.closeoutContext(dispatching.AcceptUntilMillis, decisionDeadline)
 	if err != nil {
 		return s.completeUnknown(dispatching, err)
 	}
 	defer cancelReadback()
 	direct, reconcileErr := (&JiraService{}).reconcileGuardedComment(readback, s.jira, prewrite, prepared.identity.Key, prepared.snapshot.result, ack, writeErr)
 	validationErr := brokercontract.ValidateOperationDecisionForV1(decision, prepared.operation, execution.currentMillis())
-	if readback.Err() != nil || validationErr != nil {
-		return s.completeUnknown(dispatching, firstBrokerReadError(readback.Err(), validationErr))
+	var decisionErr error
+	if execution.currentMillis() >= decisionDeadline {
+		decisionErr = context.DeadlineExceeded
+	}
+	if readback.Err() != nil || validationErr != nil || decisionErr != nil {
+		return s.completeUnknown(dispatching, firstBrokerReadError(readback.Err(), firstBrokerReadError(validationErr, decisionErr)))
 	}
 	status := direct.Status
 	if status != "applied" && status != "recovered" {
@@ -141,13 +186,13 @@ func (s *BrokerJiraCommentService) closeoutApply(prepared *brokerJiraCommentPrep
 		if completeErr != nil {
 			return BrokerJiraCommentResult{}, brokerJiraCommentError(completeErr)
 		}
-		return BrokerJiraCommentResult{Comment: result, ReleaseDeadline: execution.releaseDeadline(dispatching.AcceptUntilMillis, decision.ExpiresAtMillis)}, brokerJiraCommentError(firstBrokerReadError(reconcileErr, domain.ErrCheckFailed))
+		return BrokerJiraCommentResult{Comment: result, ReleaseDeadline: execution.releaseDeadline(dispatching.AcceptUntilMillis, decisionDeadline)}, brokerJiraCommentError(firstBrokerReadError(reconcileErr, domain.ErrCheckFailed))
 	}
 	result, err := brokerJiraCommentResultFromDirect(prepared, status, direct.CommentID, true, true)
 	if err != nil {
 		return BrokerJiraCommentResult{}, err
 	}
-	return s.completeResult(prepared, dispatching, result, domain.BrokerOperationApplied, nil, min(dispatching.AcceptUntilMillis, decision.ExpiresAtMillis))
+	return s.completeResult(prepared, dispatching, result, domain.BrokerOperationApplied, nil, min(dispatching.AcceptUntilMillis, decisionDeadline))
 }
 
 func (s *BrokerJiraCommentService) validateApplyRecord(prepared *brokerJiraCommentPrepared, verified domain.BrokerVerifiedContext, record domain.BrokerJournalRecord) error {
@@ -168,23 +213,33 @@ func (s *BrokerJiraCommentService) validateApplyRecord(prepared *brokerJiraComme
 	return nil
 }
 
-func (s *BrokerJiraCommentService) authorizeOperation(ctx context.Context, operation domain.BrokerOperationAuthorizationRequest, execution *brokerJiraCommentExecution) (domain.BrokerOperationDecision, error) {
+func (s *BrokerJiraCommentService) authorizeOperation(ctx context.Context, operation domain.BrokerOperationAuthorizationRequest, execution *brokerJiraCommentExecution) (domain.BrokerOperationDecision, int64, error) {
+	callStarted := execution.currentMillis()
 	decision, err := s.authorizer.AuthorizeOperation(ctx, operation)
 	validationErr := brokercontract.ValidateOperationDecisionForV1(decision, operation, execution.currentMillis())
 	if err != nil || ctx.Err() != nil || validationErr != nil {
-		return domain.BrokerOperationDecision{}, brokerJiraCommentError(firstBrokerReadError(err, firstBrokerReadError(ctx.Err(), validationErr)))
+		return domain.BrokerOperationDecision{}, 0, brokerJiraCommentError(firstBrokerReadError(err, firstBrokerReadError(ctx.Err(), validationErr)))
 	}
-	return decision, nil
+	deadline := brokerLocalDecisionDeadline(decision.BrokerDecisionCore, callStarted)
+	if execution.currentMillis() >= deadline {
+		return domain.BrokerOperationDecision{}, 0, brokerJiraCommentError(context.DeadlineExceeded)
+	}
+	return decision, deadline, nil
 }
 
-func (s *BrokerJiraCommentService) authorizeProposal(ctx context.Context, prepared *brokerJiraCommentPrepared, operation domain.BrokerOperationAuthorizationRequest, decision domain.BrokerOperationDecision) (domain.BrokerProposalClearance, error) {
+func (s *BrokerJiraCommentService) authorizeProposal(ctx context.Context, prepared *brokerJiraCommentPrepared, operation domain.BrokerOperationAuthorizationRequest, decision domain.BrokerOperationDecision) (domain.BrokerProposalClearance, int64, error) {
 	request := brokerJiraCommentProposalRequest(prepared, operation, decision)
+	callStarted := prepared.execution.currentMillis()
 	clearance, err := s.authorizer.AuthorizeProposal(ctx, request)
 	validationErr := brokercontract.ValidateProposalClearanceForV1(clearance, request, prepared.execution.currentMillis())
 	if err != nil || ctx.Err() != nil || validationErr != nil {
-		return domain.BrokerProposalClearance{}, brokerJiraCommentError(firstBrokerReadError(err, firstBrokerReadError(ctx.Err(), validationErr)))
+		return domain.BrokerProposalClearance{}, 0, brokerJiraCommentError(firstBrokerReadError(err, firstBrokerReadError(ctx.Err(), validationErr)))
 	}
-	return clearance, nil
+	deadline := brokerLocalDecisionDeadline(clearance.BrokerDecisionCore, callStarted)
+	if prepared.execution.currentMillis() >= deadline {
+		return domain.BrokerProposalClearance{}, 0, brokerJiraCommentError(context.DeadlineExceeded)
+	}
+	return clearance, deadline, nil
 }
 
 func brokerJiraCommentProposalRequest(prepared *brokerJiraCommentPrepared, operation domain.BrokerOperationAuthorizationRequest, decision domain.BrokerOperationDecision) domain.BrokerProposalAuthorizationRequest {

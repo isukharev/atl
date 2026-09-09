@@ -16,8 +16,8 @@ type BrokerJiraCommentResult struct {
 	ReleaseDeadline time.Time
 }
 
-// BrokerJiraCommentService is an injectable app core. No runtime route creates
-// it yet, and registry availability remains false.
+// BrokerJiraCommentService coordinates the explicitly selected guarded-comment
+// runtime with independent authority, local policy and durable journal ports.
 type BrokerJiraCommentService struct {
 	authorizer domain.BrokerAuthorizer
 	journal    domain.BrokerJournal
@@ -45,6 +45,7 @@ type brokerJiraCommentPrepared struct {
 	qualificationDecision domain.BrokerQualificationDecision
 	operation             domain.BrokerOperationAuthorizationRequest
 	decision              domain.BrokerOperationDecision
+	decisionDeadline      int64
 	identity              domain.BrokerJiraIssueIdentity
 	resource              domain.BrokerQualifiedResource
 	effectSHA256          string
@@ -117,28 +118,40 @@ func (s *BrokerJiraCommentService) prepare(execution *brokerJiraCommentExecution
 		return nil, brokerJiraCommentError(err)
 	}
 	admission := domain.BrokerAdmissionRequest{Context: verified, Operation: request.Operation, OperationVersion: request.OperationVersion, RequestID: request.RequestID, Features: append([]string{}, request.Features...), Arguments: request.Arguments, ArgumentsSHA256: argumentsSHA256, DeadlineMillis: execution.deadline.UnixMilli()}
+	admissionStarted := execution.currentMillis()
 	admissionDecision, err := s.authorizer.Admit(execution.base, admission)
 	validationErr := brokercontract.ValidateAdmissionDecisionForV1(admissionDecision, admission, execution.currentMillis())
 	if err != nil || execution.base.Err() != nil || validationErr != nil {
 		return nil, brokerJiraCommentError(firstBrokerReadError(err, firstBrokerReadError(execution.base.Err(), validationErr)))
 	}
 	qualification := domain.BrokerQualificationRequest{Admission: admission, AdmissionDecision: admissionDecision, Plan: domain.BrokerQualificationPlan{SelectorSHA256: argumentsSHA256, MetadataFields: append([]string{}, definition.QualificationFields...), Limits: definition.Limits.Qualification}}
-	qualificationDecision, err := s.authorizer.AuthorizeQualification(execution.base, qualification)
-	validationErr = brokercontract.ValidateQualificationDecisionForV1(qualificationDecision, qualification, execution.currentMillis())
-	if err != nil || execution.base.Err() != nil || validationErr != nil {
-		return nil, brokerJiraCommentError(firstBrokerReadError(err, firstBrokerReadError(execution.base.Err(), validationErr)))
+	authorityCtx, authorityCancel, err := execution.decisionContext(brokerLocalDecisionDeadline(admissionDecision.BrokerDecisionCore, admissionStarted))
+	if err != nil {
+		return nil, brokerJiraCommentError(err)
 	}
-	phaseCtx, phaseCancel, err := execution.qualificationContext(qualificationDecision.ExpiresAtMillis)
+	qualificationStarted := execution.currentMillis()
+	qualificationDecision, err := s.authorizer.AuthorizeQualification(authorityCtx, qualification)
+	contextErr := authorityCtx.Err()
+	authorityCancel()
+	validationErr = brokercontract.ValidateQualificationDecisionForV1(qualificationDecision, qualification, execution.currentMillis())
+	if err != nil || contextErr != nil || validationErr != nil {
+		return nil, brokerJiraCommentError(firstBrokerReadError(err, firstBrokerReadError(contextErr, validationErr)))
+	}
+	qualificationDeadline := brokerLocalDecisionDeadline(qualificationDecision.BrokerDecisionCore, qualificationStarted)
+	phaseCtx, phaseCancel, err := execution.qualificationContext(qualificationDeadline)
 	if err != nil {
 		return nil, brokerJiraCommentError(err)
 	}
 	identity, readErr := s.jira.QualifyBrokerIssue(phaseCtx, request.Arguments.JiraComment.IssueKey)
-	contextErr := phaseCtx.Err()
+	contextErr = phaseCtx.Err()
 	phaseCancel()
 	if readErr != nil || contextErr != nil {
 		return nil, brokerJiraCommentError(firstBrokerReadError(readErr, contextErr))
 	}
 	if err := brokercontract.ValidateQualificationDecisionForV1(qualificationDecision, qualification, execution.currentMillis()); err != nil {
+		return nil, brokerJiraCommentError(err)
+	}
+	if err := execution.decisionError(qualificationDeadline); err != nil {
 		return nil, brokerJiraCommentError(err)
 	}
 	if identity.Key != request.Arguments.JiraComment.IssueKey {
@@ -154,13 +167,21 @@ func (s *BrokerJiraCommentService) prepare(execution *brokerJiraCommentExecution
 		return nil, brokerJiraCommentError(err)
 	}
 	operation := domain.BrokerOperationAuthorizationRequest{QualificationRequest: qualification, QualificationDecision: qualificationDecision, QualifiedResources: []domain.BrokerQualifiedResource{resource}, Effects: effects}
-	decision, err := s.authorizer.AuthorizeOperation(execution.base, operation)
-	validationErr = brokercontract.ValidateOperationDecisionForV1(decision, operation, execution.currentMillis())
-	if err != nil || execution.base.Err() != nil || validationErr != nil {
-		return nil, brokerJiraCommentError(firstBrokerReadError(err, firstBrokerReadError(execution.base.Err(), validationErr)))
+	authorityCtx, authorityCancel, err = execution.decisionContext(qualificationDeadline)
+	if err != nil {
+		return nil, brokerJiraCommentError(err)
 	}
+	operationStarted := execution.currentMillis()
+	decision, err := s.authorizer.AuthorizeOperation(authorityCtx, operation)
+	contextErr = authorityCtx.Err()
+	authorityCancel()
+	validationErr = brokercontract.ValidateOperationDecisionForV1(decision, operation, execution.currentMillis())
+	if err != nil || contextErr != nil || validationErr != nil {
+		return nil, brokerJiraCommentError(firstBrokerReadError(err, firstBrokerReadError(contextErr, validationErr)))
+	}
+	decisionDeadline := brokerLocalDecisionDeadline(decision.BrokerDecisionCore, operationStarted)
 	options := JiraCommentAddOpts{Body: append([]byte(nil), request.Arguments.JiraComment.NativeBody...), Apply: apply, ExpectedProposalHash: request.Arguments.JiraComment.ExpectedProposalHash, SatisfactionPolicy: request.Arguments.JiraComment.SatisfactionPolicy}
-	phaseCtx, phaseCancel, err = execution.businessContext(decision.ExpiresAtMillis)
+	phaseCtx, phaseCancel, err = execution.businessContext(decisionDeadline)
 	if err != nil {
 		return nil, brokerJiraCommentError(err)
 	}
@@ -171,6 +192,9 @@ func (s *BrokerJiraCommentService) prepare(execution *brokerJiraCommentExecution
 		return nil, brokerJiraCommentError(firstBrokerReadError(readErr, contextErr))
 	}
 	if err := brokercontract.ValidateOperationDecisionForV1(decision, operation, execution.currentMillis()); err != nil {
+		return nil, brokerJiraCommentError(err)
+	}
+	if err := execution.decisionError(decisionDeadline); err != nil {
 		return nil, brokerJiraCommentError(err)
 	}
 	owner, err := brokercontract.BrokerJournalOwnerV1(verified)
@@ -184,7 +208,7 @@ func (s *BrokerJiraCommentService) prepare(execution *brokerJiraCommentExecution
 	return &brokerJiraCommentPrepared{
 		request: request, execution: execution, admission: admission,
 		qualification: qualification, qualificationDecision: qualificationDecision,
-		operation: operation, decision: decision, identity: identity, resource: resource,
+		operation: operation, decision: decision, decisionDeadline: decisionDeadline, identity: identity, resource: resource,
 		effectSHA256: effectSHA256, snapshot: snapshot, options: options, owner: owner,
 		executionSHA256: executionSHA256, authoritySHA256: authoritySHA256,
 	}, nil

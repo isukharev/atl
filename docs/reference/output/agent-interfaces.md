@@ -16,6 +16,7 @@ A content-minimized capability envelope has this stable outer shape:
 - [Capability catalog](#capability-catalog)
 - [Broker discovery result](#broker-discovery-result)
 - [Broker host result](#broker-host-result)
+- [Broker journal initialization result](#broker-journal-initialization-result)
 - [MCP tool results](#mcp-tool-results)
 <!-- reference-navigation:end -->
 
@@ -133,13 +134,33 @@ Text mode emits `Broker stopped`. Configuration, bind, TLS, listener and
 unexpected shutdown failures emit the ordinary closed CLI error on stderr and
 no success object. While the host is running, content-minimized audit JSONL is
 written to stderr; it is operational telemetry rather than protocol output or
-a durable authorization record.
+a durable authorization record. The output is unchanged when guarded comments
+are selected with `--enable-jira-comments`; the flag changes the host's maximum
+effect and runtime composition, not its eventual stopped receipt. Without the
+flag and paired config block, the host remains read-only.
+
+## Broker journal initialization result
+
+`atl broker journal initialize --config FILE` writes no path or configuration
+detail. After create-only local initialization and journal close, JSON is:
+
+```json named-broker-journal-initialized
+{
+  "status": "initialized",
+  "complete": true
+}
+```
+
+Text mode emits `Broker journal initialized`. An existing, invalid, unsupported,
+or incompletely committed journal returns a closed error and no result. This is
+a local operator write; it has no authority/backend credential load, audit
+stream, or network output.
 
 ## MCP tool results
 
 `atl mcp serve` is a separate stdio protocol transport, so global CLI output
 flags and process exit envelopes do not apply to individual tool calls. Each of
-the twenty-four registered tools has inferred input/output JSON Schema and returns
+the twenty-five registered tools has inferred input/output JSON Schema and returns
 typed `structuredContent`; compatible clients may also expose the SDK's text
 projection. Tool failures set the MCP error result and contain a JSON text
 object with stable `kind`, `remediation`, diagnostic `message`, and versioned

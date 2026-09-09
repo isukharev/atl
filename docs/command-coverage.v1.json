@@ -13,8 +13,9 @@
     {"command":"mcp serve","flag":"plugin-product-version","class":"hidden","reason":"Generated from the consuming plugin manifest; standalone users do not set it manually."}
   ],
   "routes": [
-    {"id":"agent-broker","document":"docs/reference/cli/agent-interfaces.md","evidence":"## `atl broker serve`","commands":["broker serve"]},
+    {"id":"agent-broker","document":"docs/reference/cli/agent-interfaces.md","evidence":"## `atl broker serve`","safety_document":"docs/safe-writes.md","safety_evidence":"## Jira: reviewed comment","commands":["broker serve"]},
     {"id":"agent-broker-discovery","document":"docs/reference/cli/agent-interfaces.md","evidence":"## `atl broker discover`","commands":["broker discover"]},
+    {"id":"agent-broker-journal","document":"docs/reference/cli/agent-interfaces.md","evidence":"## `atl broker journal initialize`","safety_document":"docs/safe-writes.md","safety_evidence":"## Pre-write checklist","commands":["broker journal initialize"]},
     {"id":"agent-capabilities","document":"docs/reference/cli/agent-interfaces.md","evidence":"## Offline agent capability catalog","commands":["capabilities"]},
     {"id":"agent-mcp","document":"docs/reference/cli/agent-interfaces.md","evidence":"## `atl mcp serve`","commands":["mcp serve"]},
     {"id":"agent-profile-apply","document":"docs/reference/cli/agent-interfaces.md","evidence":"## Preview and apply","safety_document":"docs/safe-writes.md","safety_evidence":"## Pre-write checklist","commands":["profile apply","profile preview"]},
@@ -84,7 +85,7 @@
     {"id":"jira-issue-attachments","document":"docs/reference/cli/jira-issues.md","evidence":"## `atl jira issue attachment {list,get,upload}`","safety_document":"docs/safe-writes.md","safety_evidence":"## Pre-write checklist","commands":["jira issue attachment get","jira issue attachment list","jira issue attachment upload"]},
     {"id":"jira-issue-check","document":"docs/reference/cli/jira-issues.md","evidence":"## `atl jira issue check`","commands":["jira issue check"]},
     {"id":"jira-issue-children","document":"docs/reference/cli/jira-issues.md","evidence":"## `atl jira issue children`","commands":["jira issue children"]},
-    {"id":"jira-issue-comments","document":"docs/reference/cli/jira-issues.md","evidence":"## `atl jira issue comment {preview,add,list,delete}`","safety_document":"docs/safe-writes.md","safety_evidence":"## Jira: reviewed comment","commands":["jira issue comment add","jira issue comment delete","jira issue comment list","jira issue comment preview"]},
+    {"id":"jira-issue-comments","document":"docs/reference/cli/jira-issues.md","evidence":"## `atl jira issue comment {preview,add,list,delete}`","safety_document":"docs/safe-writes.md","safety_evidence":"## Jira: reviewed comment","commands":["jira issue comment add","jira issue comment delete","jira issue comment list","jira issue comment outcome","jira issue comment preview"]},
     {"id":"jira-issue-create","document":"docs/reference/cli/jira-issues.md","evidence":"## `atl jira issue create`","safety_document":"docs/safe-writes.md","safety_evidence":"## Jira: guarded issue creation","commands":["jira issue create","jira issue create preview"]},
     {"id":"jira-issue-create-metadata","document":"docs/reference/cli/jira-issues.md","evidence":"## `atl jira issue types` / `create-check` / `create-metadata`","commands":["jira issue create-check","jira issue create-metadata","jira issue types"]},
     {"id":"jira-issue-delete","document":"docs/reference/cli/jira-issues.md","evidence":"## `atl jira issue delete`","safety_document":"docs/safe-writes.md","safety_evidence":"## Jira: permanent issue deletion","commands":["jira issue delete"]},

@@ -48,7 +48,7 @@ func Registry() []domain.BrokerOperationDefinition {
 		{
 			ID: domain.BrokerOperationJiraCommentPreview, Version: 1,
 			ArgumentSchemaID: "#/$defs/jira_comment_preview_arguments", ResultSchemaID: "#/$defs/jira_comment_preview_result",
-			ContractSchemaSHA256: schemaDigest, QualificationProfile: "exact_jira_comment_v1", ExecutionProfile: "guarded_comment_v1", BackendService: "jira", QualificationFields: []string{"id", "key", "project", "updated"}, Available: false,
+			ContractSchemaSHA256: schemaDigest, QualificationProfile: "exact_jira_comment_v1", ExecutionProfile: "guarded_comment_v1", BackendService: "jira", QualificationFields: []string{"id", "key", "project", "updated"}, Available: true,
 			Limits:           domain.BrokerLimits{MaxRequestBytes: 2 << 20, MaxResponseBytes: 1 << 20, MaxTotalUpstreamRequests: 102, MaxTotalUpstreamResponseBytes: MaxJiraCommentResponses, Qualification: domain.BrokerPhaseLimits{MaxRequests: 1, MaxResponseBytes: 64 << 10}, Business: domain.BrokerPhaseLimits{MaxRequests: 101, MaxResponseBytes: MaxJiraCommentResponses}, MaxResources: 1, MaxFields: 1, MaxNativeBodyBytes: MaxJiraCommentBodyBytes, MaxOperationMillis: 60_000, MaxDecisionLeaseMillis: 5_000},
 			Effects:          []domain.BrokerEffectDefinition{{Kind: domain.BrokerEffectRead, ResourceKind: domain.BrokerResourceJiraIssue, Fields: []string{"actor", "comments", "identity", "updated"}}},
 			RequiredFeatures: []string{"guarded_proposal_v1"},
@@ -56,7 +56,7 @@ func Registry() []domain.BrokerOperationDefinition {
 		{
 			ID: domain.BrokerOperationJiraCommentApply, Version: 1,
 			ArgumentSchemaID: "#/$defs/jira_comment_apply_arguments", ResultSchemaID: "#/$defs/jira_comment_apply_result",
-			ContractSchemaSHA256: schemaDigest, QualificationProfile: "exact_jira_comment_v1", ExecutionProfile: "guarded_comment_journal_v1", BackendService: "jira", QualificationFields: []string{"id", "key", "project", "updated"}, Available: false,
+			ContractSchemaSHA256: schemaDigest, QualificationProfile: "exact_jira_comment_v1", ExecutionProfile: "guarded_comment_journal_v1", BackendService: "jira", QualificationFields: []string{"id", "key", "project", "updated"}, Available: true,
 			Limits: domain.BrokerLimits{MaxRequestBytes: 2 << 20, MaxResponseBytes: 1 << 20, MaxTotalUpstreamRequests: 306, MaxTotalUpstreamResponseBytes: MaxJiraCommentResponses, Qualification: domain.BrokerPhaseLimits{MaxRequests: 1, MaxResponseBytes: 64 << 10}, Business: domain.BrokerPhaseLimits{MaxRequests: 305, MaxResponseBytes: MaxJiraCommentResponses}, MaxResources: 1, MaxFields: 1, MaxNativeBodyBytes: MaxJiraCommentBodyBytes, MaxOperationMillis: 60_000, MaxDecisionLeaseMillis: 5_000},
 			Effects: []domain.BrokerEffectDefinition{
 				{Kind: domain.BrokerEffectRead, ResourceKind: domain.BrokerResourceJiraIssue, Fields: []string{"actor", "comments", "identity", "updated"}},
@@ -67,7 +67,7 @@ func Registry() []domain.BrokerOperationDefinition {
 		{
 			ID: domain.BrokerOperationOutcomeLookup, Version: 1,
 			ArgumentSchemaID: "#/$defs/outcome_arguments", ResultSchemaID: "#/$defs/operation_outcome",
-			ContractSchemaSHA256: schemaDigest, QualificationProfile: "operation_ticket_v1", ExecutionProfile: "durable_observation_v1", BackendService: "jira", QualificationFields: []string{"operation_id"}, Available: false,
+			ContractSchemaSHA256: schemaDigest, QualificationProfile: "operation_ticket_v1", ExecutionProfile: "durable_observation_v1", BackendService: "jira", QualificationFields: []string{"operation_id"}, Available: true,
 			Limits:           domain.BrokerLimits{MaxRequestBytes: 64 << 10, MaxResponseBytes: 1 << 20, MaxTotalUpstreamRequests: 1, MaxTotalUpstreamResponseBytes: 1 << 20, Qualification: domain.BrokerPhaseLimits{}, Business: domain.BrokerPhaseLimits{MaxRequests: 1, MaxResponseBytes: 1 << 20}, MaxResources: 1, MaxOperationMillis: 60_000, MaxDecisionLeaseMillis: 5_000},
 			Effects:          []domain.BrokerEffectDefinition{{Kind: domain.BrokerEffectObserve, ResourceKind: domain.BrokerResourceOperation}},
 			RequiredFeatures: []string{"durable_outcome_v1"},
@@ -110,7 +110,7 @@ func cloneDefinition(value domain.BrokerOperationDefinition) domain.BrokerOperat
 	value.RequiredFeatures = append([]string(nil), value.RequiredFeatures...)
 	value.Effects = append([]domain.BrokerEffectDefinition(nil), value.Effects...)
 	for index := range value.Effects {
-		value.Effects[index].Fields = append([]string(nil), value.Effects[index].Fields...)
+		value.Effects[index].Fields = wireStrings(value.Effects[index].Fields)
 	}
 	return value
 }

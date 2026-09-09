@@ -16,12 +16,14 @@ import (
 const brokerObservationTestMillis = int64(10_000)
 
 type brokerObservationAuthorizer struct {
-	nowMillis   int64
-	leaseMillis int64
-	denyPhase   domain.BrokerAuthorizationPhase
-	calls       []domain.BrokerAuthorizationPhase
-	operation   domain.BrokerOperationAuthorizationRequest
-	afterFinal  func()
+	nowMillis          int64
+	leaseMillis        int64
+	denyPhase          domain.BrokerAuthorizationPhase
+	calls              []domain.BrokerAuthorizationPhase
+	operation          domain.BrokerOperationAuthorizationRequest
+	afterAdmission     func()
+	afterQualification func()
+	afterFinal         func()
 }
 
 func (a *brokerObservationAuthorizer) Admit(_ context.Context, request domain.BrokerAdmissionRequest) (domain.BrokerAdmissionDecision, error) {
@@ -30,6 +32,9 @@ func (a *brokerObservationAuthorizer) Admit(_ context.Context, request domain.Br
 	contextSHA256, _ := brokercontract.VerifiedContextSHA256(request.Context)
 	value := domain.BrokerAdmissionDecision{BrokerDecisionCore: a.core(domain.BrokerPhaseAdmission, contextSHA256, requestSHA256, request.Context.AuthorityRevision)}
 	wire, err := brokercontract.EncodeAdmissionDecisionV1(value)
+	if a.afterAdmission != nil {
+		a.afterAdmission()
+	}
 	if err != nil {
 		return domain.BrokerAdmissionDecision{}, err
 	}
@@ -47,6 +52,9 @@ func (a *brokerObservationAuthorizer) AuthorizeQualification(_ context.Context, 
 		AdmissionRequestSHA256: admissionSHA256, AdmissionDecisionSHA256: request.AdmissionDecision.DecisionSHA256, PlanSHA256: planSHA256,
 	}
 	wire, err := brokercontract.EncodeQualificationDecisionV1(value)
+	if a.afterQualification != nil {
+		a.afterQualification()
+	}
 	if err != nil {
 		return domain.BrokerQualificationDecision{}, err
 	}
@@ -404,11 +412,35 @@ func TestBrokerOperationObservationCancellationAndLateDecisionPublishNothing(t *
 	}
 }
 
+func TestBrokerOperationObservationLocalDecisionLeasesBoundNextBoundary(t *testing.T) {
+	for _, stage := range []string{"admission", "qualification", "operation"} {
+		t.Run(stage, func(t *testing.T) {
+			localNow := time.UnixMilli(brokerObservationTestMillis)
+			authorizer := &brokerObservationAuthorizer{nowMillis: brokerObservationTestMillis + domain.BrokerClockAllowanceMillis}
+			delay := func() { localNow = time.UnixMilli(brokerObservationTestMillis + domain.BrokerMaxDecisionLeaseMillis) }
+			switch stage {
+			case "admission":
+				authorizer.afterAdmission = delay
+			case "qualification":
+				authorizer.afterQualification = delay
+			case "operation":
+				authorizer.afterFinal = delay
+			}
+			journal := &brokerObservationJournal{record: brokerObservationRecord(t, domain.BrokerOperationApplied)}
+			result, err := brokerObservationService(t, authorizer, journal, &localNow).Observe(t.Context(), brokerObservationRequest(), brokerObservationContext())
+			wantCalls := map[string]int{"admission": 1, "qualification": 2, "operation": 3}[stage]
+			if !errors.Is(err, context.DeadlineExceeded) || result != (BrokerOperationObservationResult{}) || len(authorizer.calls) != wantCalls || journal.lookups != 0 {
+				t.Fatalf("result=%+v error=%v calls=%v lookups=%d", result, err, authorizer.calls, journal.lookups)
+			}
+		})
+	}
+}
+
 func TestBrokerOperationObservationBoundsLookupByFinalDecision(t *testing.T) {
 	now := time.UnixMilli(brokerObservationTestMillis)
 	record := brokerObservationRecord(t, domain.BrokerOperationApplied)
 	journal := &brokerObservationJournal{record: record}
-	authorizer := &brokerObservationAuthorizer{nowMillis: brokerObservationTestMillis, leaseMillis: 2_000}
+	authorizer := &brokerObservationAuthorizer{nowMillis: brokerObservationTestMillis + domain.BrokerClockAllowanceMillis, leaseMillis: 2_000}
 	result, err := brokerObservationService(t, authorizer, journal, &now).Observe(t.Context(), brokerObservationRequest(), brokerObservationContext())
 	remaining := time.Until(journal.deadline)
 	if err != nil || journal.lookups != 1 || remaining <= 0 || remaining > 2*time.Second || !result.ReleaseDeadline.Equal(time.UnixMilli(brokerObservationTestMillis+2_000)) {
@@ -419,7 +451,7 @@ func TestBrokerOperationObservationBoundsLookupByFinalDecision(t *testing.T) {
 func TestBrokerOperationObservationRejectsLookupThatOutlivesDecision(t *testing.T) {
 	now := time.UnixMilli(brokerObservationTestMillis)
 	journal := &brokerObservationJournal{record: brokerObservationRecord(t, domain.BrokerOperationApplied), waitForExpiry: true}
-	authorizer := &brokerObservationAuthorizer{nowMillis: brokerObservationTestMillis, leaseMillis: 1}
+	authorizer := &brokerObservationAuthorizer{nowMillis: brokerObservationTestMillis, leaseMillis: 50}
 	result, err := brokerObservationService(t, authorizer, journal, &now).Observe(t.Context(), brokerObservationRequest(), brokerObservationContext())
 	if err == nil || !errors.Is(err, context.DeadlineExceeded) || result != (BrokerOperationObservationResult{}) || journal.lookups != 1 {
 		t.Fatalf("result=%+v err=%v lookups=%d", result, err, journal.lookups)
@@ -462,14 +494,19 @@ func TestBrokerOperationObservationRejectsInconsistentRecords(t *testing.T) {
 	}
 }
 
-func TestBrokerOperationObservationDoesNotEnableRegistry(t *testing.T) {
+func TestBrokerOperationObservationUsesEnabledReadOnlyRegistry(t *testing.T) {
 	definition, _ := brokercontract.Definition(domain.BrokerOperationOutcomeLookup, brokercontract.OperationVersion)
-	if definition.Available {
-		t.Fatal("internal observation service enabled public registry operation")
+	if !definition.Available || definition.ExecutionProfile != "durable_observation_v1" || len(definition.Effects) != 1 ||
+		definition.Effects[0].Kind != domain.BrokerEffectObserve || definition.Effects[0].ResourceKind != domain.BrokerResourceOperation || len(definition.Effects[0].Fields) != 0 {
+		t.Fatal("public outcome operation lost its read-only observation contract")
 	}
+	count := 0
 	for _, available := range brokercontract.AvailableDefinitions() {
 		if available.ID == domain.BrokerOperationOutcomeLookup {
-			t.Fatal("outcome operation entered available registry")
+			count++
 		}
+	}
+	if count != 1 {
+		t.Fatal("outcome operation must appear exactly once")
 	}
 }

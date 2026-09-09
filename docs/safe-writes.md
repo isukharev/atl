@@ -365,7 +365,8 @@ must be preserved.
 
 ## Jira: reviewed comment
 
-Keep the comment body out of command-line arguments:
+The existing direct-mode workflow remains unchanged. Keep the comment body out
+of command-line arguments:
 
 ```sh
 atl jira issue comment preview EXAMPLE-1 --from-md comment.md
@@ -392,6 +393,51 @@ acknowledgement. `blocked`, `not_applied`, and `outcome_unknown` never authorize
 automatic retry; `write_attempted:true` always forbids replay. The same
 principle applies to guarded field, transition, watcher, worklog, and
 multi-object plan commands.
+
+### Broker comment workflow
+
+In Broker mode, preview emits a smaller content-free result containing the
+opaque operation ticket as well as the proposal and native-candidate hashes:
+
+```sh
+ATL_READ_ONLY=1 atl jira issue comment preview EXAMPLE-1 --from-file comment.wiki
+```
+
+Keep the exact native Jira-wiki file, ticket, and proposal hash together. After
+approval, remove the read-only policy only for one apply using the writer
+session that produced the preview:
+
+```sh
+env -u ATL_READ_ONLY atl jira issue comment add EXAMPLE-1 \
+  --from-file comment.wiki \
+  --apply \
+  --expected-proposal-hash '<reviewed-hash>' \
+  --operation-ticket '<ticket-from-preview>'
+```
+
+The Broker path performs fresh discovery, retains one writer session, and sends
+at most one execute request; it never falls back to direct Jira or a PAT. A
+changed body, hash, ticket, execution id/epoch, or authority
+revision before apply requires a new preview. After an attempted apply, retain
+the original ticket for observation instead. `not_applied` and `outcome_unknown` are emitted
+before exit 8. If apply or its stdout is ambiguous, do not repeat it. Observe
+the exact same ticket under read-only policy:
+
+```sh
+ATL_READ_ONLY=1 atl jira issue comment outcome \
+  --operation-ticket '<same-ticket>'
+```
+
+Credential bytes must remain unchanged during each invocation. Bearer refresh
+between invocations does not itself invalidate a ticket whose writer identity,
+execution and authority binding remain current; it never extends ticket expiry.
+
+Outcome uses only `jira_observation_session_file`, never the writer session,
+and reads durable Broker metadata without contacting Jira. It performs no
+automatic recovery. The configured `exact_jira_comment_v1` profile binds an
+immutable numeric issue plus point-in-time key/project/update; it does not
+prove atomic current-project membership. The existing direct-mode workflow and
+its output remain unchanged and reject `--operation-ticket`.
 
 ## Jira: reviewed issue links
 

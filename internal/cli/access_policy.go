@@ -268,6 +268,7 @@ R remote-read json,text,id jira issue children
 M remote-write-with-local preview-apply comment jira-issue-arg apply,expected-proposal-hash pre-config jira-guarded-comment json,text jira issue comment add
 M remote-write remote-direct delete jira-issue-arg - json jira issue comment delete
 R remote-read json,text,id jira issue comment list
+R remote-read-fixed json,text jira issue comment outcome
 R remote-read-with-local json,text jira issue comment preview
 M guarded-create-apply preview-apply create? jira-project-flag apply,expected-proposal-hash pre-config jira-guarded-create json,id jira issue create
 R guarded-create-preview json jira issue create preview
@@ -345,7 +346,8 @@ R local-write-updatable json,text manifest create
 R stdio-server json mcp serve
 M local-write preview-apply none none apply,expected-backend-sha256,confirm pre-config-on-apply generic json,text mirror backend bind
 R local-read json,text mirror backend status
-R broker-server json,text broker serve
+M broker-server remote-direct none none - json,text broker serve
+M local-write local-direct none none - json,text broker journal initialize
 R remote-read-fixed json,text broker discover
 M local-write dedicated-apply none none from-file,candidate-hash,expected-current-hash pre-config generic json,text profile apply
 R local-prose json,text profile guidance
@@ -986,6 +988,11 @@ func resolveReadOnlyPolicy(cmd *cobra.Command, flagEnabled bool) (bool, error) {
 	if flagEnabled || envReadOnly() {
 		return true, nil
 	}
+	// Operator commands have a separate explicit configuration owner. They
+	// honor process read-only policy without adopting ordinary client config.
+	if brokerOperatorCommand(cmd) {
+		return false, nil
+	}
 	// Offline/trivial reads cannot mutate backend/config and do not self-update.
 	// Keep them usable when config.json is malformed; mutators and online reads
 	// decodes the policy strictly below.
@@ -1018,6 +1025,12 @@ func enforceAccessPolicy(cmd *cobra.Command, enabled bool) error {
 	}
 	if access != "mutating" {
 		return nil
+	}
+	if commandRegistryPath(cmd.Root(), cmd) == "broker serve" {
+		enable, err := cmd.Flags().GetBool("enable-jira-comments")
+		if err == nil && !enable {
+			return nil
+		}
 	}
 	if registration, ok := commandRegistry.nodes[commandRegistryPath(cmd.Root(), cmd)]; ok &&
 		len(registration.policyVerbs) != 0 && len(policyPreflightVerbs(cmd, registration.policyVerbs)) == 0 {

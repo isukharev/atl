@@ -47,6 +47,10 @@ operation access using the existing execution session, without PATs or direct
 fallback. Read again after a grant or revocation; never reuse discovery as
 authorization. `allowed` still requires per-invocation authorization, and
 `access_request_required` does not itself submit a request or grant access.
+Discovery may advertise guarded Jira comment or outcome operations when the
+host supports them. This does not add an MCP executor: preview, apply, and
+same-ticket outcome remain explicit CLI routes, and no MCP tool can mutate a
+comment or inspect the durable journal.
 
 For the fixed execution-v2 page family, default/Jira profiles additionally
 expose private zero-TTL `atl://broker/discovery/jira/atl.broker.execution.v2`.

@@ -699,10 +699,11 @@ or `--field 'assignee={"name":"jdoe"}'`).
 
 ## `atl jira issue comment {preview,add,list,delete}`
 
-Read or safely append Jira wiki comments. `preview` is a GET-only command that
-works under the process-wide read-only policy. `add` uses the same proposal but
-is dry-run by default; it writes only with both `--apply` and the exact reviewed
-`--expected-proposal-hash`.
+Read or safely append Jira wiki comments. In direct mode, `preview` is GET-only.
+In Broker mode it remains read-only but uses authenticated Broker discovery and
+execution POSTs that cannot write Jira. Both work under the process-wide
+read-only policy. `add` uses the same proposal but is dry-run by default; it
+writes only with `--apply` and the exact reviewed inputs.
 
 ```bash
 ATL_READ_ONLY=1 atl jira issue comment preview PROJ-1 --from-md note.md
@@ -750,6 +751,49 @@ Flags (`preview` and `add`):
 | `--from-md` | markdown comment file or `-` for stdin; converted to wiki, fail-closed (exit 8) |
 | `--apply` | `add` only: send one guarded POST (default is dry-run) |
 | `--expected-proposal-hash` | `add` only: exact reviewed hash, required with `--apply` |
+| `--operation-ticket` | Broker-mode `add --apply` only: exact opaque ticket from the matching Broker preview; rejected in direct mode |
+
+### Broker guarded comments and outcome
+
+Broker mode preserves the same native body input but emits its distinct,
+smaller ticket-bearing result. Preview is read-only and sends no ticket or
+proposal hash:
+
+```bash named-broker-jira-comment-workflow
+ATL_READ_ONLY=1 atl jira issue comment preview PROJ-1 --from-file note.wiki
+env -u ATL_READ_ONLY atl jira issue comment add PROJ-1 --from-file note.wiki \
+  --apply --expected-proposal-hash '<hash-from-preview>' \
+  --operation-ticket '<ticket-from-preview>'
+```
+
+Apply requires byte-identical native Jira-wiki content, the exact proposal
+hash, the opaque ticket, and the original writer-session binding. Each call
+starts fresh discovery, retains one session, and makes one no-redirect execute
+attempt under a 60-second ceiling. A changed execution id/epoch, authority
+revision, body, hash, or ticket, or an unsupported/denied discovery row, fails
+closed. Credential bytes and session identity must remain unchanged within each
+invocation. A refreshed bearer between invocations can retain the same writer
+identity/execution binding; it does not extend the original ticket's expiry.
+There is no PAT, direct REST, protocol-downgrade, or automatic retry fallback.
+
+Valid terminal `not_applied` and `outcome_unknown` results are written to
+stdout before exit 8. A transport, response, post-buffer session, deadline, or
+stdout failure after apply is ambiguous: never repeat apply. Query the exact
+same ticket instead:
+
+```bash named-broker-jira-comment-outcome
+ATL_READ_ONLY=1 atl jira issue comment outcome \
+  --operation-ticket '<same-ticket>'
+```
+
+`outcome` accepts no issue key and is read-only. It requires Broker mode and
+the independently configured `jira_observation_session_file`, never uses or
+falls back to `jira_session_file`, performs no Jira request, and does not
+reconcile or replay the operation. Its observer execution may be newer for the
+same stable owner. The supported `exact_jira_comment_v1` profile binds immutable
+numeric issue identity plus point-in-time key/project/update; it does not prove
+atomic current-project membership. The direct preview/apply output and workflow
+above this subsection are unchanged.
 
 ## `atl jira issue link {add,list,delete,suggest}`
 

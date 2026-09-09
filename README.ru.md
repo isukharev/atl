@@ -96,6 +96,8 @@ atl jira issue search --jql 'order by updated DESC' --limit 5
 Каждая страница авторизуется заново; полнота проекта не гарантируется.
 Доступ: `atl broker discover --service jira|confluence`.
 Кэш: [`corpus handoff-qualified`](docs/reference/cli/local-artifacts.md#atl-corpus-handoff-qualified).
+[Broker comments](docs/safe-writes.md#jira-reviewed-comment) требуют явного opt-in,
+журнала и CLI; профиль — weak snapshot.
 
 Для Confluence:
 

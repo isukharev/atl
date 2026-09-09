@@ -18,6 +18,10 @@ func TestBrokerJournalIdentityKnownAnswerVectors(t *testing.T) {
 		WorkloadSHA256:  "986abff678fe32f683565f0d9bc262d2c50434e22a03827b0d13c040a6d749f4",
 		AudienceSHA256:  "b2c4be597b4eccfdeccd26270583115429c9154aa452918681696a3a2f8fb66e",
 	}
+	broker, brokerErr := BrokerJournalBrokerSHA256V1(context.BrokerID)
+	if brokerErr != nil || broker != wantOwner.BrokerSHA256 {
+		t.Fatalf("operator Broker identity=%q err=%v", broker, brokerErr)
+	}
 	if err != nil || writerErr != nil || owner != wantOwner || execution != "5a77d92cd4ccd4bc33720665f0a56eacc7cf35948c02b5b29f95f8886cc7d8d6" || revision != "e1890e13db30f155c453cc350cb29c07f23263451876799c5e73b2ee6d0ff916" {
 		t.Fatalf("owner=%+v execution=%q revision=%q errors=%v/%v", owner, execution, revision, err, writerErr)
 	}
@@ -66,6 +70,11 @@ func TestBrokerJournalOwnerSeparatesStableOwnerFromWriter(t *testing.T) {
 }
 
 func TestBrokerJournalIdentityRejectsMalformedInputs(t *testing.T) {
+	for _, id := range []string{"", "broker\n", " broker", "broker "} {
+		if _, err := BrokerJournalBrokerSHA256V1(id); err == nil {
+			t.Fatal("malformed operator identity produced journal digest")
+		}
+	}
 	context := fixtureContext()
 	context.Backend.OriginSHA256 = "not-a-digest"
 	if _, err := BrokerJournalOwnerV1(context); err == nil {

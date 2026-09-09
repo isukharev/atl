@@ -35,6 +35,26 @@ func NewBrokerCacheQualification(cfg *config.Config, version string) (domain.Bro
 	return client, nil
 }
 
+// NewBrokerJiraObservationService composes only the independently selected
+// observer session. It cannot load or fall back to the Jira writer session or
+// an upstream PAT.
+func NewBrokerJiraObservationService(cfg *config.Config, version string) (*app.JiraService, error) {
+	if cfg == nil || cfg.Broker == nil || !brokerMode(cfg) {
+		return nil, fmt.Errorf("%w: Broker client is not configured", domain.ErrConfig)
+	}
+	if err := config.ValidateBrokerClientConfig(cfg.ConnectionMode, cfg.Broker); err != nil {
+		return nil, fmt.Errorf("%w: invalid Broker client configuration", domain.ErrConfig)
+	}
+	if cfg.Broker.JiraObservationSessionFile == "" {
+		return nil, fmt.Errorf("%w: jira_observation_session_file is required for Broker outcome observation", domain.ErrConfig)
+	}
+	observer, err := newBrokerClientForSession(cfg, version, nil, cfg.Broker.JiraObservationSessionFile)
+	if err != nil {
+		return nil, err
+	}
+	return app.NewJiraService(app.JiraDependencies{BrokerOutcomes: observer, Config: cfg}), nil
+}
+
 func newBrokerClient(cfg *config.Config, service, version string, scheduler *httpx.Scheduler) (*brokerclient.Client, error) {
 	if cfg == nil || cfg.Broker == nil || !brokerMode(cfg) {
 		return nil, fmt.Errorf("%w: Broker client is not configured", domain.ErrConfig)
@@ -53,6 +73,13 @@ func newBrokerClient(cfg *config.Config, service, version string, scheduler *htt
 	}
 	if sessionPath == "" {
 		return nil, fmt.Errorf("%w: Broker session is not configured for the selected service", domain.ErrConfig)
+	}
+	return newBrokerClientForSession(cfg, version, scheduler, sessionPath)
+}
+
+func newBrokerClientForSession(cfg *config.Config, version string, scheduler *httpx.Scheduler, sessionPath string) (*brokerclient.Client, error) {
+	if cfg == nil || cfg.Broker == nil || !brokerMode(cfg) || sessionPath == "" {
+		return nil, fmt.Errorf("%w: Broker session is not configured", domain.ErrConfig)
 	}
 	tlsOptions, _, err := httpx.QualifiedTLSOptions(cfg.Broker.CAFile)
 	if err != nil {
@@ -98,5 +125,15 @@ func newBrokerJiraService(cfg *config.Config, version string, authorizer domain.
 	if err != nil {
 		return nil, err
 	}
-	return app.NewJiraService(app.JiraDependencies{Tracker: tracker, Agile: tracker, Structure: tracker, ProjectPages: tracker, Config: cfg, WriteAuthorizer: authorizer}), nil
+	var observer domain.BrokerOperationOutcomeClient
+	if cfg.Broker.JiraObservationSessionFile != "" {
+		observer, err = newBrokerClientForSession(cfg, version, nil, cfg.Broker.JiraObservationSessionFile)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return app.NewJiraService(app.JiraDependencies{
+		Tracker: tracker, Agile: tracker, Structure: tracker, ProjectPages: tracker,
+		BrokerComments: tracker, BrokerOutcomes: observer, Config: cfg, WriteAuthorizer: authorizer,
+	}), nil
 }

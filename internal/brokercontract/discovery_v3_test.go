@@ -294,7 +294,7 @@ func TestPublishedFamilyDiscoveryV3SchemaMatchesAndValidatesVectors(t *testing.T
 }
 
 func TestFamilyDiscoveryV3PreservesFrozenV1AndDiscoveryV2Digests(t *testing.T) {
-	if RegistrySHA256() != "c579297a8d9ac454aaf0fdbd17a83167480f70a53d3446e5aead3776849bd5b5" ||
+	if RegistrySHA256() != "a712329120114874b6d1c2f62884ca28a45cdef8616fd78073bc3a6a72fae72c" ||
 		SchemaSHA256() != "fdf82ad96e59a6c32f639f4602da15632dfcb72ab0fb734df00782bf29967372" ||
 		DiscoverySchemaSHA256V2() != "9b7415d7fed9dcf0cd7f53e2b0c212ffd5a22dbca382081ac85d70be95a84d30" {
 		t.Fatalf("frozen semantic digest changed: %s/%s/%s", RegistrySHA256(), SchemaSHA256(), DiscoverySchemaSHA256V2())

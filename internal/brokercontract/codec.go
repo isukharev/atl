@@ -469,12 +469,17 @@ func cloneRequest(value domain.BrokerRequest) domain.BrokerRequest {
 }
 
 func RegistrySHA256() string {
-	definitions := Registry()
+	return registrySHA256(Registry())
+}
+
+func registrySHA256(definitions []domain.BrokerOperationDefinition) string {
 	projection := make([]any, len(definitions))
 	for index, definition := range definitions {
 		effects := make([]any, len(definition.Effects))
 		for effectIndex, effect := range definition.Effects {
-			fields := copyStrings(effect.Fields)
+			// The frozen registry digest uses null for a zero-field effect,
+			// independently of discovery's required empty-array wire shape.
+			fields := append([]string(nil), effect.Fields...)
 			sort.Strings(fields)
 			effects[effectIndex] = struct {
 				Kind     string   `json:"kind"`

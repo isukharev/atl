@@ -136,12 +136,18 @@ func TestDiscoveryV2AccessAndOperationSetAreClosed(t *testing.T) {
 func TestDiscoveryV2ProjectsOnlySelectedBackendService(t *testing.T) {
 	for _, service := range []string{"jira", "confluence"} {
 		request, authorization, projection := discoveryV2FixturesFor(t, service)
-		if len(projection.Operations) != 1 || projection.Service != service || authorization.Context.Backend.Service != service || request.Service != service {
+		wantCount := 1
+		if service == "jira" {
+			wantCount = 4
+		}
+		if len(projection.Operations) != wantCount || projection.Service != service || authorization.Context.Backend.Service != service || request.Service != service {
 			t.Fatalf("service=%s projection=%+v", service, projection)
 		}
-		definition, ok := Definition(projection.Operations[0].ID, projection.Operations[0].Version)
-		if !ok || definition.BackendService != service {
-			t.Fatalf("service=%s operation=%+v", service, projection.Operations[0])
+		for _, operation := range projection.Operations {
+			definition, ok := Definition(operation.ID, operation.Version)
+			if !ok || definition.BackendService != service {
+				t.Fatalf("service=%s operation=%+v", service, operation)
+			}
 		}
 	}
 }
@@ -229,13 +235,15 @@ func discoveryV2FixturesFor(t testing.TB, service string) (domain.BrokerDiscover
 	if err != nil {
 		t.Fatal(err)
 	}
-	definition := availableDefinitionsForService(service)[0]
-	operation := domain.BrokerDiscoveryOperationV2{ID: definition.ID, Version: definition.Version, Supported: true, Access: domain.BrokerDiscoveryAccessAllowed, Features: wireStrings(definition.RequiredFeatures), Limits: definition.Limits, Effects: definition.Effects}
+	var operations []domain.BrokerDiscoveryOperationV2
+	for _, definition := range availableDefinitionsForService(service) {
+		operations = append(operations, domain.BrokerDiscoveryOperationV2{ID: definition.ID, Version: definition.Version, Supported: true, Access: domain.BrokerDiscoveryAccessAllowed, Features: wireStrings(definition.RequiredFeatures), Limits: definition.Limits, Effects: definition.Effects})
+	}
 	projection := domain.BrokerDiscoveryProjectionV2{
 		SchemaVersion: 2, RequestID: request.RequestID, RequestSHA256: requestDigest, ContextSHA256: contextDigest,
 		ExecutionID: context.ExecutionID, ExecutionEpoch: context.ExecutionEpoch, Audience: context.Audience, BrokerID: context.BrokerID, AuthorityRevision: context.AuthorityRevision, Service: service,
 		RegistrySHA256: RegistrySHA256(), ContractSchemaSHA256: SchemaSHA256(), DiscoverySchemaSHA256: DiscoverySchemaSHA256V2(),
-		IssuedAtMillis: 2000, ExpiresAtMillis: 6000, Operations: []domain.BrokerDiscoveryOperationV2{operation}, Complete: true,
+		IssuedAtMillis: 2000, ExpiresAtMillis: 6000, Operations: operations, Complete: true,
 	}
 	authorization := domain.BrokerDiscoveryAuthorizationRequestV2{SchemaVersion: 2, Request: request, Context: context, RequestSHA256: requestDigest}
 	return request, authorization, projection
@@ -247,7 +255,7 @@ func cloneDiscoveryV2Projection(value domain.BrokerDiscoveryProjectionV2) domain
 		value.Operations[index].Features = append([]string(nil), value.Operations[index].Features...)
 		value.Operations[index].Effects = append([]domain.BrokerEffectDefinition(nil), value.Operations[index].Effects...)
 		for effectIndex := range value.Operations[index].Effects {
-			value.Operations[index].Effects[effectIndex].Fields = append([]string(nil), value.Operations[index].Effects[effectIndex].Fields...)
+			value.Operations[index].Effects[effectIndex].Fields = copyStrings(value.Operations[index].Effects[effectIndex].Fields)
 		}
 	}
 	return value

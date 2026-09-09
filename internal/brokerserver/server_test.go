@@ -38,6 +38,7 @@ type deadlineResponseWriter struct {
 	body          bytes.Buffer
 	status        int
 	writeDeadline time.Time
+	readDeadline  time.Time
 }
 
 func (w *deadlineResponseWriter) Header() http.Header {
@@ -59,6 +60,13 @@ func (w *deadlineResponseWriter) SetWriteDeadline(deadline time.Time) error {
 	w.writeDeadline = deadline
 	return nil
 }
+
+func (w *deadlineResponseWriter) SetReadDeadline(deadline time.Time) error {
+	w.readDeadline = deadline
+	return nil
+}
+
+func (*deadlineResponseWriter) FlushError() error { return nil }
 
 func (s *serverAuthenticatorStub) Authenticate(_ context.Context, credential []byte, challenge brokertransport.AuthenticationChallenge) (brokertransport.Authentication, error) {
 	s.calls++
@@ -320,7 +328,7 @@ func TestBrokerServerRejectsExpandedRoutesAndHeadersBeforeAuthentication(t *test
 	if recorder.Code != http.StatusUnauthorized || fixture.authenticator.calls != 0 || fixture.backendCalls.Load() != 0 {
 		t.Fatalf("status=%d auth=%d backend=%d", recorder.Code, fixture.authenticator.calls, fixture.backendCalls.Load())
 	}
-	response := brokerRequest(t, fixture.handler, http.MethodPost, ExecutePath, bytes.Repeat([]byte{' '}, MaxExecuteRequestBytes+1), true)
+	response := brokerRequest(t, fixture.handler, http.MethodPost, ExecutePath, bytes.Repeat([]byte{' '}, int(MaxExecuteRequestBytes)+1), true)
 	response.Body.Close()
 	if response.StatusCode != http.StatusBadRequest || fixture.authenticator.calls != 0 || fixture.backendCalls.Load() != 0 {
 		t.Fatalf("oversized status=%d auth=%d backend=%d", response.StatusCode, fixture.authenticator.calls, fixture.backendCalls.Load())

@@ -3,6 +3,7 @@ package compose
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"io"
 	"sync"
@@ -29,11 +30,20 @@ type BrokerRuntime struct {
 	material *brokerconfig.Material
 	guard    *brokerserver.CredentialGuard
 	closers  []idleConnectionCloser
+	journal  io.Closer
 	close    sync.Once
+	finalize sync.Once
+	finalErr error
 }
 
 func LoadBrokerRuntime(configPath, version string, auditWriter io.Writer) (*BrokerRuntime, error) {
-	material, err := brokerconfig.Load(configPath)
+	return LoadBrokerRuntimeWithJiraComments(configPath, version, auditWriter, false)
+}
+
+// LoadBrokerRuntimeWithJiraComments requires both the explicit operator flag
+// and its configuration block; it never creates missing journal storage.
+func LoadBrokerRuntimeWithJiraComments(configPath, version string, auditWriter io.Writer, enable bool) (*BrokerRuntime, error) {
+	material, err := brokerconfig.LoadWithJiraComments(configPath, enable)
 	if err != nil {
 		return nil, err
 	}
@@ -49,7 +59,15 @@ func (r *BrokerRuntime) Run(ctx context.Context) error {
 	if r == nil || r.host == nil {
 		return fmt.Errorf("%w: Broker runtime is unavailable", domain.ErrConfig)
 	}
-	return r.host.Run(ctx)
+	err := r.host.Run(ctx)
+	if r.host.Drained() {
+		return errors.Join(err, r.finish())
+	}
+	// A failed drain must keep the journal lock and secrets alive for the
+	// remaining handlers. The operation is already unsuccessful; Close arranges
+	// final resource release only after the host's actual completion barrier.
+	r.Close()
+	return errors.Join(err, fmt.Errorf("%w: Broker did not drain", domain.ErrCheckFailed))
 }
 
 func (r *BrokerRuntime) Close() {
@@ -61,36 +79,44 @@ func (r *BrokerRuntime) Close() {
 		if host != nil {
 			host.Close()
 		}
-		for _, closer := range r.closers {
-			closer.CloseIdleConnections()
-		}
-		r.closers = nil
 		if host == nil || host.Drained() {
-			r.clearSecrets()
+			_ = r.finish()
 			return
 		}
 		go func() {
 			<-host.Done()
-			r.clearSecrets()
+			_ = r.finish()
 		}()
 	})
 }
 
-func (r *BrokerRuntime) clearSecrets() {
-	if r.guard != nil {
-		r.guard.Close()
-	}
-	if r.material != nil {
-		r.material.Close()
-	}
-	r.host = nil
-	r.guard = nil
-	r.material = nil
+func (r *BrokerRuntime) finish() error {
+	r.finalize.Do(func() {
+		if r.journal != nil {
+			if err := r.journal.Close(); err != nil {
+				r.finalErr = fmt.Errorf("%w: Broker journal close failed", domain.ErrCheckFailed)
+			}
+		}
+		for _, closer := range r.closers {
+			closer.CloseIdleConnections()
+		}
+		if r.guard != nil {
+			r.guard.Close()
+		}
+		if r.material != nil {
+			r.material.Close()
+		}
+	})
+	return r.finalErr
 }
 
 func newBrokerRuntime(material *brokerconfig.Material, version string, auditWriter io.Writer) (*BrokerRuntime, error) {
 	if material == nil || auditWriter == nil {
 		return nil, fmt.Errorf("%w: invalid Broker composition", domain.ErrConfig)
+	}
+	localPolicy, err := brokerCommentPolicy(material)
+	if err != nil {
+		return nil, err
 	}
 	certificate, err := tls.X509KeyPair(material.ServerCertificate, material.ServerPrivateKey)
 	if err != nil {
@@ -114,18 +140,37 @@ func newBrokerRuntime(material *brokerconfig.Material, version string, auditWrit
 
 	var jiraReader app.BrokerJiraIssueReader
 	var projectPages *app.BrokerProjectPageService
+	var comments *app.BrokerJiraCommentService
+	var outcomes *app.BrokerOperationObservationService
+	var journal io.Closer
 	var confluenceReader app.BrokerConfluencePageReader
 	guardCredentials := [][]byte{material.AuthorityCredential}
 	closers := []idleConnectionCloser{authority}
+	composed := false
+	defer func() {
+		if !composed {
+			if journal != nil {
+				_ = journal.Close()
+			}
+			for _, closer := range closers {
+				closer.CloseIdleConnections()
+			}
+		}
+	}()
 	if selected := material.Config.Jira; selected != nil {
 		tlsOptions, _, tlsErr := httpx.QualifiedTLSOptionsBytes(material.JiraCA)
 		if tlsErr != nil {
 			return nil, fmt.Errorf("%w: invalid Broker Jira trust", domain.ErrConfig)
 		}
-		reader, readerErr := jiraadapter.NewWithSchedulerTLS(selected.BaseURL, string(material.JiraCredential), version, scheduler, tlsOptions)
+		var options []jiraadapter.Option
+		if localPolicy != nil {
+			options = append(options, jiraadapter.WithWriteAuthorizer(localPolicy))
+		}
+		reader, readerErr := jiraadapter.NewWithSchedulerTLS(selected.BaseURL, string(material.JiraCredential), version, scheduler, tlsOptions, options...)
 		if readerErr != nil {
 			return nil, fmt.Errorf("%w: invalid Broker Jira adapter", domain.ErrConfig)
 		}
+		closers = append(closers, reader)
 		origin, originErr := reader.BrokerOriginSHA256()
 		if originErr != nil {
 			return nil, fmt.Errorf("%w: invalid Broker Jira origin", domain.ErrConfig)
@@ -135,7 +180,21 @@ func newBrokerRuntime(material *brokerconfig.Material, version string, auditWrit
 		if err != nil {
 			return nil, fmt.Errorf("%w: invalid Broker project-page service", domain.ErrConfig)
 		}
-		closers = append(closers, reader)
+		if localPolicy != nil {
+			storage, storageErr := openBrokerCommentJournal(material.Journal, jiraReader.Backend)
+			if storageErr != nil {
+				return nil, storageErr
+			}
+			journal = storage
+			comments, err = app.NewBrokerJiraCommentService(authority, storage, reader, localPolicy, jiraReader.Backend)
+			if err != nil {
+				return nil, fmt.Errorf("%w: invalid Broker comment service", domain.ErrConfig)
+			}
+			outcomes, err = app.NewBrokerOperationObservationService(authority, storage, jiraReader.Backend)
+			if err != nil {
+				return nil, fmt.Errorf("%w: invalid Broker outcome service", domain.ErrConfig)
+			}
+		}
 		guardCredentials = append(guardCredentials, material.JiraCredential)
 	}
 	if selected := material.Config.Confluence; selected != nil {
@@ -167,7 +226,7 @@ func newBrokerRuntime(material *brokerconfig.Material, version string, auditWrit
 	if err != nil {
 		return nil, fmt.Errorf("%w: invalid Broker credential guard", domain.ErrConfig)
 	}
-	data, err := brokerserver.New(brokerserver.Config{Audience: material.Config.DataAudience, BrokerID: material.Config.BrokerID, MaxConcurrent: 1}, brokerserver.Dependencies{Authenticator: authority, Reads: reads, Cache: cache, ProjectPages: projectPages, Guard: guard})
+	data, err := brokerserver.New(brokerserver.Config{Audience: material.Config.DataAudience, BrokerID: material.Config.BrokerID, MaxConcurrent: 1}, brokerserver.Dependencies{Authenticator: authority, Reads: reads, Cache: cache, ProjectPages: projectPages, Comments: comments, Outcomes: outcomes, Guard: guard})
 	if err != nil {
 		guard.Close()
 		return nil, fmt.Errorf("%w: invalid Broker data handler", domain.ErrConfig)
@@ -180,5 +239,6 @@ func newBrokerRuntime(material *brokerconfig.Material, version string, auditWrit
 		guard.Close()
 		return nil, fmt.Errorf("%w: invalid Broker host", domain.ErrConfig)
 	}
-	return &BrokerRuntime{host: host, material: material, guard: guard, closers: closers}, nil
+	composed = true
+	return &BrokerRuntime{host: host, material: material, guard: guard, closers: closers, journal: journal}, nil
 }

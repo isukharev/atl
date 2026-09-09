@@ -27,6 +27,12 @@ supplies one exact issue key. Broker mode never falls back to arbitrary JQL or
 direct REST; honor unsupported operations and the page's always-false
 `selection_complete` independently of coordinate exhaustion.
 
+This evidence route does not authorize comment mutation. If a task explicitly
+requests a Broker guarded comment, leave the read-only analysis flow and use
+the ticket-bearing preview/apply/outcome workflow in
+[commands.md](commands.md#broker-guarded-comments). There is no comment mutation
+MCP tool, and project-page authorization cannot be reused for apply.
+
 For one exact issue and a relationship/discovery question, begin with one typed
 `jira_issue_graph` call when available, or the CLI under `ATL_READ_ONLY=1`.
 Start with the default full schema-v2 read at depth zero. Verify top-level
