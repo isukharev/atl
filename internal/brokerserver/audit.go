@@ -185,11 +185,11 @@ func validAuditEvent(event AuditEvent) bool {
 		return false
 	}
 	switch event.Route {
-	case "data_execute", "data_protocol", "data_cache_qualification", "data_unknown", "admin_health", "admin_readiness", "admin_unknown":
+	case "data_execute", "data_execute_v2", "data_discovery_v3", "data_protocol", "data_cache_qualification", "data_unknown", "admin_health", "admin_readiness", "admin_unknown":
 	default:
 		return false
 	}
-	if event.Operation != "" && event.Operation != string(domain.BrokerOperationJiraIssueRead) && event.Operation != string(domain.BrokerOperationConfluencePageRead) {
+	if event.Operation != "" && event.Operation != string(domain.BrokerOperationJiraIssueRead) && event.Operation != string(domain.BrokerOperationConfluencePageRead) && event.Operation != string(domain.BrokerOperationJiraProjectIssuePageRead) {
 		return false
 	}
 	switch event.Outcome {

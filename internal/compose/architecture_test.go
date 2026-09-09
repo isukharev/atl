@@ -1,8 +1,10 @@
 package compose
 
 import (
+	"bytes"
 	"fmt"
 	"go/ast"
+	"go/format"
 	"go/parser"
 	"go/token"
 	"os"
@@ -214,8 +216,8 @@ func scanHTTPConstructorReferences(file *ast.File, relative string) ([]construct
 func validateReviewedConstructorCall(t *testing.T, key string, call *ast.CallExpr) {
 	t.Helper()
 	if key == "adapter/brokerclient/client.go:newHTTPClient:httpx.NewWithSchedulerTLS" {
-		if call.Ellipsis != token.NoPos || len(call.Args) != 5 {
-			t.Errorf("%s must pass exactly the fixed Broker origin, session credential, version, scheduler and TLS configuration", key)
+		if !brokerClientConstructorIsFixed(call) {
+			t.Errorf("%s must pass exactly the fixed Broker origin, session credential, version, scheduler, TLS configuration and explicit no-proxy option", key)
 		}
 		return
 	}
@@ -244,6 +246,52 @@ func validateReviewedConstructorCall(t *testing.T, key string, call *ast.CallExp
 	argument, ok := resolved.Args[0].(*ast.Ident)
 	if !ok || argument.Name != "resolved" {
 		t.Errorf("%s does not pass the resolved adapter options", key)
+	}
+}
+
+func brokerClientConstructorIsFixed(call *ast.CallExpr) bool {
+	want := []string{"c.config.BaseURL", "string(session.Credential)", "c.config.Version", "c.config.Scheduler", "c.config.TLS", "httpx.WithNoProxy()"}
+	if call.Ellipsis != token.NoPos || len(call.Args) != len(want) {
+		return false
+	}
+	for index, argument := range call.Args {
+		var rendered bytes.Buffer
+		if format.Node(&rendered, token.NewFileSet(), argument) != nil || rendered.String() != want[index] {
+			return false
+		}
+	}
+	return true
+}
+
+func TestBrokerClientConstructorKeepsClosedNoProxyPolicy(t *testing.T) {
+	const valid = "httpx.NewWithSchedulerTLS(c.config.BaseURL, string(session.Credential), c.config.Version, c.config.Scheduler, c.config.TLS, httpx.WithNoProxy())"
+	for _, test := range []struct {
+		name, old, replacement string
+		allowed                bool
+	}{
+		{name: "fixed control", allowed: true},
+		{name: "missing policy", old: ", httpx.WithNoProxy()", replacement: ""},
+		{name: "other option", old: "httpx.WithNoProxy()", replacement: "httpx.WithTrace(nil)"},
+		{name: "spread options", old: "httpx.WithNoProxy()", replacement: "options..."},
+		{name: "extra option", old: "httpx.WithNoProxy()", replacement: "httpx.WithNoProxy(), httpx.WithTrace(nil)"},
+		{name: "request origin", old: "c.config.BaseURL", replacement: "request.URL.String()"},
+		{name: "ambient credential", old: "string(session.Credential)", replacement: "token"},
+		{name: "missing scheduler", old: "c.config.Scheduler", replacement: "nil"},
+		{name: "different TLS", old: "c.config.TLS", replacement: "options.TLS"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			source := valid
+			if test.old != "" {
+				source = strings.Replace(valid, test.old, test.replacement, 1)
+			}
+			expression, err := parser.ParseExpr(source)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if brokerClientConstructorIsFixed(expression.(*ast.CallExpr)) != test.allowed {
+				t.Fatal("constructor boundary accepted the wrong policy shape")
+			}
+		})
 	}
 }
 

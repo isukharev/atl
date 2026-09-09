@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "contract_version": "0.1.0-pre-release",
-  "golden_bundle": {"path":"testdata/standalone-readability-golden.v1.json","sha256":"81574246b832bf084458e8aa1828e45f19acd1cecb164f462a6836b57b9348b6"},
+  "golden_bundle": {"path":"testdata/standalone-readability-golden.v1.json","sha256":"43ddd09df7326531e3e330292a0c291e38968f8959956c3c4c203e55d90279dd"},
   "readability": [
     {"namespace":"atl-profile","kind":"activation-reference","versions":[1,2]},
     {"namespace":"atl-profile","kind":"activation-report","versions":[1,2]},

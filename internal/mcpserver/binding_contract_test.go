@@ -45,11 +45,12 @@ func TestToolProfileAndConfigClassifierBindings(t *testing.T) {
 		{"jira_issue_refs", ServiceJira, false, map[string]any{"key": "PROJ-1"}, "Jira issue reference summary service is not configured"},
 		{"jira_issue_search", ServiceJira, false, map[string]any{"jql": "project = PROJ"}, "tool request failed"},
 		{"jira_mirror_snapshot", ServiceJira, true, map[string]any{}, "local mirror root is not configured or is invalid"},
+		{"jira_project_issue_page", ServiceJira, false, map[string]any{"project_key": "PROJ", "fields": []any{"summary"}}, "tool request failed"},
 		{"jira_structure_get", ServiceJira, false, map[string]any{"structure_id": 1}, "Jira Structure service is not configured"},
 		{"jira_structure_view", ServiceJira, false, map[string]any{"structure_id": 1}, "Jira Structure service is not configured"},
 	}
-	if len(bindings) != 24 {
-		t.Fatalf("binding rows=%d want=24", len(bindings))
+	if len(bindings) != 25 {
+		t.Fatalf("binding rows=%d want=25", len(bindings))
 	}
 
 	wantProfile := map[ServiceProfile][]string{

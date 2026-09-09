@@ -35,16 +35,17 @@ func (*closingTransport) RoundTrip(*http.Request) (*http.Response, error) {
 func (t *closingTransport) CloseIdleConnections() { t.closes++ }
 
 func TestClientCloseIdleConnectionsClosesOwnedPools(t *testing.T) {
-	transport := &closingTransport{}
+	ordinary := &closingTransport{}
+	strict := &closingTransport{}
 	scheduler, err := NewScheduler(1, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	wrapped := scheduledRoundTripper{base: readBudgetTransport{base: redirectIdleTransport{base: transport}}, scheduler: scheduler}
+	wrapped := scheduledRoundTripper{base: readBudgetTransport{base: redirectIdleTransport{base: strictDispatchTransport{ordinary: ordinary, strict: strict}}}, scheduler: scheduler}
 	client := &Client{hc: &http.Client{Transport: wrapped}, dl: &http.Client{Transport: wrapped}}
 	client.CloseIdleConnections()
-	if transport.closes != 2 {
-		t.Fatalf("close calls=%d", transport.closes)
+	if ordinary.closes != 2 || strict.closes != 2 {
+		t.Fatalf("ordinary close calls=%d strict close calls=%d", ordinary.closes, strict.closes)
 	}
 	(*Client)(nil).CloseIdleConnections()
 }

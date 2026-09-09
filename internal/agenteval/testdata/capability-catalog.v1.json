@@ -6,7 +6,7 @@
     "stop": "stop expanding the route when sufficient complete evidence is available"
   },
   "selection": {
-    "count": 70
+    "count": 71
   },
   "capabilities": [
     {
@@ -858,6 +858,30 @@
         "id"
       ],
       "evidence": "snapshot",
+      "completeness": "explicit",
+      "skill": "jira",
+      "reference": "reference/evidence-workflow.md"
+    },
+    {
+      "id": "jira.project.issue-page",
+      "task_class": "jira/evidence",
+      "service": "jira",
+      "role": "primary",
+      "priority": 7,
+      "summary": "Read one Broker-qualified bounded issue page for an exact Jira project",
+      "command": "jira issue project-page",
+      "cli_command": "jira issue project-page",
+      "mcp_tool": "jira_project_issue_page",
+      "mcp_scope": "One fixed project page with summary/description only, explicit coordinate exhaustion, and an encoded-result cap.",
+      "cli_only": false,
+      "access": "read-only",
+      "effect_profile": "remote-read-fixed",
+      "output_modes": [
+        "json",
+        "text",
+        "id"
+      ],
+      "evidence": "qualified",
       "completeness": "explicit",
       "skill": "jira",
       "reference": "reference/evidence-workflow.md"

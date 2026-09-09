@@ -1,9 +1,9 @@
 # Broker semantic contract
 
 This document defines ATL's Broker semantic contracts and authenticated HTTP
-v1. Explicit Broker client mode routes the supported exact Jira issue and
-Confluence page reads through the local host; direct mode remains the default.
-Execution-scoped discovery v2 and qualified corpus handoff use separate
+v1 and the bounded project-page execution-v2 family. Explicit Broker client
+mode routes supported Jira and Confluence reads through the local host; direct
+mode remains the default. Execution-scoped discovery and qualified corpus handoff use separate
 authenticated routes. Guarded writes, durable outcomes, Broker capture/refresh,
 and broader cache reuse remain unavailable until their owning slices compose.
 
@@ -21,11 +21,12 @@ unchanged v1 qualification request/decision. The normative strict codecs and can
 does not prove duplicate-key rejection, temporal ordering, authority provenance
 or canonical bytes.
 
-A gated bounded-page foundation has its own semantic
+A bounded-page family has its own semantic
 [`schemas/broker-execution-v2.schema.json`](schemas/broker-execution-v2.schema.json).
 It defines one structured Jira project-page operation without changing the v1
-schema, registry or digest namespace. It is not present on an HTTP route,
-remote client, CLI, MCP surface or discovery projection yet.
+schema, registry or digest namespace. Its fixed `/v2/execute` route, CLI/MCP
+consumers and discovery-v3 sibling are described below; broader search,
+streaming and write families are not inferred from its availability.
 
 ## Trust boundary
 
@@ -53,6 +54,7 @@ A Broker authorization never replaces the final adapter clearance.
 
 The server core has exact typed routes: `POST /v1/execute` for the two available
 read operations, `POST /v2/cache/qualify` for the separate cache family, and
+`POST /v2/execute` for one project page, alongside
 authenticated `GET /v1/protocol` for schema, registry,
 profile metadata, and the configured Broker id and workload audience. A client
 checks that identity against its fixed configuration before execution. The
@@ -225,6 +227,12 @@ cannot be dispatched after that lease. The service buffers the complete result
 and checks identity, scope, version, projection, request binding and the current
 final decision again before returning it to a future transport. Expiry or
 observed drift discards the result without publishing resource content.
+
+Exact and project-page reads additionally anchor every decision's
+`expires_at_ms - issued_at_ms` duration to a local monotonic observation before
+the authorization call. The earlier local lease or signed expiry bounds the
+next phase and final release; allowed authority clock skew does not extend it.
+Signed decision bytes and their digest bindings are unchanged.
 
 Version 1 offers `identity_snapshot_v1` consistency. Project, space, ancestors
 and revision are qualified snapshot facts for one immutable resource. Matching
@@ -716,13 +724,51 @@ recovery action. Existing v1 transport failure mappings remain unchanged.
 
 ## Gated Jira project-page execution v2 foundation
 
-The separate execution-v2 semantic family defines
-`jira.project.issue_page.read` operation version 1. Its registry entry is
-deliberately unavailable: the strict codec, Jira reader and injected
-application coordinator can be tested, but no runtime catalog or route may
-advertise it. Runtime enablement requires a separately reviewed transport and
-authority adapter plus a contract-family-aware successor to discovery v2.
-Discovery v2 remains bound to the v1 exact-read registry and schema.
+The separate execution-v2 semantic family defines the available
+`jira.project.issue_page.read` operation version 1. Its formerly gated
+foundation now has fixed authority/server/client composition and explicit
+`jira issue project-page` / `jira_project_issue_page` consumers. Availability
+means compiled contract support, not permission or a configured Jira backend;
+an uncomposed service returns authenticated `unsupported`. Discovery v2 remains
+bound to the unchanged v1 registry and schema.
+
+The fixed-family discovery-v3 negotiation and projection routes are
+`/v3/discovery/negotiate` and `/v3/discovery`. They accept only Jira and
+`contract_family:"atl.broker.execution.v2"`, bind the current workload session,
+exact registry/schema/operation/effect/limit facts and a five-second lease,
+and never grant execution permission. Unknown families do not fall back to v2
+or v1. CLI `broker discover --family atl.broker.execution.v2` and the matching
+private zero-TTL MCP resource expose this advisory projection. Existing v1
+and discovery-v2 wire bytes and digest namespaces remain unchanged.
+
+Early overload or drain failures keep the request route's failure-envelope
+version. They can omit correlation before authentication has assigned one;
+successful execution and discovery replies always require valid correlation.
+
+The authority adapter posts exact strict v2 requests to
+`/v2/authorize/project-page/admission`, `/v2/authorize/project-page/qualification`
+and `/v2/authorize/project-page/operation`: each is single-attempt, redirect-free,
+bounded to five seconds, at most 2 MiB of request and 128 KiB of response/error
+bytes. The app validates each decision against its exact phase and current lease.
+Missing final authorization can follow two authorized metadata reads, but never
+permits the business read.
+
+The execution route installs one monotonic, parent-clipped 60-second deadline
+before body receipt or authentication. Discovery routes use a five-second
+ceiling. Unfinished bodies retain a connection read bound, and the clipped
+write deadline remains through explicit response flush and handler return.
+After body EOF, Go may start its next-request background read with a cleared
+read deadline; that is not an unbounded unfinished body. Completed requests
+retain normal keepalive reuse.
+
+The workload client starts its overall 60-second bound before loading the
+selected session. Fresh v3 discovery and execution share a three-request
+response budget of 16 KiB + 256 KiB + 129 MiB; failures are individually capped
+at 4 KiB. It retains the same credential and execution guards, reloads before
+execution and after buffering, and rejects even a same-guard credential
+replacement. Discovery checks both wall expiry and elapsed lease length.
+Broker clients never consult proxy settings, including with system TLS trust;
+ordinary Jira/Confluence adapters keep their existing transport defaults.
 
 The request is semantic rather than JQL. It contains one already canonical
 uppercase project key, a sorted unique subset of `summary` and `description`,

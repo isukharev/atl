@@ -54,6 +54,23 @@ func (e *brokerReadExecution) releaseDeadline(expiresAtMillis int64) time.Time {
 	return e.startedAt.Add(time.Duration(expiresAtMillis-e.startedAt.UnixMilli()) * time.Millisecond)
 }
 
+// decisionDeadline retains the signed wall expiry without allowing clock skew
+// to extend the locally observed lease. Capture callStartedMillis before I/O;
+// time spent obtaining the decision consumes the same lease.
+func (e *brokerReadExecution) decisionDeadline(core domain.BrokerDecisionCore, callStartedMillis int64) int64 {
+	return min(core.ExpiresAtMillis, callStartedMillis+core.ExpiresAtMillis-core.IssuedAtMillis)
+}
+
+func (e *brokerReadExecution) decisionError(deadlineMillis int64) error {
+	if err := e.contextError(); err != nil {
+		return err
+	}
+	if e.currentMillis() >= deadlineMillis {
+		return context.DeadlineExceeded
+	}
+	return nil
+}
+
 func (e *brokerReadExecution) qualificationContext(expiresAtMillis int64) (context.Context, context.CancelFunc, error) {
 	return e.phaseContext(e.qualification, expiresAtMillis)
 }
@@ -63,12 +80,23 @@ func (e *brokerReadExecution) businessContext(expiresAtMillis int64) (context.Co
 }
 
 func (e *brokerReadExecution) phaseContext(budget *domain.ReadBudget, expiresAtMillis int64) (context.Context, context.CancelFunc, error) {
+	ctx, cancel, err := e.decisionContext(expiresAtMillis)
+	if err != nil {
+		return nil, nil, err
+	}
+	return brokerReadRequestContext(ctx, budget), cancel, nil
+}
+
+func (e *brokerReadExecution) decisionContext(expiresAtMillis int64) (context.Context, context.CancelFunc, error) {
+	if err := e.contextError(); err != nil {
+		return nil, nil, err
+	}
 	remainingMillis := expiresAtMillis - e.currentMillis()
 	if remainingMillis <= 0 {
 		return nil, nil, context.DeadlineExceeded
 	}
 	ctx, cancel := context.WithTimeout(e.base, time.Duration(remainingMillis)*time.Millisecond)
-	return brokerReadRequestContext(ctx, budget), cancel, nil
+	return ctx, cancel, nil
 }
 
 func brokerReadRequestContext(ctx context.Context, budget *domain.ReadBudget) context.Context {

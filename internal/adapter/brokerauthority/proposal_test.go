@@ -259,8 +259,13 @@ func TestAuthorityProposalBoundsDeadlineResponseAndAttempts(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			var calls atomic.Int32
-			server := httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+			server := httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, incoming *http.Request) {
 				calls.Add(1)
+				defer incoming.Body.Close()
+				if _, err := io.Copy(io.Discard, incoming.Body); err != nil {
+					t.Errorf("read submitted proposal request: %v", err)
+					return
+				}
 				writer.WriteHeader(test.status)
 				_, _ = writer.Write(test.response)
 			}))

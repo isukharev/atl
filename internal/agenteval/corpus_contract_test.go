@@ -62,8 +62,21 @@ func TestRepositoryBenchmarkCorpusContract(t *testing.T) {
 	}
 	sort.Strings(definedTools)
 	knownTools := KnownMCPToolNames()
-	if !slices.Equal(definedTools, knownTools) || !slices.Equal(coveredTools, knownTools) {
-		t.Fatalf("MCP inventories diverged: definitions=%v evaluator=%v corpus=%v", definedTools, knownTools, coveredTools)
+	// The existing 24 corpus-covered tools retain all paired-provider corpus
+	// requirements above. The sole Broker-only page has a separate selected-
+	// process evidence class, not equivalent direct-backend benchmark coverage.
+	// Its evaluator refusal probe and product positive oracle are documented
+	// with the closed tool constant in jira_project_page_process_test.go.
+	brokerSelectedProcessOnlyTools := []string{brokerSelectedProcessOnlyMCPTool}
+	for _, tool := range brokerSelectedProcessOnlyTools {
+		if slices.Contains(coveredTools, tool) {
+			t.Fatalf("MCP evidence classes overlap: %s", tool)
+		}
+	}
+	evidencedTools := append(slices.Clone(coveredTools), brokerSelectedProcessOnlyTools...)
+	sort.Strings(evidencedTools)
+	if !slices.Equal(definedTools, knownTools) || !slices.Equal(evidencedTools, knownTools) {
+		t.Fatalf("MCP inventories diverged: definitions=%v evaluator=%v paired_corpus=%v broker_selected_process=%v", definedTools, knownTools, coveredTools, brokerSelectedProcessOnlyTools)
 	}
 }
 

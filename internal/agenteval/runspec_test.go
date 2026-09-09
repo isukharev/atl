@@ -102,7 +102,7 @@ func TestRunSpecMCPServiceProfileIsClosedAndToolBound(t *testing.T) {
 		profile string
 		tools   []string
 	}{
-		{name: "jira", profile: "jira", tools: []string{"jira_fields", "jira_mirror_snapshot"}},
+		{name: "jira", profile: "jira", tools: []string{"jira_fields", "jira_mirror_snapshot", "jira_project_issue_page"}},
 		{name: "confluence", profile: "confluence", tools: []string{"confluence_page_section", "confluence_mirror_snapshot"}},
 		{name: "offline", profile: "offline", tools: []string{"jira_mirror_snapshot", "confluence_mirror_snapshot"}},
 	} {
@@ -132,6 +132,14 @@ func TestRunSpecMCPServiceProfileIsClosedAndToolBound(t *testing.T) {
 		"offline with online tool": func(spec *RunSpec) {
 			spec.MCPServiceProfile = "offline"
 			spec.AllowedMCPTools = []string{"jira_fields"}
+		},
+		"offline with Broker page": func(spec *RunSpec) {
+			spec.MCPServiceProfile = "offline"
+			spec.AllowedMCPTools = []string{"jira_project_issue_page"}
+		},
+		"confluence with Broker page": func(spec *RunSpec) {
+			spec.MCPServiceProfile = "confluence"
+			spec.AllowedMCPTools = []string{"jira_project_issue_page"}
 		},
 		"cli": func(spec *RunSpec) {
 			spec.ToolTransport = "cli"
@@ -165,7 +173,7 @@ func TestRunSpecMCPServiceProfileIsClosedAndToolBound(t *testing.T) {
 	expected := map[string][]string{
 		"jira": {
 			"jira_board_view", "jira_epic_digest", "jira_fields", "jira_issue_field_get", "jira_issue_graph",
-			"jira_issue_history", "jira_issue_refs", "jira_issue_search", "jira_mirror_snapshot", "jira_structure_get", "jira_structure_view",
+			"jira_issue_history", "jira_issue_refs", "jira_issue_search", "jira_mirror_snapshot", "jira_project_issue_page", "jira_structure_get", "jira_structure_view",
 		},
 		"confluence": {
 			"confluence_attachment_list", "confluence_attachment_search", "confluence_comment_list", "confluence_comment_thread", "confluence_mirror_snapshot", "confluence_page_meta", "confluence_page_outline",

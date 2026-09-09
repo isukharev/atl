@@ -137,6 +137,16 @@ artifact and is never part of this public corpus.
 
 ## Public synthetic suite
 
+The paired-provider corpus covers 24 MCP tools with its existing
+primary/holdout and repetition requirements. The Broker-only
+`jira_project_issue_page` has a separate selected-process evidence class:
+positive CLI/MCP conformance through Broker, authority and Jira in the product
+tests, and an evaluator-owned direct-mode refusal test proving zero HTTP traffic.
+It is recognized in the 25-tool runtime inventory, but has neither paired-provider
+corpus coverage nor a claimed neutral equivalence to direct Jira search. The
+repository gate requires the two evidence classes to be disjoint and their exact
+union to match the product/evaluator inventory; unknown tools still fail.
+
 ### Skill discovery routing contract
 
 The provider-neutral registry at `skills-src/routing.v1.json` and the synthetic

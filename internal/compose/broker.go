@@ -113,6 +113,7 @@ func newBrokerRuntime(material *brokerconfig.Material, version string, auditWrit
 	}
 
 	var jiraReader app.BrokerJiraIssueReader
+	var projectPages *app.BrokerProjectPageService
 	var confluenceReader app.BrokerConfluencePageReader
 	guardCredentials := [][]byte{material.AuthorityCredential}
 	closers := []idleConnectionCloser{authority}
@@ -130,6 +131,10 @@ func newBrokerRuntime(material *brokerconfig.Material, version string, auditWrit
 			return nil, fmt.Errorf("%w: invalid Broker Jira origin", domain.ErrConfig)
 		}
 		jiraReader = app.BrokerJiraIssueReader{Backend: domain.BrokerBackendBinding{Service: "jira", OriginSHA256: origin, WorkloadBackendID: selected.WorkloadBackendID}, Reader: reader}
+		projectPages, err = app.NewBrokerProjectPageService(authority, app.BrokerJiraProjectPageReader{Backend: jiraReader.Backend, Reader: reader})
+		if err != nil {
+			return nil, fmt.Errorf("%w: invalid Broker project-page service", domain.ErrConfig)
+		}
 		closers = append(closers, reader)
 		guardCredentials = append(guardCredentials, material.JiraCredential)
 	}
@@ -162,7 +167,7 @@ func newBrokerRuntime(material *brokerconfig.Material, version string, auditWrit
 	if err != nil {
 		return nil, fmt.Errorf("%w: invalid Broker credential guard", domain.ErrConfig)
 	}
-	data, err := brokerserver.New(brokerserver.Config{Audience: material.Config.DataAudience, BrokerID: material.Config.BrokerID, MaxConcurrent: 1}, brokerserver.Dependencies{Authenticator: authority, Reads: reads, Cache: cache, Guard: guard})
+	data, err := brokerserver.New(brokerserver.Config{Audience: material.Config.DataAudience, BrokerID: material.Config.BrokerID, MaxConcurrent: 1}, brokerserver.Dependencies{Authenticator: authority, Reads: reads, Cache: cache, ProjectPages: projectPages, Guard: guard})
 	if err != nil {
 		guard.Close()
 		return nil, fmt.Errorf("%w: invalid Broker data handler", domain.ErrConfig)

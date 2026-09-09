@@ -9,8 +9,8 @@ import (
 
 func TestDefinitionsReturnsDefensiveCopy(t *testing.T) {
 	first := Definitions()
-	if len(first) != 70 {
-		t.Fatalf("definitions=%d want=70", len(first))
+	if len(first) != 71 {
+		t.Fatalf("definitions=%d want=71", len(first))
 	}
 	want := first[0]
 	first[0] = Definition{ID: "changed"}
@@ -27,7 +27,7 @@ func TestDefinitionsCanonicalMetadataDigestIsStable(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := sha256.Sum256(encoded)
-	const want = "4416228bedc713d9a6536715471ce423cfbc1cc40f90cebe9ed38672abaf4e55"
+	const want = "b518860c6b335f818ebeef20b0661844aa9e5cdf5802624f214de2383d0a5095"
 	if hex.EncodeToString(got[:]) != want {
 		t.Fatalf("definition metadata digest=%x", got)
 	}
@@ -51,8 +51,8 @@ func TestDefinitionsTransportMappings(t *testing.T) {
 			mappedMutating++
 		}
 	}
-	if mapped != 33 || cliOnly != 37 {
-		t.Fatalf("mapped=%d cli_only=%d want=33/37", mapped, cliOnly)
+	if mapped != 34 || cliOnly != 37 {
+		t.Fatalf("mapped=%d cli_only=%d want=34/37", mapped, cliOnly)
 	}
 	if mappedMutating != 0 {
 		t.Fatalf("mapped mutating definitions=%d want=0", mappedMutating)

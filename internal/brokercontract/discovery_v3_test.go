@@ -115,11 +115,11 @@ func TestFamilyDiscoveryV3RejectsUnknownOrOmittedFamily(t *testing.T) {
 	}
 }
 
-func TestFamilyDiscoveryV3BindsExactGatedRegistryRow(t *testing.T) {
+func TestFamilyDiscoveryV3BindsExactAvailableRegistryRow(t *testing.T) {
 	_, _, projection := familyDiscoveryV3Fixtures(t)
 	definition := RegistryV2()[0].Definition
-	if definition.Available || len(AvailableDefinitionsV2()) != 0 || len(projection.Operations) != 0 {
-		t.Fatalf("gated definition=%+v projection=%+v", definition, projection.Operations)
+	if !definition.Available || len(AvailableDefinitionsV2()) != 1 || len(projection.Operations) != 1 {
+		t.Fatalf("available definition=%+v projection=%+v", definition, projection.Operations)
 	}
 	operation := familyDiscoveryOperationV3Fixture(definition)
 	if !validFamilyDiscoveryOperationV3(operation, definition) {
@@ -159,8 +159,11 @@ func TestFamilyDiscoveryV3BindsExactGatedRegistryRow(t *testing.T) {
 	}
 	for name, mutate := range map[string]func(*domain.BrokerFamilyDiscoveryProjectionV3){
 		"null operations": func(value *domain.BrokerFamilyDiscoveryProjectionV3) { value.Operations = nil },
-		"operation": func(value *domain.BrokerFamilyDiscoveryProjectionV3) {
-			value.Operations = []domain.BrokerFamilyDiscoveryOperationV3{operation}
+		"missing operation": func(value *domain.BrokerFamilyDiscoveryProjectionV3) {
+			value.Operations = []domain.BrokerFamilyDiscoveryOperationV3{}
+		},
+		"extra operation": func(value *domain.BrokerFamilyDiscoveryProjectionV3) {
+			value.Operations = append(value.Operations, cloneFamilyDiscoveryV3Operation(operation))
 		},
 		"registry": func(value *domain.BrokerFamilyDiscoveryProjectionV3) { value.RegistrySHA256 = digestChar('f') },
 		"contract": func(value *domain.BrokerFamilyDiscoveryProjectionV3) { value.ContractSchemaSHA256 = digestChar('f') },
@@ -185,11 +188,20 @@ func TestFamilyDiscoveryV3RejectsExpandedOrLossyJSON(t *testing.T) {
 	requestWire, _ := EncodeFamilyDiscoveryRequestV3(request)
 	authorizationWire, _ := EncodeFamilyDiscoveryAuthorizationRequestV3(authorization)
 	projectionWire, _ := EncodeFamilyDiscoveryProjectionV3(projection)
+	var nullProjection familyDiscoveryProjectionV3Wire
+	if err := json.Unmarshal(projectionWire, &nullProjection); err != nil {
+		t.Fatal(err)
+	}
+	nullProjection.Operations = nil
+	nullProjectionWire, err := json.Marshal(nullProjection)
+	if err != nil {
+		t.Fatal(err)
+	}
 	for name, data := range map[string][]byte{
 		"request duplicate":      bytes.Replace(requestWire, []byte(`"service":`), []byte(`"service":"jira","service":`), 1),
 		"request unknown":        bytes.Replace(requestWire, []byte(`"service":`), []byte(`"policy":true,"service":`), 1),
 		"authorization trailing": append(bytes.Clone(authorizationWire), []byte(`{}`)...),
-		"projection null list":   bytes.Replace(projectionWire, []byte(`"operations":[]`), []byte(`"operations":null`), 1),
+		"projection null list":   nullProjectionWire,
 		"invalid utf8":           bytes.Replace(projectionWire, []byte(`"request_id":"request-1"`), []byte("\"request_id\":\"request-\xff\""), 1),
 	} {
 		t.Run(name, func(t *testing.T) {

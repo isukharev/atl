@@ -38,6 +38,7 @@ type Dependencies struct {
 	Authenticator brokertransport.Authenticator
 	Reads         *app.BrokerReadService
 	Cache         *app.BrokerCacheQualificationService
+	ProjectPages  *app.BrokerProjectPageService
 	Guard         *CredentialGuard
 }
 
@@ -46,6 +47,7 @@ type Handler struct {
 	authenticator brokertransport.Authenticator
 	reads         *app.BrokerReadService
 	cache         *app.BrokerCacheQualificationService
+	projectPages  *app.BrokerProjectPageService
 	guard         *CredentialGuard
 	permits       chan struct{}
 	random        io.Reader
@@ -57,13 +59,24 @@ func New(config Config, dependencies Dependencies) (*Handler, error) {
 	if identityErr != nil || config.MaxConcurrent <= 0 || config.MaxConcurrent > 64 || dependencies.Authenticator == nil || dependencies.Reads == nil || dependencies.Guard == nil {
 		return nil, fmt.Errorf("%w: invalid Broker server configuration", domain.ErrUsage)
 	}
-	return &Handler{config: config, authenticator: dependencies.Authenticator, reads: dependencies.Reads, cache: dependencies.Cache, guard: dependencies.Guard, permits: make(chan struct{}, config.MaxConcurrent), random: rand.Reader, now: time.Now}, nil
+	return &Handler{config: config, authenticator: dependencies.Authenticator, reads: dependencies.Reads, cache: dependencies.Cache, projectPages: dependencies.ProjectPages, guard: dependencies.Guard, permits: make(chan struct{}, config.MaxConcurrent), random: rand.Reader, now: time.Now}, nil
 }
 
 func (h *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
+	started := time.Now()
 	if h == nil {
 		writeUnscannedFailure(writer, domain.BrokerReasonAuthorizationUnavailable)
 		return
+	}
+	if request != nil && request.URL != nil {
+		switch request.URL.Path {
+		case brokertransport.ExecutePathV2:
+			h.serveProjectPage(writer, request, started)
+			return
+		case brokertransport.DiscoveryNegotiatePathV3, brokertransport.DiscoveryPathV3:
+			h.serveFamilyDiscovery(writer, request, started)
+			return
+		}
 	}
 	if request != nil && request.URL != nil && (request.URL.Path == brokertransport.DiscoveryNegotiatePathV2 || request.URL.Path == brokertransport.DiscoveryPathV2) {
 		h.serveDiscovery(writer, request)
@@ -213,7 +226,7 @@ func (h *Handler) routeValid(request *http.Request) bool {
 		return false
 	}
 	switch request.URL.Path {
-	case ExecutePath, brokertransport.DiscoveryNegotiatePathV2, brokertransport.DiscoveryPathV2, brokertransport.CacheQualificationPathV2:
+	case ExecutePath, brokertransport.DiscoveryNegotiatePathV2, brokertransport.DiscoveryPathV2, brokertransport.CacheQualificationPathV2, brokertransport.ExecutePathV2, brokertransport.DiscoveryNegotiatePathV3, brokertransport.DiscoveryPathV3:
 		return request.Method == http.MethodPost && len(request.Header.Values("Content-Type")) == 1 && request.Header.Get("Content-Type") == "application/json"
 	case ProtocolPath:
 		return request.Method == http.MethodGet && request.ContentLength == 0 && len(request.TransferEncoding) == 0 && len(request.Header.Values("Content-Type")) == 0

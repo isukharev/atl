@@ -74,7 +74,7 @@ func TestServerAdvertisesOnlyTypedReadOnlyTools(t *testing.T) {
 		"confluence_page_meta", "confluence_page_outline", "confluence_page_resolve", "confluence_page_section", "confluence_page_sections", "confluence_search",
 		"confluence_table_extract", "confluence_table_summary",
 		"jira_board_view", "jira_epic_digest", "jira_fields", "jira_issue_field_get", "jira_issue_graph",
-		"jira_issue_history", "jira_issue_refs", "jira_issue_search", "jira_mirror_snapshot", "jira_structure_get", "jira_structure_view",
+		"jira_issue_history", "jira_issue_refs", "jira_issue_search", "jira_mirror_snapshot", "jira_project_issue_page", "jira_structure_get", "jira_structure_view",
 	}
 	got := make([]string, 0, len(listed.Tools))
 	for _, tool := range listed.Tools {
@@ -94,6 +94,23 @@ func TestServerAdvertisesOnlyTypedReadOnlyTools(t *testing.T) {
 		}
 		if tool.Name == "jira_epic_digest" && !schemaRequired(input, "include") {
 			t.Errorf("tool %s must require an explicit include: %#v", tool.Name, tool.InputSchema)
+		}
+		if tool.Name == "jira_project_issue_page" {
+			properties, _ := input["properties"].(map[string]any)
+			if len(properties) != 5 || !schemaRequired(input, "project_key") {
+				t.Errorf("project-page selector shape changed: %#v", input)
+			}
+			for _, name := range []string{"project_key", "fields", "limit", "cursor", "max_bytes"} {
+				if _, exists := properties[name]; !exists {
+					t.Errorf("project-page input omits %s", name)
+				}
+			}
+			output, _ := tool.OutputSchema.(map[string]any)
+			for _, name := range []string{"schema_version", "arguments_sha256", "consistency_profile", "project_id", "project_key", "issues", "page", "complete"} {
+				if !schemaRequired(output, name) {
+					t.Errorf("project-page output omits required %s", name)
+				}
+			}
 		}
 		if tool.Name == "confluence_search" {
 			properties, _ := input["properties"].(map[string]any)

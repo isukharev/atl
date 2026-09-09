@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -68,8 +69,16 @@ func TestSelectedMCPProcessRefreshesBrokerDiscoveryAndNeverGrantsAdmission(t *te
 	defer session.Close()
 	listed, err := session.ListResources(ctx, nil)
 	authCalls, _ := counts()
-	if err != nil || len(listed.Resources) != 3 || authCalls != 0 {
+	if err != nil || listed == nil || authCalls != 0 {
 		t.Fatalf("listing=%+v err=%v auth=%d", listed, err, authCalls)
+	}
+	var resourceURIs []string
+	for _, resource := range listed.Resources {
+		resourceURIs = append(resourceURIs, resource.URI)
+	}
+	slices.Sort(resourceURIs)
+	if !slices.Equal(resourceURIs, []string{"atl://broker/discovery/jira", "atl://broker/discovery/jira/atl.broker.execution.v2", "atl://capabilities", "atl://runtime"}) {
+		t.Fatalf("unexpected static Jira resources: %v", resourceURIs)
 	}
 	read := func() (domain.BrokerDiscoveryProjectionV2, error) {
 		result, err := session.ReadResource(ctx, &mcp.ReadResourceParams{URI: "atl://broker/discovery/jira"})

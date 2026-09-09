@@ -13,7 +13,7 @@ requests approval is false.
 
 The exact tools are:
 
-- `jira_fields`, `jira_issue_search`, `jira_issue_field_get`,
+- `jira_fields`, `jira_issue_search`, `jira_project_issue_page`, `jira_issue_field_get`,
   `jira_issue_history`, `jira_issue_graph`, `jira_issue_refs`, `jira_epic_digest`,
   `jira_board_view`, `jira_structure_get`, `jira_structure_view`,
   `jira_mirror_snapshot`;
@@ -25,7 +25,7 @@ The exact tools are:
   `confluence_mirror_snapshot`.
 
 The plugin starts the complete default inventory. For a standalone session,
-`atl mcp serve --service jira|confluence|offline` selects a closed 11/13/2 tool
+`atl mcp serve --service jira|confluence|offline` selects a closed 12/13/2 tool
 profile; it is not an arbitrary allowlist. The fixed offline
 `atl://capabilities` resource reports which curated CLI routes have a bounded
 typed mapping, its narrower scope, or an explicit CLI-only boundary. A mapping
@@ -47,6 +47,15 @@ operation access using the existing execution session, without PATs or direct
 fallback. Read again after a grant or revocation; never reuse discovery as
 authorization. `allowed` still requires per-invocation authorization, and
 `access_request_required` does not itself submit a request or grant access.
+
+For the fixed execution-v2 page family, default/Jira profiles additionally
+expose private zero-TTL `atl://broker/discovery/jira/atl.broker.execution.v2`.
+It uses discovery v3 without changing either v2 resource. Read one project
+page with `jira_project_issue_page` and canonical `project_key`, summary/
+description `fields`, 1..15 `limit`, decimal `cursor` and optional `max_bytes`.
+Every cursor is a fresh authorization cycle. Preserve field presence and
+`selection_complete:false`; coordinate exhaustion never proves a stable
+complete project. No arbitrary JQL, automatic pagination or direct fallback.
 
 ATL remains dual-era. Modern `2026-07-28` clients use stateless
 `server/discover`; legacy `2025-11-25` clients use initialize/initialized. The

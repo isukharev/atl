@@ -17,6 +17,13 @@ type clientOptions struct {
 	trace                 io.Writer
 	genericConflict       bool
 	requireWriteClearance bool
+	noProxy               bool
+}
+
+// WithNoProxy keeps this client's requests on their fixed destination without
+// consulting proxy settings. Other clients retain their existing transport.
+func WithNoProxy() Option {
+	return func(options *clientOptions) { options.noProxy = true }
 }
 
 // WithTrace writes content-safe request and response trace lines to w. A nil

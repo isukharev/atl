@@ -36,9 +36,8 @@ var projectPageQualificationStepsV2 = []domain.BrokerProjectPageQualificationSte
 	},
 }
 
-// RegistryV2 is the gated execution-v2 registry. Availability remains false
-// until a separately reviewed transport, runtime, and family-aware discovery
-// integration are composed.
+// RegistryV2 is the closed execution-v2 registry. Availability identifies
+// compiled contract support, not instance composition or execution permission.
 func RegistryV2() []domain.BrokerProjectPageOperationDefinitionV2 {
 	definition := domain.BrokerOperationDefinition{
 		ID:                   domain.BrokerOperationJiraProjectIssuePageRead,
@@ -54,7 +53,7 @@ func RegistryV2() []domain.BrokerProjectPageOperationDefinitionV2 {
 			"issues.updated", "key", "max_results", "start_at", "total",
 		},
 		RequiredFeatures: []string{"bounded_project_page_v1", domain.BrokerReadConsistencyIdentitySnapshotV1},
-		Available:        false,
+		Available:        true,
 		Streaming:        false,
 		Limits: domain.BrokerLimits{
 			MaxRequestBytes:               MaxProjectPageRequestBytesV2,

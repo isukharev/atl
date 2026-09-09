@@ -8,8 +8,8 @@ import (
 	"github.com/isukharev/atl/internal/domain"
 )
 
-func (s *BrokerReadService) executeJiraBrokerRead(execution *brokerReadExecution, request domain.BrokerRequest, qualification domain.BrokerQualificationRequest, qualificationDecision domain.BrokerQualificationDecision) (BrokerExactReadResult, error) {
-	phaseCtx, cancel, err := execution.qualificationContext(qualificationDecision.ExpiresAtMillis)
+func (s *BrokerReadService) executeJiraBrokerRead(execution *brokerReadExecution, request domain.BrokerRequest, qualification domain.BrokerQualificationRequest, qualificationDecision domain.BrokerQualificationDecision, qualificationDeadline int64) (BrokerExactReadResult, error) {
+	phaseCtx, cancel, err := execution.qualificationContext(qualificationDeadline)
 	if err != nil {
 		return BrokerExactReadResult{}, brokerReadError(err)
 	}
@@ -35,15 +35,22 @@ func (s *BrokerReadService) executeJiraBrokerRead(execution *brokerReadExecution
 	}
 	sort.Strings(fields)
 	operation := domain.BrokerOperationAuthorizationRequest{QualificationRequest: qualification, QualificationDecision: qualificationDecision, QualifiedResources: []domain.BrokerQualifiedResource{resource}, Effects: []domain.BrokerEffect{{Kind: domain.BrokerEffectRead, Resource: resource, Fields: fields}}}
-	decision, err := s.authorizer.AuthorizeOperation(execution.base, operation)
-	if err == nil {
-		err = execution.contextError()
+	authorityCtx, authorityCancel, err := execution.decisionContext(qualificationDeadline)
+	if err != nil {
+		return BrokerExactReadResult{}, brokerReadError(err)
 	}
+	operationStarted := execution.currentMillis()
+	decision, err := s.authorizer.AuthorizeOperation(authorityCtx, operation)
+	if err == nil {
+		err = authorityCtx.Err()
+	}
+	authorityCancel()
 	validationErr := brokercontract.ValidateOperationDecisionForV1(decision, operation, execution.currentMillis())
 	if err != nil || validationErr != nil {
 		return BrokerExactReadResult{}, brokerReadError(firstBrokerReadError(err, validationErr))
 	}
-	phaseCtx, cancel, err = execution.businessContext(decision.ExpiresAtMillis)
+	operationDeadline := execution.decisionDeadline(decision.BrokerDecisionCore, operationStarted)
+	phaseCtx, cancel, err = execution.businessContext(operationDeadline)
 	if err != nil {
 		return BrokerExactReadResult{}, brokerReadError(err)
 	}
@@ -62,11 +69,14 @@ func (s *BrokerReadService) executeJiraBrokerRead(execution *brokerReadExecution
 	if err := brokercontract.ValidateOperationDecisionForV1(decision, operation, execution.currentMillis()); err != nil {
 		return BrokerExactReadResult{}, brokerReadError(err)
 	}
-	return BrokerExactReadResult{JiraIssue: &result, ReleaseDeadline: execution.releaseDeadline(decision.ExpiresAtMillis)}, nil
+	if err := execution.decisionError(operationDeadline); err != nil {
+		return BrokerExactReadResult{}, brokerReadError(err)
+	}
+	return BrokerExactReadResult{JiraIssue: &result, ReleaseDeadline: execution.releaseDeadline(operationDeadline)}, nil
 }
 
-func (s *BrokerReadService) executeConfluenceBrokerRead(execution *brokerReadExecution, request domain.BrokerRequest, qualification domain.BrokerQualificationRequest, qualificationDecision domain.BrokerQualificationDecision) (BrokerExactReadResult, error) {
-	phaseCtx, cancel, err := execution.qualificationContext(qualificationDecision.ExpiresAtMillis)
+func (s *BrokerReadService) executeConfluenceBrokerRead(execution *brokerReadExecution, request domain.BrokerRequest, qualification domain.BrokerQualificationRequest, qualificationDecision domain.BrokerQualificationDecision, qualificationDeadline int64) (BrokerExactReadResult, error) {
+	phaseCtx, cancel, err := execution.qualificationContext(qualificationDeadline)
 	if err != nil {
 		return BrokerExactReadResult{}, brokerReadError(err)
 	}
@@ -88,15 +98,22 @@ func (s *BrokerReadService) executeConfluenceBrokerRead(execution *brokerReadExe
 	resource := domain.BrokerQualifiedResource{Kind: domain.BrokerResourceConfluencePage, ImmutableID: identity.ID, Space: identity.Space, AncestorIDs: append([]string{}, identity.AncestorIDs...), AncestorsPresent: identity.AncestorsPresent, VersionEvidence: versionSHA256, ProjectionSHA256: projectionSHA256}
 	projection := request.Arguments.ConfluencePageRead.Projection
 	operation := domain.BrokerOperationAuthorizationRequest{QualificationRequest: qualification, QualificationDecision: qualificationDecision, QualifiedResources: []domain.BrokerQualifiedResource{resource}, Effects: []domain.BrokerEffect{{Kind: domain.BrokerEffectRead, Resource: resource, Fields: []string{string(projection)}}}}
-	decision, err := s.authorizer.AuthorizeOperation(execution.base, operation)
-	if err == nil {
-		err = execution.contextError()
+	authorityCtx, authorityCancel, err := execution.decisionContext(qualificationDeadline)
+	if err != nil {
+		return BrokerExactReadResult{}, brokerReadError(err)
 	}
+	operationStarted := execution.currentMillis()
+	decision, err := s.authorizer.AuthorizeOperation(authorityCtx, operation)
+	if err == nil {
+		err = authorityCtx.Err()
+	}
+	authorityCancel()
 	validationErr := brokercontract.ValidateOperationDecisionForV1(decision, operation, execution.currentMillis())
 	if err != nil || validationErr != nil {
 		return BrokerExactReadResult{}, brokerReadError(firstBrokerReadError(err, validationErr))
 	}
-	phaseCtx, cancel, err = execution.businessContext(decision.ExpiresAtMillis)
+	operationDeadline := execution.decisionDeadline(decision.BrokerDecisionCore, operationStarted)
+	phaseCtx, cancel, err = execution.businessContext(operationDeadline)
 	if err != nil {
 		return BrokerExactReadResult{}, brokerReadError(err)
 	}
@@ -120,7 +137,10 @@ func (s *BrokerReadService) executeConfluenceBrokerRead(execution *brokerReadExe
 	if err := brokercontract.ValidateOperationDecisionForV1(decision, operation, execution.currentMillis()); err != nil {
 		return BrokerExactReadResult{}, brokerReadError(err)
 	}
-	return BrokerExactReadResult{ConfluencePage: &result, ReleaseDeadline: execution.releaseDeadline(decision.ExpiresAtMillis)}, nil
+	if err := execution.decisionError(operationDeadline); err != nil {
+		return BrokerExactReadResult{}, brokerReadError(err)
+	}
+	return BrokerExactReadResult{ConfluencePage: &result, ReleaseDeadline: execution.releaseDeadline(operationDeadline)}, nil
 }
 
 func sameBrokerConfluenceIdentity(left, right domain.BrokerConfluencePageIdentity) bool {

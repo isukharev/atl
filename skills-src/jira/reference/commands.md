@@ -21,6 +21,25 @@ exact owner-approved lowercase host equality and a separately authenticated
 read-only client, never Jira credentials. Use the CLI graph route for optional
 id/title-only Confluence resolution.
 
+## Broker project pages
+
+For one known project in Broker mode, use the bounded semantic page rather
+than forwarding JQL:
+
+```bash
+export ATL_READ_ONLY=1
+atl broker discover --service jira --family atl.broker.execution.v2
+atl jira issue project-page --project PROJ --fields summary,description --limit 15 --cursor 0
+```
+
+Only summary and description are selectable; explicit empty fields request
+identity evidence only. Cursor is a canonical decimal through 1,000,000, and
+each page reauthorizes. Read `issues` and `page`, not ordinary `IssueList.rows`.
+`complete` covers one authorized envelope; `selection_complete` is always false.
+Do not infer stable project absence from coordinate exhaustion. Unsupported
+operations have no direct REST or PAT fallback. MCP `jira_project_issue_page`
+uses the same projection with its explicit encoded-output bound.
+
 ## Inverse-reference search
 
 The `jira/inverse-reference` capability starts from one exact GitLab project or

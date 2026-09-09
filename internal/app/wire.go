@@ -87,6 +87,7 @@ type JiraService struct {
 	tr                                domain.Tracker
 	agile                             domain.Agile
 	structure                         domain.StructureReader
+	projectPages                      domain.BrokerJiraProjectPageReader
 	baseURL                           string
 	cfg                               *config.Config
 	confluenceBaseURL                 string
@@ -108,6 +109,7 @@ type JiraDependencies struct {
 	Tracker                    domain.Tracker
 	Agile                      domain.Agile
 	Structure                  domain.StructureReader
+	ProjectPages               domain.BrokerJiraProjectPageReader
 	BaseURL                    string
 	Config                     *config.Config
 	ConfluenceBaseURL          string
@@ -119,7 +121,7 @@ type JiraDependencies struct {
 // NewJiraService is a pure constructor from domain ports.
 func NewJiraService(deps JiraDependencies) *JiraService {
 	service := &JiraService{
-		tr: deps.Tracker, agile: deps.Agile, structure: deps.Structure,
+		tr: deps.Tracker, agile: deps.Agile, structure: deps.Structure, projectPages: deps.ProjectPages,
 		baseURL: deps.BaseURL, cfg: deps.Config, confluenceBaseURL: deps.ConfluenceBaseURL,
 		graphConfluenceFactory:   deps.ConfluenceGraphFactory,
 		inverseConfluenceBaseURL: deps.ConfluenceBaseURL,

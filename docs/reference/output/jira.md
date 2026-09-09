@@ -7,6 +7,7 @@ Jira mirrors, issue evidence and mutations, exports, graphs, references, and rep
 <!-- reference-navigation:start -->
 ## Navigate this reference
 
+- [Broker project issue page](#broker-project-issue-page)
 - [Guarded targeted description edits](#guarded-targeted-description-edits)
 - [Guarded Jira labels](#guarded-jira-labels)
 - [Guarded Jira links](#guarded-jira-links)
@@ -21,6 +22,50 @@ Jira mirrors, issue evidence and mutations, exports, graphs, references, and rep
 - [Guarded Jira CSV plans](#guarded-jira-csv-plans)
 - [Jira epic digest](#jira-epic-digest)
 <!-- reference-navigation:end -->
+
+## Broker project issue page
+
+`atl jira issue project-page` and typed MCP `jira_project_issue_page` emit the
+same application projection of the strict execution-v2 page result. This is
+not the ordinary Jira `IssueList` shape:
+
+```json named-jira-broker-project-page-shape
+{
+  "schema_version": 2,
+  "arguments_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "consistency_profile": "identity_snapshot_v1",
+  "project_id": "7",
+  "project_key": "PROJ",
+  "issues": [],
+  "page": {
+    "start_at": 0, "max_results": 15, "total": 0, "count": 0,
+    "next_cursor": "", "next_cursor_present": false,
+    "coordinate_exhausted": true, "selection_complete": false,
+    "partial_reason": ""
+  },
+  "complete": true
+}
+```
+
+The illustrative digest is a placeholder. Each issue preserves backend order
+and has `id`, `key`, `project_id`, `project_key`, `updated`, and `fields`.
+Each selected field explicitly reports `field`, `present`, `null` and `value`;
+absence, explicit null, empty string and an unrequested field remain distinct.
+No sibling field or resource is silently removed to make a partial buffer pass.
+
+`complete:true` means one complete authorized envelope, not a complete project.
+`page.coordinate_exhausted` compares this page's returned count and total;
+`page.selection_complete` is always false. A next offset is usable only when
+`next_cursor_present:true`. `pagination_stalled` and `offset_limit` have no next
+cursor. A cursor carries no grant: later pages independently discover and
+reauthorize, and separate offset pages do not establish stable global absence.
+The consistency profile binds immutable identities and observed revisions;
+it does not guarantee atomic current membership or rule out unobserved changes.
+
+CLI text bounds field cells and marks shortened text with `...`; JSON preserves
+the complete validated field values. MCP applies its separate encoded-output
+bound before returning either structured or text content and never substitutes
+clipped data for `output_limit_exceeded`.
 
 ## Guarded targeted description edits
 

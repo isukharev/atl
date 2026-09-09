@@ -13,3 +13,7 @@ func closeIdleConnections(transport http.RoundTripper) {
 func (t readBudgetTransport) CloseIdleConnections()   { closeIdleConnections(t.base) }
 func (t redirectIdleTransport) CloseIdleConnections() { closeIdleConnections(t.base) }
 func (t scheduledRoundTripper) CloseIdleConnections() { closeIdleConnections(t.base) }
+func (t strictDispatchTransport) CloseIdleConnections() {
+	closeIdleConnections(t.ordinary)
+	closeIdleConnections(t.strict)
+}

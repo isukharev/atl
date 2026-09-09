@@ -155,6 +155,7 @@ func TestRuntimeCacheMiddlewareIsNarrow(t *testing.T) {
 	}{
 		{name: "runtime read", method: "resources/read", uri: RuntimeResourceURI, wantScope: "private"},
 		{name: "Jira discovery read", method: "resources/read", uri: BrokerDiscoveryJiraURI, wantScope: "private"},
+		{name: "Jira execution-v2 discovery read", method: "resources/read", uri: BrokerDiscoveryJiraExecutionV2URI, wantScope: "private"},
 		{name: "Confluence discovery read", method: "resources/read", uri: BrokerDiscoveryConfluenceURI, wantScope: "private"},
 		{name: "discovery other method", method: "resources/list", uri: BrokerDiscoveryJiraURI, wantScope: "public"},
 		{name: "unknown discovery URI", method: "resources/read", uri: BrokerDiscoveryJiraURI + "/unknown", wantScope: "public"},

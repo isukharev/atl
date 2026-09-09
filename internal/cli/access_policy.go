@@ -296,6 +296,7 @@ R remote-read-with-local json,text jira issue link suggest
 M remote-write remote-direct update jira-two-issue-args - json jira issue link-epic
 M guarded-plan-apply dedicated-apply update,comment jira-plan confirm,expected-proposal-hash pre-config jira-plan json,text jira issue plan apply
 R guarded-plan-preview json,text jira-plan jira issue plan preview
+R remote-read-fixed json,text,id jira issue project-page
 R remote-read json,text jira issue refs
 R remote-read-caller-bounded json,text jira issue reference search
 R remote-read-fixed json,text,id jira issue search

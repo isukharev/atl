@@ -247,7 +247,7 @@ atl mcp serve --service confluence
 atl mcp serve --service offline
 ```
 
-The default process registers twenty-four explicit Jira/Confluence evidence tools and no
+The default process registers twenty-five explicit Jira/Confluence evidence tools and no
 mutation, shell, arbitrary-file, mirror-write, or raw-REST tool. Two no-argument
 tools inspect only an explicit valid `ATL_MIRROR_ROOT`, offline, and return
 content-free mirror health counts. Stdout is
@@ -287,8 +287,8 @@ both required for modern mode; either alone remains legacy. The plugin cannot
 enable the global feature. The marker selects client protocol behavior and is
 not identity, authentication, or provenance evidence.
 
-Omitting `--service` preserves the complete twenty-four-tool inventory and existing
-instructions. The closed Jira/Confluence/offline profiles expose 11/13/2 tools;
+Omitting `--service` selects the complete twenty-five-tool inventory and default
+instructions. The closed Jira/Confluence/offline profiles expose 12/13/2 tools;
 `offline` contains only the two no-argument mirror snapshots and
 constructs no backend reader. Unknown or repeated service selections fail
 before dependency construction. All profiles publish two fixed
@@ -322,6 +322,12 @@ descriptors loads no configuration, session, PAT, or backend. Each read lazily
 loads the selected Broker client and obtains fresh advisory access facts;
 responses are private with zero TTL. These resources do not change the static
 tool inventory. See [`atl broker discover`](#atl-broker-discover).
+
+The additional fixed-family resource
+`atl://broker/discovery/jira/atl.broker.execution.v2` is listed in default and
+Jira profiles, with the same private zero-TTL behavior. It returns discovery
+v3 for the bounded project-page family; it neither replaces the two v2
+resources nor changes them into execution grants.
 
 `confluence_page_meta` is the body-free governance read: it returns only
 schema/page identity, title, space, a positive version, an optional update
@@ -360,6 +366,7 @@ Broker service:
 ```bash named-broker-discover
 atl broker discover --service jira
 atl broker discover --service confluence -o text
+atl broker discover --service jira --family atl.broker.execution.v2
 ```
 
 `--service` is required and accepts exactly `jira` or `confluence`. The
@@ -369,6 +376,13 @@ Each invocation makes at most two authenticated single-attempt requests:
 discovery negotiation followed by the projection read. Discovery protocol v2
 is separately versioned from operation protocol v1; existing v1 session files
 and exact-read invocation bytes remain unchanged.
+
+Omitting `--family` preserves that discovery-v2 behavior. The sole nonempty
+family value `atl.broker.execution.v2` requires `--service jira` and selects
+the separate discovery-v3 routes and strict projection. Unknown families or
+service/family combinations fail before loading a session; there is no
+negotiation downgrade. Discovery v3 binds the execution-v2 registry and its
+schema independently of the unchanged v1/v2 contracts.
 
 The projection contains structural operation support, features, limits,
 effects, and current `allowed|access_request_required|unavailable` access.
@@ -411,8 +425,10 @@ pinned for the process lifetime; replacement takes effect only after restart.
 Windows hosting is refused because Go file modes cannot prove the required ACL
 ownership, while other ATL commands continue to build and run there.
 
-The data listener exposes the authenticated `/v1/execute` and `/v1/protocol`
-routes. The separate admin listener exposes authenticated `/healthz` and
+The data listener exposes authenticated `/v1/execute` and `/v1/protocol`,
+discovery-v2 routes, `/v2/execute` for bounded Jira project pages, fixed-family
+discovery-v3 routes, and the bounded cache-qualification route. The separate
+admin listener exposes authenticated `/healthz` and
 `/readyz` with its own audience. Health reports only `healthy`; readiness is
 `ready`, `draining`, or `unavailable`. Neither endpoint probes a backend or
 returns an origin, path, policy, credential fact, principal, or resource access

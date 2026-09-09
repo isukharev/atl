@@ -98,5 +98,5 @@ func newBrokerJiraService(cfg *config.Config, version string, authorizer domain.
 	if err != nil {
 		return nil, err
 	}
-	return app.NewJiraService(app.JiraDependencies{Tracker: tracker, Agile: tracker, Structure: tracker, Config: cfg, WriteAuthorizer: authorizer}), nil
+	return app.NewJiraService(app.JiraDependencies{Tracker: tracker, Agile: tracker, Structure: tracker, ProjectPages: tracker, Config: cfg, WriteAuthorizer: authorizer}), nil
 }

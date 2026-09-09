@@ -173,7 +173,7 @@ func privateRuntimeResourceCache(next mcp.MethodHandler) mcp.MethodHandler {
 			return result, err
 		}
 		params, ok := req.GetParams().(*mcp.ReadResourceParams)
-		if !ok || params == nil || (params.URI != RuntimeResourceURI && params.URI != BrokerDiscoveryJiraURI && params.URI != BrokerDiscoveryConfluenceURI) {
+		if !ok || params == nil || (params.URI != RuntimeResourceURI && params.URI != BrokerDiscoveryJiraURI && params.URI != BrokerDiscoveryConfluenceURI && params.URI != BrokerDiscoveryJiraExecutionV2URI) {
 			return result, nil
 		}
 		read, ok := result.(*mcp.ReadResourceResult)

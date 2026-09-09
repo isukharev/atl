@@ -11,8 +11,9 @@ import (
 )
 
 const (
-	BrokerDiscoveryJiraURI       = "atl://broker/discovery/jira"
-	BrokerDiscoveryConfluenceURI = "atl://broker/discovery/confluence"
+	BrokerDiscoveryJiraURI            = "atl://broker/discovery/jira"
+	BrokerDiscoveryConfluenceURI      = "atl://broker/discovery/confluence"
+	BrokerDiscoveryJiraExecutionV2URI = "atl://broker/discovery/jira/atl.broker.execution.v2"
 )
 
 var brokerDiscoveryReadPolicy = toolErrorPolicy{fallback: staticMessage("Broker discovery read failed")}
@@ -47,4 +48,37 @@ func registerBrokerDiscoveryResources(server *mcp.Server, deps Dependencies, pro
 			return &mcp.ReadResourceResult{Contents: []*mcp.ResourceContents{{URI: uri, MIMEType: "application/json", Text: string(body)}}}, nil
 		})
 	}
+	if profile != ServiceDefault && profile != ServiceJira {
+		return
+	}
+	const service = domain.ServerProductJira
+	uri := BrokerDiscoveryJiraExecutionV2URI
+	server.AddResource(&mcp.Resource{
+		URI: uri, Name: "atl-broker-discovery-jira-execution-v2",
+		Title:       "atl Broker Jira execution-v2 discovery",
+		Description: "Fresh private advisory access for the fixed atl.broker.execution.v2 family; every invocation reauthorizes.",
+		MIMEType:    "application/json",
+	}, func(ctx context.Context, _ *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
+		if deps.BrokerDiscovery == nil {
+			return nil, brokerDiscoveryReadPolicy.classify(fmt.Errorf("%w: Broker discovery is not configured", domain.ErrConfig))
+		}
+		reader, err := deps.BrokerDiscovery(service)
+		if err != nil {
+			return nil, brokerDiscoveryReadPolicy.classify(err)
+		}
+		familyReader, ok := reader.(domain.BrokerFamilyDiscoveryReaderV3)
+		if !ok {
+			_, err = brokercontract.ErrorForReason(domain.BrokerReasonUnsupported)
+			return nil, brokerDiscoveryReadPolicy.classify(err)
+		}
+		projection, err := familyReader.DiscoverFamily(ctx, service, domain.BrokerContractFamilyExecutionV2)
+		if err != nil {
+			return nil, brokerDiscoveryReadPolicy.classify(err)
+		}
+		body, err := brokercontract.EncodeFamilyDiscoveryProjectionV3(projection)
+		if err != nil {
+			return nil, brokerDiscoveryReadPolicy.classify(err)
+		}
+		return &mcp.ReadResourceResult{Contents: []*mcp.ResourceContents{{URI: uri, MIMEType: "application/json", Text: string(body)}}}, nil
+	})
 }

@@ -119,7 +119,7 @@ only when an external tool needs exact private base/theirs artifacts.
 When the installed plugin exposes `atl` MCP tools, prefer them for transient,
 bounded evidence reads: typed arguments remove shell construction and the
 server registers no mutation or arbitrary-filesystem tool. Load
-[mcp.md](reference/mcp.md) for its exact twenty-four-tool route and CLI fallback
+[mcp.md](reference/mcp.md) for its exact twenty-five-tool route and CLI fallback
 boundary. Use bounded Structure metadata/view through MCP. For content-free
 health counts of an existing durable mirror, use the no-argument mirror snapshot
 tool only when the owner has configured `ATL_MIRROR_ROOT`. Continue using the
@@ -127,10 +127,16 @@ CLI for raw Structure forest/values, mirror content/status/diff, exports,
 diff/plan, attachment content/downloads/uploads, and every guarded write.
 
 If `atl auth status` reports `mode: broker`, use only the Broker-supported
-exact-read subset: Jira issue get with an explicit nonempty subset of
+read subset: Jira issue get with an explicit nonempty subset of
 `summary,description,updated`, and numeric-id Confluence page
 metadata/CSF/outline/section reads. Treat `unsupported` as a closed capability
 boundary; do not retry through direct REST or request a backend PAT.
+For Jira project pages, use `jira issue project-page` or `jira_project_issue_page`
+with at most 15 issues and only summary/description. Every later cursor is freshly
+authorized; `selection_complete:false` never proves stable project absence.
+Discover this separate family with `broker discover --service jira --family
+atl.broker.execution.v2` or private
+`atl://broker/discovery/jira/atl.broker.execution.v2`; omitted family retains v2.
 Read `atl broker discover --service jira|confluence`, or the corresponding
 private MCP `atl://broker/discovery/jira|confluence` resource, for current
 operation support and advisory access. Each read is fresh; never cache or

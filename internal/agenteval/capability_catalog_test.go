@@ -139,7 +139,7 @@ func TestCapabilityCatalogMinimalProjectionPreservesProfiles(t *testing.T) {
 	want := map[string][]string{
 		"jira": {
 			"jira_board_view", "jira_epic_digest", "jira_fields", "jira_issue_field_get", "jira_issue_graph",
-			"jira_issue_history", "jira_issue_refs", "jira_issue_search", "jira_mirror_snapshot", "jira_structure_get", "jira_structure_view",
+			"jira_issue_history", "jira_issue_refs", "jira_issue_search", "jira_mirror_snapshot", "jira_project_issue_page", "jira_structure_get", "jira_structure_view",
 		},
 		"confluence": {
 			"confluence_attachment_list", "confluence_attachment_search", "confluence_comment_list", "confluence_comment_thread", "confluence_mirror_snapshot", "confluence_page_meta", "confluence_page_outline",
