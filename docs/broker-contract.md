@@ -504,6 +504,58 @@ commitments: trusted runtime execution/epoch invalidation is required before
 resuming writes after that storage rollback. This foundation provides no authority
 service, backend reconciliation or universal exactly-once delivery guarantee.
 
+### Injectable guarded Jira comment core
+
+The internal application core implements `jira.comment.preview` and
+`jira.comment.apply` version 1 without registering either operation. Its sole
+canonical `exact_jira_comment_v1` qualification profile is the
+`identity_snapshot_v1` consistency described above: the exact operation and
+version bind that profile through every authorization request. A synthetic or
+future production authority must opt into those weaker immutable-resource
+semantics. Credential possession, a successful late metadata read or an allowed
+decision for another profile is not consent. An authority whose maximum requires
+atomic current-project membership returns `unsupported_consistency` before
+protected dispatch.
+
+Preview uses one authorized issue-identity request and reuses that evidence for
+the actor and complete comment-inventory proposal, so qualification plus
+business work retains the 102-request total. It durably reserves the random
+operation ID before constructing the prospective apply arguments that contain
+it, then binds the apply ticket, proposal, operation-specific native digest,
+complete backend, immutable issue target, effects and version evidence before
+releasing `proposed`. Preview and apply native-body digests remain distinct.
+
+Apply reauthorizes the exact issue/effects and proposal around the ordinary
+prewrite snapshot. It durably publishes a private immutable recovery artifact
+and admitted target fence, repeats operation/proposal authorization and a
+deny-only full-identity local preflight, then claims dispatch durably. Only a
+successful new claim reaches the operation-specific guarded write port. That
+port remains responsible for authoritative last-hop local clearance immediately
+before its single POST. The apply path retains 306 total upstream requests and
+one shared 16 MiB response cap, including its one qualification request.
+
+The recovery artifact is strict canonical versioned JSON capped and reserved at
+4 MiB. It contains the exact native Jira-wiki candidate, immutable issue
+identity/revision, actor digest and sorted baseline comment-ID/record-digest
+pairs, bound to the operation ticket and journal intent. It contains no
+credential, actor value, approval prose, raw response or unrelated comment
+body, and is never rewritten. The maximum accepted 1 MiB candidate plus 10,000
+longest accepted numeric IDs is exercised as a real encoded fixture below both
+the application cap and the journal's 16 MiB artifact ceiling.
+
+No-attempt proof may terminalize a consumed claim as `not_applied`; possible
+send, unproved readback or failed terminal persistence remains non-replayable
+and fenced. Applied or recovered success is released only after the existing
+qualified readback and durable result completion. The separately authorized
+metadata observer reports stored state only; this core adds no backend
+reconciliation, replay, retry, policy store or generic dispatch hook.
+
+The current Jira adapter's last-hop comment clearance does not yet include the
+immutable numeric issue ID, and a project metadata check cannot make a later
+numeric-ID POST atomically project-scoped. Adapter/runtime composition,
+authenticated strong-scope evidence and client/server/CLI availability remain
+required separate work. Registry availability therefore remains false.
+
 Cache qualification binds issuer/backend, source principal and read-scope
 digests, target execution, authority revision, operation/selector/projection,
 evidence schema, immutable generation and exact content digest. Equal account
