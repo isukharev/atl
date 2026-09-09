@@ -17,7 +17,11 @@ type brokerRunner interface {
 }
 
 var loadBrokerRuntime = func(path, binaryVersion string, command *cobra.Command) (brokerRunner, error) {
-	return compose.LoadBrokerRuntime(path, binaryVersion, command.ErrOrStderr())
+	enable, err := command.Flags().GetBool("enable-jira-comments")
+	if err != nil {
+		return nil, err
+	}
+	return compose.LoadBrokerRuntimeWithJiraComments(path, binaryVersion, command.ErrOrStderr(), enable)
 }
 
 type brokerConfigFlag struct {
@@ -44,7 +48,7 @@ func newBrokerCommand() *cobra.Command {
 	config := &brokerConfigFlag{}
 	serve := &cobra.Command{
 		Use:   "serve",
-		Short: "Serve configured exact reads over bounded loopback TLS",
+		Short: "Serve configured Broker operations over bounded loopback TLS",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if !config.set {
@@ -66,6 +70,7 @@ func newBrokerCommand() *cobra.Command {
 		},
 	}
 	serve.Flags().Var(config, "config", "owner-private Broker host configuration file")
-	group.AddCommand(serve, newBrokerDiscoverCommand())
+	serve.Flags().Bool("enable-jira-comments", false, "enable the explicitly configured guarded Jira comment profile and existing journal")
+	group.AddCommand(serve, newBrokerDiscoverCommand(), newBrokerJournalCommand())
 	return group
 }

@@ -7,6 +7,11 @@ import (
 
 func (s *BrokerJiraCommentService) preview(prepared *brokerJiraCommentPrepared, verified domain.BrokerVerifiedContext) (BrokerJiraCommentResult, error) {
 	execution := prepared.execution
+	previewCtx, cancel, err := execution.decisionContext(prepared.decisionDeadline)
+	if err != nil {
+		return BrokerJiraCommentResult{}, brokerJiraCommentError(err)
+	}
+	defer cancel()
 	reservation := domain.BrokerJournalReservation{
 		Owner: prepared.owner, ExecutionSHA256: prepared.executionSHA256, AuthorityRevisionSHA256: prepared.authoritySHA256,
 		ExecutionNotBeforeMillis: verified.ExecutionNotBeforeMillis, ExecutionExpiresMillis: verified.ExecutionExpiresMillis,
@@ -14,9 +19,9 @@ func (s *BrokerJiraCommentService) preview(prepared *brokerJiraCommentPrepared, 
 		OperationDeadlineMillis: execution.deadline.UnixMilli(), ObservationUntilMillis: execution.startedAt.Add(brokerJiraCommentObservationWindow).UnixMilli(),
 		ArtifactCapacity: brokerJiraCommentRecoveryMaxBytes,
 	}
-	record, err := s.journal.Reserve(execution.base, reservation)
-	if err != nil {
-		return BrokerJiraCommentResult{}, brokerJiraCommentError(err)
+	record, err := s.journal.Reserve(previewCtx, reservation)
+	if err != nil || previewCtx.Err() != nil {
+		return BrokerJiraCommentResult{}, brokerJiraCommentError(firstBrokerReadError(err, previewCtx.Err()))
 	}
 	if err := brokercontract.ValidateOperationDecisionForV1(prepared.decision, prepared.operation, execution.currentMillis()); err != nil {
 		return BrokerJiraCommentResult{}, brokerJiraCommentError(err)
@@ -57,9 +62,9 @@ func (s *BrokerJiraCommentService) preview(prepared *brokerJiraCommentPrepared, 
 		IssuedAtMillis: record.IssuedAtMillis, AcceptUntilMillis: record.AcceptUntilMillis,
 	}
 	intent := domain.BrokerJournalIntent{Ticket: ticket, NativeSHA256: nativeSHA256, TargetSHA256: targetSHA256, EffectSHA256: effectSHA256, EvidenceSHA256: prepared.resource.VersionEvidence}
-	record, err = s.journal.Bind(execution.base, prepared.owner, record.OperationID, intent)
-	if err != nil {
-		return BrokerJiraCommentResult{}, brokerJiraCommentError(err)
+	record, err = s.journal.Bind(previewCtx, prepared.owner, record.OperationID, intent)
+	if err != nil || previewCtx.Err() != nil {
+		return BrokerJiraCommentResult{}, brokerJiraCommentError(firstBrokerReadError(err, previewCtx.Err()))
 	}
 	binding, err := brokercontract.BrokerJournalIntentBindingSHA256V1(record, intent)
 	if err != nil || binding != record.BindingSHA256 {
@@ -84,5 +89,8 @@ func (s *BrokerJiraCommentService) preview(prepared *brokerJiraCommentPrepared, 
 	if err := brokercontract.ValidateOperationDecisionForV1(prepared.decision, prepared.operation, execution.currentMillis()); err != nil {
 		return BrokerJiraCommentResult{}, brokerJiraCommentError(err)
 	}
-	return BrokerJiraCommentResult{Comment: result, ReleaseDeadline: execution.releaseDeadline(prepared.decision.ExpiresAtMillis, record.AcceptUntilMillis)}, nil
+	if err := execution.decisionError(prepared.decisionDeadline); err != nil {
+		return BrokerJiraCommentResult{}, brokerJiraCommentError(err)
+	}
+	return BrokerJiraCommentResult{Comment: result, ReleaseDeadline: execution.releaseDeadline(prepared.decisionDeadline, record.AcceptUntilMillis)}, nil
 }

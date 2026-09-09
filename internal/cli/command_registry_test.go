@@ -14,6 +14,7 @@ var reviewedTextOutputCommandPaths = reviewedOutputPathSet(`
 auth login
 auth status
 broker discover
+broker journal initialize
 broker serve
 capabilities
 compatibility status
@@ -290,8 +291,8 @@ func TestCommandRegistryPreservesReviewedOutputModes(t *testing.T) {
 	}
 	walk(root)
 
-	if leafCount != 188 || textCount != 156 || idCount != 36 {
-		t.Fatalf("leaves/text/id=%d/%d/%d want=188/156/36", leafCount, textCount, idCount)
+	if leafCount != 189 || textCount != 157 || idCount != 36 {
+		t.Fatalf("leaves/text/id=%d/%d/%d want=189/157/36", leafCount, textCount, idCount)
 	}
 	for path := range reviewedTextOutputCommandPaths {
 		if !seen[path] {

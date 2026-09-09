@@ -24,7 +24,7 @@ const (
 	ExecutePath            = brokertransport.ExecutePath
 	ProtocolPath           = brokertransport.ProtocolPath
 	MaxRequestHeaderBytes  = 16 << 10
-	MaxExecuteRequestBytes = 64 << 10
+	MaxExecuteRequestBytes = brokercontract.MaxEnvelopeBytes
 	DefaultMaxConcurrent   = 2
 )
 
@@ -39,6 +39,8 @@ type Dependencies struct {
 	Reads         *app.BrokerReadService
 	Cache         *app.BrokerCacheQualificationService
 	ProjectPages  *app.BrokerProjectPageService
+	Comments      *app.BrokerJiraCommentService
+	Outcomes      *app.BrokerOperationObservationService
 	Guard         *CredentialGuard
 }
 
@@ -48,6 +50,8 @@ type Handler struct {
 	reads         *app.BrokerReadService
 	cache         *app.BrokerCacheQualificationService
 	projectPages  *app.BrokerProjectPageService
+	comments      *app.BrokerJiraCommentService
+	outcomes      *app.BrokerOperationObservationService
 	guard         *CredentialGuard
 	permits       chan struct{}
 	random        io.Reader
@@ -59,7 +63,7 @@ func New(config Config, dependencies Dependencies) (*Handler, error) {
 	if identityErr != nil || config.MaxConcurrent <= 0 || config.MaxConcurrent > 64 || dependencies.Authenticator == nil || dependencies.Reads == nil || dependencies.Guard == nil {
 		return nil, fmt.Errorf("%w: invalid Broker server configuration", domain.ErrUsage)
 	}
-	return &Handler{config: config, authenticator: dependencies.Authenticator, reads: dependencies.Reads, cache: dependencies.Cache, projectPages: dependencies.ProjectPages, guard: dependencies.Guard, permits: make(chan struct{}, config.MaxConcurrent), random: rand.Reader, now: time.Now}, nil
+	return &Handler{config: config, authenticator: dependencies.Authenticator, reads: dependencies.Reads, cache: dependencies.Cache, projectPages: dependencies.ProjectPages, comments: dependencies.Comments, outcomes: dependencies.Outcomes, guard: dependencies.Guard, permits: make(chan struct{}, config.MaxConcurrent), random: rand.Reader, now: time.Now}, nil
 }
 
 func (h *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
@@ -109,6 +113,17 @@ func (h *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 		h.writeFailure(writer, brokerFailureReason(err, domain.BrokerReasonCredentialExpired), nil, "")
 		return
 	}
+	if request.URL.Path == ExecutePath {
+		var finish func()
+		var boundErr error
+		request, finish, boundErr = beginBoundedRoute(writer, request, started, time.Duration(domain.BrokerMaxOperationMillis)*time.Millisecond)
+		if boundErr != nil {
+			clear(credential)
+			return
+		}
+		defer finish()
+		defer func() { _ = http.NewResponseController(writer).Flush() }()
+	}
 	recordAuditCredential(writer, credential)
 	defer clear(credential)
 	var operation domain.BrokerRequest
@@ -150,7 +165,14 @@ func (h *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 			h.writeFailure(writer, domain.BrokerReasonAuthorizationUnavailable, credential, nonce)
 		}
 	case ExecutePath:
-		h.execute(writer, request, operation, authentication.Context, credential, nonce)
+		switch operation.Operation {
+		case domain.BrokerOperationJiraCommentPreview, domain.BrokerOperationJiraCommentApply:
+			h.executeComment(writer, request, operation, authentication.Context, authentication.ReleaseDeadline, credential, nonce)
+		case domain.BrokerOperationOutcomeLookup:
+			h.executeOutcome(writer, request, operation, authentication.Context, authentication.ReleaseDeadline, credential, nonce)
+		default:
+			h.execute(writer, request, operation, authentication.Context, credential, nonce)
+		}
 	default:
 		h.writeFailure(writer, domain.BrokerReasonMalformed, credential, nonce)
 	}

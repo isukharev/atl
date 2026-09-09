@@ -55,13 +55,31 @@ func (e *brokerJiraCommentExecution) currentMillis() int64 {
 	return e.lastMillis
 }
 
+func (e *brokerJiraCommentExecution) decisionError(deadlineMillis int64) error {
+	if err := e.base.Err(); err != nil {
+		return err
+	}
+	if e.currentMillis() >= deadlineMillis {
+		return context.DeadlineExceeded
+	}
+	return nil
+}
+
 func (e *brokerJiraCommentExecution) phaseContext(budget *domain.ReadBudget, expiries ...int64) (context.Context, context.CancelFunc, error) {
-	deadline := e.releaseDeadline(expiries...)
-	if deadline.UnixMilli() <= e.currentMillis() {
-		return nil, nil, context.DeadlineExceeded
+	ctx, cancel, err := e.decisionContext(expiries...)
+	if err != nil {
+		return nil, nil, err
+	}
+	return domain.WithRedactedHTTPTrace(domain.WithSingleAttempt(domain.WithReadBudget(ctx, budget))), cancel, nil
+}
+
+func (e *brokerJiraCommentExecution) decisionContext(deadlines ...int64) (context.Context, context.CancelFunc, error) {
+	deadline := e.releaseDeadline(deadlines...)
+	if err := e.decisionError(deadline.UnixMilli()); err != nil {
+		return nil, nil, err
 	}
 	ctx, cancel := context.WithDeadline(e.base, deadline)
-	return domain.WithRedactedHTTPTrace(domain.WithSingleAttempt(domain.WithReadBudget(ctx, budget))), cancel, nil
+	return ctx, cancel, nil
 }
 
 func (e *brokerJiraCommentExecution) qualificationContext(expiries ...int64) (context.Context, context.CancelFunc, error) {

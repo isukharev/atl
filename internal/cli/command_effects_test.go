@@ -396,7 +396,7 @@ func TestReviewedEffectDimensionsKeepCredentialAndRequestBoundsHonest(t *testing
 		{command: "auth status", remote: "none", local: "read", credential: "possible", network: "none", process: "none", output: "data"},
 		{command: "auth logout", remote: "none", local: "write", credential: "possible", network: "none", process: "none", output: "data"},
 		{command: "auth login", remote: "read", local: "write", credential: "possible", network: "unknown", process: "none", output: "data"},
-		{command: "broker serve", remote: "read", local: "read", credential: "required", network: "fixed", process: "server", output: "protocol"},
+		{command: "broker serve", remote: "write", local: "write", credential: "required", network: "fixed", process: "server", output: "protocol"},
 		{command: "broker discover", remote: "read", local: "none", credential: "required", network: "fixed", process: "none", output: "data"},
 		{command: "completion bash", remote: "none", local: "none", credential: "none", network: "none", process: "none", output: "generator"},
 		{command: "conf comment list", remote: "read", local: "none", credential: "required", network: "required_internal_cap", process: "none", output: "data"},

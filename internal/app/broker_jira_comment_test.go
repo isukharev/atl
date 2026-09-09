@@ -15,16 +15,19 @@ import (
 const brokerJiraCommentTestMillis = int64(1_800_000_000_000)
 
 type brokerJiraCommentAuthorizer struct {
-	nowMillis         int64
-	allowSnapshot     bool
-	denyQualification bool
-	finalCalls        int
-	denyFinalCall     int
-	proposalCalls     int
-	denyProposalCall  int
-	events            *[]string
-	afterFinal        func(int)
-	afterProposal     func(int)
+	nowMillis          int64
+	leaseMillis        int64
+	allowSnapshot      bool
+	denyQualification  bool
+	finalCalls         int
+	denyFinalCall      int
+	proposalCalls      int
+	denyProposalCall   int
+	events             *[]string
+	afterAdmission     func()
+	afterQualification func()
+	afterFinal         func(int)
+	afterProposal      func(int)
 }
 
 func (a *brokerJiraCommentAuthorizer) event(value string) {
@@ -38,7 +41,11 @@ func (a *brokerJiraCommentAuthorizer) core(phase domain.BrokerAuthorizationPhase
 	if !allowed {
 		status, reason = domain.BrokerDecisionDenied, domain.BrokerReasonUnsupportedConsistency
 	}
-	return domain.BrokerDecisionCore{Status: status, Reason: reason, DecisionID: string(phase) + "-decision", AuthorityRevision: revision, ContextSHA256: contextSHA256, RequestSHA256: requestSHA256, IssuedAtMillis: a.nowMillis, ExpiresAtMillis: a.nowMillis + 5_000}
+	leaseMillis := a.leaseMillis
+	if leaseMillis == 0 {
+		leaseMillis = domain.BrokerMaxDecisionLeaseMillis
+	}
+	return domain.BrokerDecisionCore{Status: status, Reason: reason, DecisionID: string(phase) + "-decision", AuthorityRevision: revision, ContextSHA256: contextSHA256, RequestSHA256: requestSHA256, IssuedAtMillis: a.nowMillis, ExpiresAtMillis: a.nowMillis + leaseMillis}
 }
 
 func (a *brokerJiraCommentAuthorizer) Admit(_ context.Context, request domain.BrokerAdmissionRequest) (domain.BrokerAdmissionDecision, error) {
@@ -48,6 +55,9 @@ func (a *brokerJiraCommentAuthorizer) Admit(_ context.Context, request domain.Br
 	requestSHA256, _ := brokercontract.AdmissionRequestSHA256(request)
 	contextSHA256, _ := brokercontract.VerifiedContextSHA256(request.Context)
 	wire, err := brokercontract.EncodeAdmissionDecisionV1(domain.BrokerAdmissionDecision{BrokerDecisionCore: a.core(domain.BrokerPhaseAdmission, contextSHA256, requestSHA256, request.Context.AuthorityRevision, allowed)})
+	if a.afterAdmission != nil {
+		a.afterAdmission()
+	}
 	if err != nil {
 		return domain.BrokerAdmissionDecision{}, err
 	}
@@ -62,6 +72,9 @@ func (a *brokerJiraCommentAuthorizer) AuthorizeQualification(_ context.Context, 
 	contextSHA256, _ := brokercontract.VerifiedContextSHA256(request.Admission.Context)
 	value := domain.BrokerQualificationDecision{BrokerDecisionCore: a.core(domain.BrokerPhaseQualificationAuthorization, contextSHA256, requestSHA256, request.Admission.Context.AuthorityRevision, !a.denyQualification), AdmissionRequestSHA256: admissionSHA256, AdmissionDecisionSHA256: request.AdmissionDecision.DecisionSHA256, PlanSHA256: planSHA256}
 	wire, err := brokercontract.EncodeQualificationDecisionV1(value)
+	if a.afterQualification != nil {
+		a.afterQualification()
+	}
 	if err != nil {
 		return domain.BrokerQualificationDecision{}, err
 	}
@@ -124,6 +137,7 @@ type brokerJiraCommentPort struct {
 	mutateBaseline  bool
 	extraCandidates int
 	afterWrite      func()
+	writeContext    func(context.Context)
 }
 
 func (p *brokerJiraCommentPort) event(value string) { *p.events = append(*p.events, value) }
@@ -212,6 +226,9 @@ func (p *brokerJiraCommentPort) ListJiraCommentsQualified(ctx context.Context, _
 }
 func (p *brokerJiraCommentPort) WriteGuardedComment(ctx context.Context, write domain.JiraGuardedCommentWrite) (domain.JiraGuardedCommentAcknowledgement, error) {
 	p.event("dispatch_comment")
+	if p.writeContext != nil {
+		p.writeContext(ctx)
+	}
 	if writeDefinitelyNotAttempted(p.writeErr) {
 		return domain.JiraGuardedCommentAcknowledgement{}, p.writeErr
 	}

@@ -123,6 +123,8 @@ func TestMutationRegistryPreservesReviewedAccessSet(t *testing.T) {
 	for _, line := range strings.Split(`
 none|none|auth login
 none|none|auth logout
+none|none|broker journal initialize
+none|none|broker serve
 none|none|conf apply
 delete|confluence-page-flag|conf attachment delete
 create|confluence-page-flag|conf attachment upload
@@ -185,6 +187,8 @@ none|none|profile suggestion reject
 	for _, line := range strings.Split(`
 local-direct|-|auth login
 local-direct|-|auth logout
+local-direct|-|broker journal initialize
+remote-direct|-|broker serve
 local-direct|-|conf apply
 preview-apply|apply,confirm,expected-proposal-hash,expected-version|conf attachment delete
 remote-direct|-|conf attachment upload
@@ -325,8 +329,8 @@ local-direct|-|profile suggestion reject
 			t.Errorf("reviewed mutating command %q lost its executable classification", path)
 		}
 	}
-	if len(seen) != 52 {
-		t.Fatalf("executable mutating commands=%d want=52", len(seen))
+	if len(seen) != 54 {
+		t.Fatalf("executable mutating commands=%d want=54", len(seen))
 	}
 	if len(wantPolicy) != len(seen) {
 		t.Fatalf("reviewed policy rows=%d mutators=%d", len(wantPolicy), len(seen))

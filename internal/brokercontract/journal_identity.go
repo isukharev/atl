@@ -11,9 +11,7 @@ func BrokerJournalOwnerV1(value domain.BrokerVerifiedContext) (domain.BrokerJour
 	if err := validateContext(value); err != nil {
 		return domain.BrokerJournalOwner{}, err
 	}
-	broker, err := journalDigest("owner/broker", struct {
-		BrokerID string `json:"broker_id"`
-	}{value.BrokerID})
+	broker, err := BrokerJournalBrokerSHA256V1(value.BrokerID)
 	if err != nil {
 		return domain.BrokerJournalOwner{}, err
 	}
@@ -43,6 +41,17 @@ func BrokerJournalOwnerV1(value domain.BrokerVerifiedContext) (domain.BrokerJour
 		BrokerSHA256: broker, BackendSHA256: backend, PrincipalSHA256: principal,
 		WorkloadSHA256: workload, AudienceSHA256: audience,
 	}, nil
+}
+
+// BrokerJournalBrokerSHA256V1 binds operator-owned journal storage to a Broker
+// without requiring or inventing an authenticated workload context.
+func BrokerJournalBrokerSHA256V1(brokerID string) (string, error) {
+	if !validIdentifier(brokerID) {
+		return "", reject(domain.BrokerReasonMalformed)
+	}
+	return journalDigest("owner/broker", struct {
+		BrokerID string `json:"broker_id"`
+	}{brokerID})
 }
 
 // BrokerJournalBackendSHA256V1 binds the complete configured destination, not

@@ -54,16 +54,17 @@ type Backend struct {
 }
 
 type Config struct {
-	SchemaVersion int       `json:"schema_version"`
-	BrokerID      string    `json:"broker_id"`
-	DataAudience  string    `json:"data_audience"`
-	AdminAudience string    `json:"admin_audience"`
-	DataListen    string    `json:"data_listen"`
-	AdminListen   string    `json:"admin_listen"`
-	TLS           TLSFiles  `json:"tls"`
-	Authority     Authority `json:"authority"`
-	Jira          *Backend  `json:"jira,omitempty"`
-	Confluence    *Backend  `json:"confluence,omitempty"`
+	SchemaVersion int          `json:"schema_version"`
+	BrokerID      string       `json:"broker_id"`
+	DataAudience  string       `json:"data_audience"`
+	AdminAudience string       `json:"admin_audience"`
+	DataListen    string       `json:"data_listen"`
+	AdminListen   string       `json:"admin_listen"`
+	TLS           TLSFiles     `json:"tls"`
+	Authority     Authority    `json:"authority"`
+	Jira          *Backend     `json:"jira,omitempty"`
+	Confluence    *Backend     `json:"confluence,omitempty"`
+	JiraComment   *JiraComment `json:"jira_comment,omitempty"`
 }
 
 type Material struct {
@@ -76,27 +77,23 @@ type Material struct {
 	ConfluenceCA         []byte
 	ServerCertificate    []byte
 	ServerPrivateKey     []byte
+	JiraCommentPolicy    []byte
+	Journal              *JournalConfiguration
 }
 
 func Load(configPath string) (*Material, error) {
+	return LoadWithJiraComments(configPath, false)
+}
+
+// LoadWithJiraComments requires the operator opt-in and configuration block
+// together. Existing read-only callers cannot silently accept mutation config.
+func LoadWithJiraComments(configPath string, enable bool) (*Material, error) {
 	if ambientProxyConfigured() {
 		return nil, configError()
 	}
-	if !directPrivateParent(configPath) {
+	cfg, err := loadConfiguration(configPath)
+	if err != nil || enable != (cfg.JiraComment != nil) {
 		return nil, configError()
-	}
-	body, err := safepath.ReadFilePrivate(configPath, MaxConfigBytes)
-	if err != nil {
-		return nil, configError()
-	}
-	var cfg Config
-	if strictjson.DecodeExact(body, brokercontract.MaxCanonicalDepth, &cfg) != nil || validate(cfg) != nil {
-		return nil, configError()
-	}
-	for _, reference := range configReferences(cfg) {
-		if reference == filepath.Base(configPath) {
-			return nil, configError()
-		}
 	}
 	parent := filepath.Dir(configPath)
 	material := &Material{Config: cfg}
@@ -105,6 +102,16 @@ func Load(configPath string) (*Material, error) {
 			material.Close()
 		}
 	}()
+	if cfg.JiraComment != nil {
+		material.Journal, err = journalConfiguration(configPath, cfg)
+		if err != nil {
+			return nil, configError()
+		}
+		material.JiraCommentPolicy, err = readCommentPolicy(parent, *cfg.JiraComment)
+		if err != nil {
+			return nil, configError()
+		}
+	}
 	if material.ServerCertificate, err = readReference(parent, cfg.TLS.CertificateFile, MaxCertificateBytes); err != nil {
 		return nil, configError()
 	}
@@ -136,6 +143,29 @@ func Load(configPath string) (*Material, error) {
 	return material, nil
 }
 
+// loadConfiguration reads only the explicit config; referenced credentials,
+// policies and TLS material are separate runtime concerns.
+func loadConfiguration(configPath string) (Config, error) {
+	if !directPrivateParent(configPath) {
+		return Config{}, configError()
+	}
+	body, err := safepath.ReadFilePrivate(configPath, MaxConfigBytes)
+	if err != nil {
+		return Config{}, configError()
+	}
+	defer clear(body)
+	var cfg Config
+	if strictjson.DecodeExact(body, brokercontract.MaxCanonicalDepth, &cfg) != nil || validate(cfg) != nil {
+		return Config{}, configError()
+	}
+	for _, reference := range configReferences(cfg) {
+		if reference == filepath.Base(configPath) {
+			return Config{}, configError()
+		}
+	}
+	return cfg, nil
+}
+
 func ambientProxyConfigured() bool {
 	for _, name := range []string{"HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"} {
 		if strings.TrimSpace(os.Getenv(name)) != "" {
@@ -159,7 +189,7 @@ func (m *Material) Close() {
 	if m == nil {
 		return
 	}
-	for _, value := range [][]byte{m.AuthorityCredential, m.AuthorityCA, m.JiraCredential, m.JiraCA, m.ConfluenceCredential, m.ConfluenceCA, m.ServerCertificate, m.ServerPrivateKey} {
+	for _, value := range [][]byte{m.AuthorityCredential, m.AuthorityCA, m.JiraCredential, m.JiraCA, m.ConfluenceCredential, m.ConfluenceCA, m.ServerCertificate, m.ServerPrivateKey, m.JiraCommentPolicy} {
 		clear(value)
 	}
 	m.AuthorityCredential = nil
@@ -170,6 +200,8 @@ func (m *Material) Close() {
 	m.ConfluenceCA = nil
 	m.ServerCertificate = nil
 	m.ServerPrivateKey = nil
+	m.JiraCommentPolicy = nil
+	m.Journal = nil
 }
 
 func validate(cfg Config) error {
@@ -184,6 +216,9 @@ func validate(cfg Config) error {
 		return configError()
 	}
 	if cfg.Confluence != nil && validateBackend(*cfg.Confluence) != nil {
+		return configError()
+	}
+	if cfg.JiraComment != nil && (cfg.Jira == nil || validateJiraComment(*cfg.JiraComment) != nil) {
 		return configError()
 	}
 	seenReferences := map[string]bool{}
@@ -211,6 +246,9 @@ func configReferences(cfg Config) []string {
 	}
 	if cfg.Confluence != nil {
 		values = append(values, cfg.Confluence.CredentialFile, cfg.Confluence.CAFile)
+	}
+	if cfg.JiraComment != nil {
+		values = append(values, cfg.JiraComment.JournalDirectory, cfg.JiraComment.LocalPolicyFile)
 	}
 	return values
 }
