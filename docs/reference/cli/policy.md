@@ -105,6 +105,14 @@ string or a string array:
 `service`, `kind`, `project`, `key`, `space`, `id`, and `under`. Patterns and
 wildcards are unsupported.
 
+`id` values are canonical positive decimal uint64 IDs. Confluence ID-bearing
+targets and Jira sprint targets retain their existing behavior. Jira issue IDs
+are currently supplied only by guarded comment targets; ordinary issue mutation
+targets, including the unqualified comment adapter, omit ID. An ID-specific
+allow cannot authorize a target missing ID, while an applicable ID-specific
+deny remains unresolved and fails closed at authoritative evaluation. Policy
+warnings identify this partial coverage; do not assume all Jira writes supply ID.
+
 Each layer defaults to deny. Explicit deny wins independently of rule order or
 specificity. Compound operations require every verb on every target: a Jira
 link update checks both issues, a Confluence move checks source and destination,

@@ -19,6 +19,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   offline; Broker capture, refresh, Jira/mixed caches, comments, and attachments
   remain unsupported.
 
+- Guarded Jira comment writes now bind canonical numeric issue ID, key and
+  project at the final scoped-policy check. Issue-ID selector diagnostics make
+  their guarded-comment-only coverage explicit; missing-ID targets remain
+  nonmatching for allows and unresolved/fail-closed for applicable denies.
+
 - Added `atl broker discover --service jira|confluence` and private zero-TTL
   MCP Broker discovery resources. Each read negotiates discovery v2 and
   refreshes operation-level advisory access without backend PATs or direct

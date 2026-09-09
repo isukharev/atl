@@ -55,6 +55,64 @@ func TestParsePolicyNormalizesExpandsAndWarns(t *testing.T) {
 	}
 }
 
+func TestParsePolicyJiraIssueIDProducerWarningsAndMixedSelectors(t *testing.T) {
+	const partial = "Jira issue id is produced only by guarded comment targets; other Jira issue targets omit id"
+	const unavailable = "id cannot be produced by the selected service and kind"
+	tests := []struct {
+		name            string
+		resource        string
+		wantPartial     bool
+		wantUnavailable bool
+	}{
+		{name: "Jira issue is a partial producer", resource: `{"service":"jira","kind":"issue","id":"42"}`, wantPartial: true},
+		{name: "Jira sprint remains a producer", resource: `{"service":"jira","kind":"sprint","id":"42"}`},
+		{name: "Confluence page remains a producer", resource: `{"service":"confluence","kind":"page","id":"42"}`},
+		{name: "mixed issue and page reports the partial Jira branch", resource: `{"service":["jira","confluence"],"kind":["issue","page"],"id":"42"}`, wantPartial: true},
+		{name: "mixed attachment retains Confluence producer", resource: `{"service":["jira","confluence"],"kind":"attachment","id":"42"}`},
+		{name: "Jira attachment has no id producer", resource: `{"service":"jira","kind":"attachment","id":"42"}`, wantUnavailable: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			input := `{"schema_version":1,"rules":[{"id":"id-rule","effect":"allow","verbs":["comment"],"resource":` + test.resource + `}]}`
+			_, warnings, err := parsePolicy([]byte(input))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var gotPartial, gotUnavailable bool
+			for _, warning := range warnings {
+				gotPartial = gotPartial || warning.Message == partial
+				gotUnavailable = gotUnavailable || warning.Message == unavailable
+			}
+			if gotPartial != test.wantPartial || gotUnavailable != test.wantUnavailable {
+				t.Fatalf("warnings=%+v", warnings)
+			}
+		})
+	}
+}
+
+func TestParsePolicyJiraIssueIDIsCanonicalAndUnderValidationIsUnchanged(t *testing.T) {
+	for _, id := range []string{"0", "01", "not-numeric", "18446744073709551616"} {
+		input := `{"schema_version":1,"rules":[{"id":"id-rule","effect":"allow","verbs":["comment"],"resource":{"service":"jira","kind":"issue","id":"` + id + `"}}]}`
+		if _, _, err := parsePolicy([]byte(input)); err == nil {
+			t.Fatalf("noncanonical Jira issue id %q passed", id)
+		}
+	}
+	valid := `{"schema_version":1,"rules":[{"id":"id-rule","effect":"allow","verbs":["comment"],"resource":{"service":"jira","kind":"issue","id":"18446744073709551615"}}]}`
+	if _, _, err := parsePolicy([]byte(valid)); err != nil {
+		t.Fatalf("maximum canonical Jira issue id rejected: %v", err)
+	}
+	for _, under := range []string{"0", "01", "not-numeric", "18446744073709551616"} {
+		input := `{"schema_version":1,"rules":[{"id":"under-rule","effect":"deny","verbs":["delete"],"resource":{"service":"confluence","under":"` + under + `"}}]}`
+		if _, _, err := parsePolicy([]byte(input)); err == nil {
+			t.Fatalf("noncanonical Confluence under id %q passed", under)
+		}
+	}
+	validUnder := `{"schema_version":1,"rules":[{"id":"under-rule","effect":"deny","verbs":["delete"],"resource":{"service":"confluence","under":"42"}}]}`
+	if _, _, err := parsePolicy([]byte(validUnder)); err != nil {
+		t.Fatalf("canonical Confluence under id rejected: %v", err)
+	}
+}
+
 func TestLoadWarningsNameOnlySafeSourceSymbols(t *testing.T) {
 	input := `{"schema_version":1,"rules":[{"id":"never","effect":"allow","verbs":["transition"],"resource":{"service":"confluence","kind":"future-kind"}}]}`
 	resolved, err := Load("", Environment{Inline: input})

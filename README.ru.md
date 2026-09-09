@@ -250,9 +250,8 @@ startup gates, modern opt-in Codex и отдельный `atl mcp serve`.
 
 - `ATL_READ_ONLY=1` / `--read-only` блокирует remote mutations до чтения
   credentials, body-файлов, self-update или обращения к сети.
-- Необязательная [scoped write policy](docs/reference/cli/policy.md) ограничивает
-  записи Jira и Confluence по verb и канонической identity контента. Перед
-  планированием записи запускайте `atl policy show`.
+- Проверяйте [scoped write policy](docs/reference/cli/policy.md) через `atl policy show`:
+  Jira issue-ID grants поддержаны только для guarded comments.
 - PAT привязаны к host; cross-host redirect и downgrade с HTTPS запрещены.
   Mutating requests никогда не следуют redirect и не используют generic retry.
 - Стабильные коды выхода различают usage, authentication, not-found, version

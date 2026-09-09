@@ -167,6 +167,124 @@ func TestDecideUnresolvedDenyFailsClosedButUnresolvedAllowDoesNotMatch(t *testin
 	}
 }
 
+func TestJiraIssueIDPreflightAndAuthoritativeMatching(t *testing.T) {
+	selector := Selector{Services: []string{"jira"}, Kinds: []string{"issue"}, IDs: []string{"101"}, Projects: []string{"OPS"}, Keys: []string{"OPS-1"}}
+	request := func(id string) domain.WriteAuthorizationRequest {
+		return domain.WriteAuthorizationRequest{Verbs: domain.WriteVerbSet{domain.WriteVerbComment}, Targets: []domain.WriteTarget{{
+			Service: "jira", Kind: "issue", ID: id, Project: "OPS", Key: "OPS-1",
+		}}}
+	}
+	allowLayer := Layer{Source: "managed", Policy: Policy{Rules: []Rule{{
+		ID: "allow-exact", Effect: EffectAllow, Verbs: domain.WriteVerbSet{domain.WriteVerbComment}, Resource: selector,
+	}}}}
+	if denial := PreflightDeny([]Layer{allowLayer}, request("")); denial != nil {
+		t.Fatalf("partial allow preflight was authoritative: %+v", denial)
+	}
+	if decision := Decide([]Layer{allowLayer}, request("")); decision.Allowed || decision.Reason != ReasonNoMatchingAllow {
+		t.Fatalf("missing id authoritative decision=%+v", decision)
+	}
+	if denial := PreflightDeny([]Layer{allowLayer}, request("102")); denial == nil || denial.Reason != ReasonNoMatchingAllow {
+		t.Fatalf("drifted id preflight=%+v", denial)
+	}
+	allowed, err := NewAuthorizer(&Resolved{Layers: []Layer{allowLayer}}).Authorize(t.Context(), request("101"))
+	if err != nil || !domain.HasWriteClearance(allowed) {
+		t.Fatalf("exact authoritative clearance=%t err=%v", domain.HasWriteClearance(allowed), err)
+	}
+
+	denyLayer := Layer{Source: "managed", Policy: Policy{Rules: []Rule{
+		{ID: "allow-comments", Effect: EffectAllow, Verbs: domain.WriteVerbSet{domain.WriteVerbComment}, Resource: Selector{Services: []string{"jira"}, Kinds: []string{"issue"}}},
+		{ID: "deny-exact", Effect: EffectDeny, Verbs: domain.WriteVerbSet{domain.WriteVerbComment}, Resource: selector},
+	}}}
+	if denial := PreflightDeny([]Layer{denyLayer}, request("")); denial != nil {
+		t.Fatalf("partial deny preflight was authoritative: %+v", denial)
+	}
+	if decision := Decide([]Layer{denyLayer}, request("")); decision.Reason != ReasonScopeUnresolved || decision.Attribute != "id" || decision.RuleID != "deny-exact" {
+		t.Fatalf("missing id authoritative deny decision=%+v", decision)
+	}
+	if denial := PreflightDeny([]Layer{denyLayer}, request("101")); denial == nil || denial.Reason != ReasonExplicitDeny || denial.RuleID != "deny-exact" {
+		t.Fatalf("exact deny preflight=%+v", denial)
+	}
+	_, err = NewAuthorizer(&Resolved{Layers: []Layer{denyLayer}}).Authorize(t.Context(), request("101"))
+	var denial *DenialError
+	if !errors.As(err, &denial) || denial.Reason != ReasonExplicitDeny || denial.Details.Target.ID != "101" {
+		t.Fatalf("exact authoritative denial=%+v err=%v", denial, err)
+	}
+}
+
+func TestMixedJiraAndConfluenceIDSelectorMatchesCompatibleTargets(t *testing.T) {
+	layer := Layer{Source: "managed", Policy: Policy{Rules: []Rule{{
+		ID: "mixed", Effect: EffectAllow, Verbs: domain.WriteVerbSet{domain.WriteVerbComment},
+		Resource: Selector{Services: []string{"jira", "confluence"}, Kinds: []string{"issue", "page"}, IDs: []string{"101"}},
+	}}}}
+	for _, target := range []domain.WriteTarget{
+		{Service: "jira", Kind: "issue", ID: "101", Project: "OPS", Key: "OPS-1"},
+		{Service: "confluence", Kind: "page", ID: "101", Space: "DOC", AncestorIDs: []string{}},
+	} {
+		request := domain.WriteAuthorizationRequest{Verbs: domain.WriteVerbSet{domain.WriteVerbComment}, Targets: []domain.WriteTarget{target}}
+		if decision := Decide([]Layer{layer}, request); !decision.Allowed {
+			t.Fatalf("target=%+v decision=%+v", target, decision)
+		}
+	}
+}
+
+func TestJiraSprintAndConfluenceIDTargetFormsRemainUnchanged(t *testing.T) {
+	tests := []struct {
+		name     string
+		selector Selector
+		target   domain.WriteTarget
+	}{
+		{name: "Jira sprint", selector: Selector{Services: []string{"jira"}, Kinds: []string{"sprint"}, IDs: []string{"42"}}, target: domain.WriteTarget{Service: "jira", Kind: "sprint", ID: "42"}},
+		{name: "Confluence page", selector: Selector{Services: []string{"confluence"}, Kinds: []string{"page"}, IDs: []string{"42"}}, target: domain.WriteTarget{Service: "confluence", Kind: "page", ID: "42", Space: "DOC", AncestorIDs: []string{}}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			layer := Layer{Source: "managed", Policy: Policy{Rules: []Rule{{
+				ID: "allow", Effect: EffectAllow, Verbs: domain.WriteVerbSet{domain.WriteVerbUpdate}, Resource: test.selector,
+			}}}}
+			request := domain.WriteAuthorizationRequest{Verbs: domain.WriteVerbSet{domain.WriteVerbUpdate}, Targets: []domain.WriteTarget{test.target}}
+			if decision := Decide([]Layer{layer}, request); !decision.Allowed {
+				t.Fatalf("decision=%+v", decision)
+			}
+		})
+	}
+	emptySprint := domain.WriteAuthorizationRequest{Verbs: domain.WriteVerbSet{domain.WriteVerbUpdate}, Targets: []domain.WriteTarget{{Service: "jira", Kind: "sprint"}}}
+	if decision := Decide([]Layer{{Source: "managed", Policy: Policy{Rules: []Rule{{
+		ID: "allow", Effect: EffectAllow, Verbs: domain.WriteVerbSet{domain.WriteVerbUpdate}, Resource: Selector{Services: []string{"jira"}},
+	}}}}}, emptySprint); decision.Reason != reasonInvalidRequest {
+		t.Fatalf("sprint without required id decision=%+v", decision)
+	}
+}
+
+func FuzzJiraIssueIDTargetCanonicality(f *testing.F) {
+	for _, seed := range []string{"", "101", "102", "0", "01", "not-numeric", "18446744073709551616", "18446744073709551615"} {
+		f.Add(seed)
+	}
+	layer := Layer{Source: "managed", Policy: Policy{Rules: []Rule{{
+		ID: "exact", Effect: EffectAllow, Verbs: domain.WriteVerbSet{domain.WriteVerbComment},
+		Resource: Selector{Services: []string{"jira"}, Kinds: []string{"issue"}, IDs: []string{"101"}},
+	}}}}
+	f.Fuzz(func(t *testing.T, id string) {
+		request := domain.WriteAuthorizationRequest{Verbs: domain.WriteVerbSet{domain.WriteVerbComment}, Targets: []domain.WriteTarget{{
+			Service: "jira", Kind: "issue", ID: id, Project: "OPS", Key: "OPS-1",
+		}}}
+		decision := Decide([]Layer{layer}, request)
+		switch {
+		case id == "101":
+			if !decision.Allowed {
+				t.Fatalf("canonical exact id decision=%+v", decision)
+			}
+		case id == "" || domain.ValidConfluenceContentID(id):
+			if decision.Allowed || decision.Reason != ReasonNoMatchingAllow {
+				t.Fatalf("canonical nonmatch id=%q decision=%+v", id, decision)
+			}
+		default:
+			if decision.Allowed || decision.Reason != reasonInvalidRequest {
+				t.Fatalf("noncanonical id=%q decision=%+v", id, decision)
+			}
+		}
+	})
+}
+
 func TestAuthorizerClearanceAndStableDenial(t *testing.T) {
 	request := domain.WriteAuthorizationRequest{Verbs: domain.WriteVerbSet{domain.WriteVerbUpdate}, Targets: []domain.WriteTarget{{Service: "jira", Kind: "issue", Project: "ML", Key: "ML-1"}}}
 	allowed, err := NewAuthorizer(nil).Authorize(context.Background(), request)

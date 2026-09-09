@@ -94,7 +94,7 @@ func (j *Jira) WriteGuardedComment(ctx context.Context, write domain.JiraGuarded
 		return domain.JiraGuardedCommentAcknowledgement{}, &guardedCommentNoAttemptError{cause: domain.ErrCheckFailed}
 	}
 	cleared, err := j.authorize(ctx, domain.WriteVerbSet{domain.WriteVerbComment}, []domain.WriteTarget{{
-		Service: "jira", Kind: "issue", Key: write.Key, Project: write.Project,
+		Service: "jira", Kind: "issue", ID: write.ID, Key: write.Key, Project: write.Project,
 	}})
 	if err != nil {
 		return domain.JiraGuardedCommentAcknowledgement{}, &guardedCommentNoAttemptError{cause: err}
