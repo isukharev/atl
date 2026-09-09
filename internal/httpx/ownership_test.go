@@ -25,7 +25,7 @@ func TestTransportResponsibilityOwnersStayClosed(t *testing.T) {
 			"readIdleResponseBody", "readResponseBody", "readResponseBodyWith",
 		},
 		"budget_stream.go": {
-			"(*readBudgetStream).Close", "(*readBudgetStream).Read", "(*readBudgetStream).begin", "(*readBudgetStream).closeUnderlying", "(*readBudgetStream).finishUsage",
+			"(*readBudgetStream).Close", "(*readBudgetStream).Read", "(*readBudgetStream).begin", "(*readBudgetStream).closeUnderlying", "(*readBudgetStream).closedError", "(*readBudgetStream).finishUsage",
 			"newDownloadStream", "newReadBudgetStream", "readBudgetStream",
 		},
 		"client.go": {
@@ -35,6 +35,7 @@ func TestTransportResponsibilityOwnersStayClosed(t *testing.T) {
 			"maxRedirects", "unmarshal", "userAgent",
 		},
 		"bounded_response.go": {"(*Client).DoBoundedResponse", "BoundedResponse", "maxReviewedResponseBody"},
+		"response_stream.go":  {"(*Client).PostBoundedResponseStream", "BoundedResponseStream", "boundedResponseMetadata", "maxProjectedResponseMetadataBytes"},
 		"credential.go":       {"(*Client).ClearCredential"},
 		"download.go": {
 			"(*Client).GetStream", "(*Client).GetStreamBefore", "(*Client).getStream", "validateNoReplayReadBudget",
