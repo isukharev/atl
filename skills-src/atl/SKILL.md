@@ -125,8 +125,8 @@ tool only when the owner has configured `ATL_MIRROR_ROOT`. Continue using the
 CLI for raw Structure forest/values, mirror content/status/diff, exports,
 diff/plan, attachment content/downloads/uploads, and every guarded write.
 
-If `atl auth status` reports `mode: broker`, use only the Broker-supported
-read subset: Jira issue get with an explicit nonempty subset of
+If `atl auth status` reports `mode: broker`, use only supported Broker routes.
+The read subset includes Jira issue get with an explicit nonempty subset of
 `summary,description,updated`, and numeric-id Confluence page
 metadata/CSF/outline/section reads. Treat `unsupported` as a closed capability
 boundary; do not retry through direct REST or request a backend PAT.
@@ -141,6 +141,13 @@ private MCP `atl://broker/discovery/jira|confluence` resource, for current
 operation support and advisory access. Each read is fresh; never cache or
 reuse it as authorization. `access_request_required` does not submit a request
 or grant access, and every operation invocation reauthorizes independently.
+In Broker mode, guarded Jira comments remain CLI-only. Preview the exact native
+body to obtain a proposal hash and opaque ticket; apply once with that unchanged
+body/hash/ticket and the same writer session. Any ambiguous apply must be
+observed with `jira issue comment outcome --operation-ticket <SAME-TICKET>`
+using the separately configured observer session, never replayed or routed to
+direct Jira. Read [the Jira command reference](../jira/reference/commands.md)
+for the exact flags when this workflow is requested.
 
 ## Mental model
 

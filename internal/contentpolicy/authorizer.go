@@ -71,10 +71,11 @@ func (a *Authorizer) Preflight(request domain.WriteAuthorizationRequest) error {
 	if a == nil {
 		return nil
 	}
-	if denial := PreflightDeny(a.layers, request); denial != nil {
-		return denial
+	denial := PreflightDeny(a.layers, request)
+	if denial == nil {
+		return nil
 	}
-	return nil
+	return denial
 }
 
 // RequiredWriteScope reports the canonical metadata attributes referenced by

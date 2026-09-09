@@ -26,7 +26,7 @@ func (s *BrokerJiraCommentService) apply(prepared *brokerJiraCommentPrepared, ve
 	if err := s.validateApplyRecord(prepared, verified, record); err != nil {
 		return BrokerJiraCommentResult{}, brokerJiraCommentError(err)
 	}
-	clearance, clearanceDeadline, err := s.authorizeProposal(applyCtx, prepared, prepared.operation, prepared.decision)
+	_, clearanceDeadline, err := s.authorizeProposal(applyCtx, prepared, prepared.operation, prepared.decision)
 	if err != nil {
 		return BrokerJiraCommentResult{}, err
 	}
@@ -87,7 +87,7 @@ func (s *BrokerJiraCommentService) apply(prepared *brokerJiraCommentPrepared, ve
 	if err != nil {
 		return s.completeNeverDispatched(admitted, brokerJiraCommentError(err))
 	}
-	clearance, clearanceDeadline, err = s.authorizeProposal(proposalCtx, prepared, operation, decision)
+	clearance, clearanceDeadline, err := s.authorizeProposal(proposalCtx, prepared, operation, decision)
 	proposalCancel()
 	if err != nil {
 		return s.completeNeverDispatched(admitted, err)

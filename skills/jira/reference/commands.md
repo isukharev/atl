@@ -41,6 +41,37 @@ Do not infer stable project absence from coordinate exhaustion. Unsupported
 operations have no direct REST or PAT fallback. MCP `jira_project_issue_page`
 uses the same projection with its explicit encoded-output bound.
 
+## Broker guarded comments
+
+When Broker discovery reports the guarded comment profile, preview the exact
+native Jira-wiki file and retain both returned values:
+
+```bash
+ATL_READ_ONLY=1 atl jira issue comment preview PROJ-1 --from-file note.wiki
+```
+
+After explicit approval, apply once with the same writer session and unchanged
+file, proposal hash, and ticket:
+
+```bash
+env -u ATL_READ_ONLY atl jira issue comment add PROJ-1 --from-file note.wiki \
+  --apply --expected-proposal-hash '<reviewed-hash>' \
+  --operation-ticket '<ticket-from-preview>'
+```
+
+If apply, response buffering, session recheck, deadline, or output is ambiguous,
+do not run apply again. Use the separately configured observer session:
+
+```bash
+ATL_READ_ONLY=1 atl jira issue comment outcome \
+  --operation-ticket '<same-ticket>'
+```
+
+Outcome reads Broker journal metadata only and never contacts Jira. The writer
+session is not an observer fallback. Direct mode rejects `--operation-ticket`
+and retains its existing proposal/output workflow. The Broker profile is an
+immutable identity snapshot, not atomic proof of current project membership.
+
 ## Inverse-reference search
 
 The `jira/inverse-reference` capability starts from one exact GitLab project or
@@ -132,8 +163,9 @@ not display/short URLs, and no page body or backlink query is made.
 | `jira issue reference search` | CLI-only content-free search from one exact GitLab project or Confluence page into a caller-qualified Jira scope; source-qualified fast discovery or exhaustive absence proof | required `--target`, `--target-kind`, `--scope-jql`, `--mode`, `--sources`, `--max-issues`, `--max-requests`, `--max-response-bytes`; exact `--fields` iff fields source; optional `--strict` |
 | `jira issue refs [KEY]` | Extract provenance-qualified artifact references with reconciled per-issue/top-level aggregates; field ids or exact names; JQL adds one complete comment listing per issue | `--jql`, `--fields`, aggregate `--limit` (0 all, negative invalid) |
 | `jira issue tree` | Build read-only epic-to-child grouping | `--jql`, `--epic-field`, `--fields`, aggregate `--limit` (0 all, negative invalid) |
-| `jira issue comment preview <KEY>` | GET-only full-record/body/actor/issue-bound append proposal with content-minimized output | `--from-md`, `--from-file`; inspect identity, hashes, counts, bounds, and usage |
-| `jira issue comment add <KEY>` | Preview or apply one reviewed append; one numeric-id POST and exact no-replay readback | `--from-md`, `--from-file`, `--apply`, `--expected-proposal-hash` |
+| `jira issue comment preview <KEY>` | Read-only comment proposal; direct mode returns full-record/body/actor/issue evidence, Broker mode returns a smaller ticket-bearing result | `--from-md`, `--from-file`; retain exact file/hash and, in Broker mode, the ticket |
+| `jira issue comment add <KEY>` | Preview or apply one reviewed append; at most one numeric-id POST and no replay | `--from-md`, `--from-file`, `--apply`, `--expected-proposal-hash`; Broker apply also requires `--operation-ticket` |
+| `jira issue comment outcome` | Read one supplied Broker operation ticket with the independent observer session and no Jira request | `--operation-ticket`; Broker mode only, no writer-session fallback |
 | `jira issue comment list <KEY>` | List comments | — |
 | `jira issue comment delete <KEY> <ID>` | Delete a comment | — |
 | `jira issue link add preview <KEY>` | GET-only guarded-link proposal | `--to KEY2`, `--type blocks`; safe under `ATL_READ_ONLY=1` |

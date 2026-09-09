@@ -449,7 +449,7 @@ func TestHeldCommentApplyDeadlineAfterBufferedResponseIsAmbiguous(t *testing.T) 
 
 func TestHeldCommentExecuteDoesNotFollowRedirect(t *testing.T) {
 	var calls atomic.Int32
-	server := httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
 		calls.Add(1)
 		writer.Header().Set("Location", brokertransport.ExecutePath+"/again")
 		writer.WriteHeader(http.StatusTemporaryRedirect)

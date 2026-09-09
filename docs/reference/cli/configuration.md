@@ -297,6 +297,7 @@ and at least one service session reference:
     "audience": "atl-broker",
     "ca_file": "/secure/runtime/broker-ca.pem",
     "jira_session_file": "/secure/runtime/jira-session.json",
+    "jira_observation_session_file": "/secure/runtime/jira-observer-session.json",
     "confluence_session_file": "/secure/runtime/confluence-session.json"
   }
 }
@@ -324,7 +325,17 @@ the same non-secret selection and file references with
 `ATL_BROKER_AUDIENCE`, `ATL_BROKER_CA_BUNDLE`,
 `ATL_BROKER_JIRA_SESSION_FILE`, and
 `ATL_BROKER_CONFLUENCE_SESSION_FILE`. Empty environment values do not override
-global configuration.
+global configuration. `jira_observation_session_file` is deliberately
+configuration-only: there is no observation-session environment variable.
+
+The Jira writer and observer references are selected independently. Guarded
+comment preview/apply use only `jira_session_file`; outcome uses only
+`jira_observation_session_file` and never falls back to the writer session.
+The observer may carry a newer execution for the same stable owner. Every
+invocation retains one selected snapshot through fresh discovery and its sole
+execute request, then reloads exact execution id/epoch, authority revision and
+credential bytes before execution and after response buffering. A replacement
+suppresses output rather than selecting another session mid-call.
 
 Broker workload transports do not consult proxy settings, with either system
 TLS trust or a dedicated CA bundle. This does not change ordinary direct-mode
@@ -334,12 +345,19 @@ The Jira exact-read surface is `jira issue get <KEY> --fields ...` with a nonemp
 subset of the exact technical ids `summary`, `description`, and `updated`.
 The initial Confluence surface is a numeric-id `conf page get --format csf` and
 the metadata/outline/section reads built from the same exact page port. URL
-selectors, rendered `view` bodies, arbitrary searches, mirrors, corpus builds, writes,
-and all broader methods return the closed unsupported error before execution.
+selectors, rendered `view` bodies, arbitrary searches, mirrors, corpus builds,
+and writes other than the explicitly supported guarded comment return the
+closed unsupported error before execution.
 Authenticated protocol negotiation checks the configured Broker id, audience,
 schema/registry digests, profiles, operation versions, features, and bounds.
 Every supported call then makes one execute attempt; redirects and automatic
 retries are disabled.
+
+Broker Jira comment preview/apply/outcome remain CLI-only. Preview returns an
+opaque ticket. Apply requires unchanged native body bytes, proposal hash,
+ticket and writer session; outcome observes that exact ticket with the separate
+observer session and makes no Jira request. There is no direct-mode, PAT, or
+protocol downgrade fallback. See the [Jira command reference](jira-issues.md#atl-jira-issue-comment-previewaddlistdelete).
 
 The separate execution-v2 `jira issue project-page` operation reads one
 project-qualified page of at most 15 issues with summary/description fields.

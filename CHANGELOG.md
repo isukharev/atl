@@ -11,6 +11,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added the explicitly selected guarded Jira comment Broker runtime. A paired
+  `jira_comment` host block and `broker serve --enable-jira-comments` open an
+  existing bounded journal and pinned local policy for CLI-only preview/apply/
+  outcome. Apply binds unchanged native bytes, proposal hash, writer session
+  and opaque ticket; a separate observer session reads durable same-ticket
+  outcome without Jira access or replay. The profile is an immutable identity
+  snapshot, not atomic current-project membership or live-provider readiness.
+- Added local-only `atl broker journal initialize --config FILE`. It creates
+  absent owner-private journal storage from config identity and limits without
+  loading credentials or policy and without network access; serving always
+  opens existing storage and never falls back to creation.
 - Added Broker-only `jira issue project-page` and read-only MCP
   `jira_project_issue_page`: one project-qualified page of at most 15 issues,
   exact selected fields, separately authorized metadata/business reads and
@@ -24,16 +35,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   before and after one five-second Broker qualification, uses authority-resolved
   source scope without loading upstream PATs, and writes only an optional
   non-authoritative private indexer route. Ordinary `corpus handoff` remains
-  offline; Broker capture, refresh, Jira/mixed caches, comments, and attachments
-  remain unsupported.
+  offline; Broker capture, refresh, Jira/mixed cache generations, and cache
+  generations containing comments or attachments remain unsupported.
 
 - Guarded Jira comment writes now bind canonical numeric issue ID, key and
   project at the final scoped-policy check. Issue-ID selector diagnostics make
   their guarded-comment-only coverage explicit; missing-ID targets remain
   nonmatching for allows and unresolved/fail-closed for applicable denies.
 - The uncomposed Broker authority adapter can request exact native proposal
-  clearance through its fixed v1 endpoint. Guarded runtime operations remain
-  gated; existing schema versions and direct-write behavior are unchanged.
+  clearance through its fixed v1 endpoint. The explicitly selected guarded
+  comment runtime now consumes that boundary; existing schema versions and
+  direct-write behavior are unchanged.
 
 - Added `atl broker discover --service jira|confluence` and private zero-TTL
   MCP Broker discovery resources. Each read negotiates discovery v2 and
@@ -81,8 +93,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added the versioned transport-neutral Broker semantic contract, strict pure
   codecs, canonical operation registry and compatibility vectors. The first
   contract profile is limited to exact Jira issue and Confluence page reads;
-  server/client composition and gated write, outcome and cache paths remain
-  unavailable until their dependent safety slices land.
+  guarded comment/outcome composition is now explicit and journal-backed,
+  while capture/refresh and broader cache reuse remain separate.
 
 ### Fixed
 

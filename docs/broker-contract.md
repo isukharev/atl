@@ -4,8 +4,9 @@ This document defines ATL's Broker semantic contracts and authenticated HTTP
 v1 and the bounded project-page execution-v2 family. Explicit Broker client
 mode routes supported Jira and Confluence reads through the local host; direct
 mode remains the default. Execution-scoped discovery and qualified corpus handoff use separate
-authenticated routes. Guarded writes, durable outcomes, Broker capture/refresh,
-and broader cache reuse remain unavailable until their owning slices compose.
+authenticated routes. An explicitly configured runtime also supports guarded
+Jira comment preview/apply and durable same-ticket outcome observation. Broker
+capture/refresh and broader cache reuse remain outside this runtime.
 
 The machine-readable shapes are the semantic
 [`schemas/broker-v1.schema.json`](schemas/broker-v1.schema.json) and HTTP
@@ -52,8 +53,9 @@ A Broker authorization never replaces the final adapter clearance.
 
 ## Authenticated HTTP server core
 
-The server core has exact typed routes: `POST /v1/execute` for the two available
-read operations, `POST /v2/cache/qualify` for the separate cache family, and
+The server core has exact typed routes: `POST /v1/execute` for exact reads and,
+when explicitly composed, guarded Jira comment preview/apply and operation
+outcome; `POST /v2/cache/qualify` for the separate cache family; and
 `POST /v2/execute` for one project page, alongside
 authenticated `GET /v1/protocol` for schema, registry,
 profile metadata, and the configured Broker id and workload audience. A client
@@ -88,9 +90,11 @@ on receipt and again before dispatch. Qualification or operation permission is
 not proposal clearance. This adapter capability does not enable a guarded
 server, client or registry operation.
 
-The handler caps parsed request headers at 16 KiB, the workload bearer at
-8 KiB, and each execute or cache-qualification body at 64 KiB before strict
-decode. A fixed global
+The handler caps parsed request headers at 16 KiB and the workload bearer at
+8 KiB. The physical v1 execute envelope is capped at 2 MiB before strict
+decode, then the selected operation's exact limit is enforced: 64 KiB for
+reads/outcome and 2 MiB for comments. Cache qualification retains its 64 KiB
+body cap. A fixed global
 concurrency semaphore refuses overload before authentication. Successful
 payloads retain the existing Jira or Confluence result bytes without another
 wrapper. Failures use the closed HTTP schema, for example:
@@ -112,7 +116,10 @@ redacted or rewritten. This bounded guard does not claim to detect unknown
 secrets or arbitrary encodings.
 
 The explicit `atl broker serve --config ...` host composes this server without
-consulting ordinary ATL client configuration or credentials. It reads one
+consulting ordinary ATL client configuration or credentials. Guarded comments
+require the paired `jira_comment` block and `--enable-jira-comments`; either
+one without the other is invalid, and neither is inferred from credentials or
+registry availability. It reads one
 bounded owner-private file and same-directory credential/TLS references before
 opening two numeric loopback TLS listeners. Data and admin use distinct
 audiences; authenticated health/readiness return only local lifecycle state and
@@ -127,9 +134,11 @@ reload, HTTP/2, upgrades and response streams are refused. See the
 [CLI contract](reference/cli/agent-interfaces.md#atl-broker-serve) and
 [credential-free deployment example](broker-local-deployment.md).
 
-Remote client ports and ordinary CLI/MCP Broker composition remain disabled
-until #1487. Discovery, comments, journals, streams and caches remain separate
-later increments.
+Without the guarded-comment flag and block, the host remains read-only. The
+static command effect describes the maximum selected write profile, while the
+no-flag invocation has no mutation service. Streams, capture and refresh remain
+absent. MCP retains its closed read-only inventory and has no comment mutation
+tool.
 
 ## Versioned operation registry
 
@@ -144,16 +153,16 @@ stream, operation-deadline and decision-lease limits.
 |---|---|---|
 | `jira.issue.read` | available in `exact_reads_v1` | one canonical issue key; a unique explicit subset of `description`, `summary`, `updated` |
 | `confluence.page.read` | available in `exact_reads_v1` | one canonical numeric page id; exactly `metadata` or native `storage` |
-| `jira.comment.preview` | gated | one issue and exact native Jira-wiki body; qualification reads only |
-| `jira.comment.apply` | gated | same body plus reviewed proposal hash and operation ticket; one comment effect |
-| `broker.operation.outcome` | gated | one operation ticket; observation only, never list/search |
+| `jira.comment.preview` | available; explicit guarded runtime | one issue and exact native Jira-wiki body; qualification reads only |
+| `jira.comment.apply` | available; explicit guarded runtime | same body plus reviewed proposal hash and operation ticket; one comment effect |
+| `broker.operation.outcome` | available; explicit guarded runtime | one operation ticket; observation only, never list/search or Jira read |
 
-The last three definitions let independent later implementations build against
-stable fixtures. Discovery must report them as `unsupported` or `unavailable`
-until their semantic enforcement and durable journal dependencies land.
-Requests must carry the registry's exact sorted feature set. The two initial
-reads use an explicit empty set; unknown, missing or partial feature sets fail
-closed instead of selecting a compatibility fallback.
+Availability means compiled contract support, not that a host has composed the
+service or that the current workload is permitted. An unconfigured host returns
+authenticated `unsupported`, and discovery access remains advisory. Requests
+must carry the registry's exact sorted feature set. The two initial reads use
+an explicit empty set; unknown, missing or partial feature sets fail closed
+instead of selecting a compatibility fallback.
 
 Streaming is disabled in this profile: chunk count and chunk size are both
 zero. Raw HTTP, URLs, JQL, CQL, wildcard/default-all fields, arbitrary maps,
@@ -242,7 +251,7 @@ guarantee must deny this operation with `unsupported_consistency`; the service
 does not silently downgrade that requirement. No broad upstream credential is
 recast as a membership-scoped credential.
 
-The gated Jira comment result schema is also closed. Preview returns
+The guarded Jira comment result schema is also closed. Preview returns
 `proposed`, an operation ticket and proposal/evidence digests with
 `write_attempted:false`. Apply returns only `applied`, `recovered`,
 `not_applied` or `outcome_unknown`. Applied and recovered results
@@ -335,10 +344,12 @@ effects, proposal schema/version/hash, exact native candidate digest and
 version-evidence digest. A preview receipt or client-supplied expected hash is
 not a grant. A changed proposal needs a new clearance.
 
-The gated Jira comment contract keeps native Jira-wiki bytes,
+The guarded Jira comment contract keeps native Jira-wiki bytes,
 `append_always`, the existing guarded proposal and the current limits: 1 MiB
-body, 102 preview requests, 306 apply requests, 16 MiB aggregate response and a
-60-second deadline. It does not create a universal callback or retry engine.
+body, 2 MiB request envelope, 1 MiB result, 4 MiB recovery artifact, 102 preview
+requests, 306 apply requests, 16 MiB aggregate response, a 60-second operation/
+acceptance ceiling, five-second decisions, and one-hour observation expiry. It
+does not create a universal callback or retry engine.
 
 ## Discovery, outcomes and cache qualification
 
@@ -402,10 +413,11 @@ The current storage-backed observation subset is `admitted`, `dispatching`,
 reserves `retired_non_replayable`, this slice has no retirement transition and
 rejects that phase from an injected lookup port rather than advertising it.
 
-`broker.operation.outcome` remains unavailable in the registry. Server, client,
-CLI and MCP wiring wait for a supported guarded-comment ticket producer and an
-authenticated synthetic integration proving the complete no-enumeration and
-zero-backend-request boundary.
+The explicitly composed server/client/CLI route exposes this observation only
+for a supplied ticket. The ordinary client selects
+`jira_observation_session_file` independently of the writer session and never
+falls back to it. Observation remains CLI-only: MCP discovery may report the
+compiled operation, but MCP has no outcome execution or mutation tool.
 
 The storage-only foundation in `internal/adapter/brokerjournal` implements the
 domain journal port without enabling comment, outcome, server, client or CLI
@@ -567,11 +579,13 @@ qualified readback and durable result completion. The separately authorized
 metadata observer reports stored state only; this core adds no backend
 reconciliation, replay, retry, policy store or generic dispatch hook.
 
-The current Jira adapter's last-hop comment clearance does not yet include the
-immutable numeric issue ID, and a project metadata check cannot make a later
-numeric-ID POST atomically project-scoped. Adapter/runtime composition,
-authenticated strong-scope evidence and client/server/CLI availability remain
-required separate work. Registry availability therefore remains false.
+The Jira adapter's last-hop comment clearance includes service, issue kind,
+immutable numeric issue ID, key and project immediately before the numeric-ID
+POST. The runtime opens the existing journal and injects one digest-pinned
+local policy into app preflight and this last-hop clearance. That still cannot
+make the later POST atomically current-project-scoped: the supported
+`identity_snapshot_v1` profile is intentionally weaker and authorities that
+require atomic membership must return `unsupported_consistency`.
 
 Cache qualification binds issuer/backend, source principal and read-scope
 digests, target execution, authority revision, operation/selector/projection,
@@ -844,8 +858,17 @@ that requires atomic membership or a stable complete selection must return
 
 ## Dependent implementation slices
 
-Contracts are prerequisites rather than evidence that a runtime capability has
-shipped. Each dependent slice must still provide authentication provenance,
-current authorization, backend-supported consistency, durable ticket
-verification, revocation evidence and runtime isolation before advertising its
-operations.
+The guarded-comment runtime establishes synthetic assembled behavior, not live
+provider readiness. A deployment must still provide an authority that supports
+all required current decision and proposal phases, permission-separated writer
+and observer sessions, execution/epoch invalidation, and the advertised weak
+consistency. A real Jira deployment must separately establish that its
+credential and behavior match that maximum, and live validation needs an
+explicit owned target and cleanup authority.
+
+The durable format has not migrated for this runtime. Journal identity binds
+the Broker and backend, but coherent historical storage rollback cannot be
+detected locally. Invalidate or rotate Broker/session execution identity before
+resuming writes after a restore. None of these external requirements grants a
+retry, background reconciliation, general Jira write, or stronger
+current-project claim.

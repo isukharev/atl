@@ -11,6 +11,7 @@ Offline capability routing, MCP serving, and profile review/apply contracts.
 - [`atl mcp serve`](#atl-mcp-serve)
 - [`atl broker discover`](#atl-broker-discover)
 - [`atl broker serve`](#atl-broker-serve)
+- [`atl broker journal initialize`](#atl-broker-journal-initialize)
 - [`atl profile`](#atl-profile)
 - [Preview and apply](#preview-and-apply)
 - [Context-efficient reads and guidance](#context-efficient-reads-and-guidance)
@@ -400,10 +401,11 @@ through private zero-TTL resources in the selected service profile.
 
 ## `atl broker serve`
 
-Run the explicit local read-only Broker host:
+Run the explicit local Broker host:
 
 ```bash named-broker-serve
 atl broker serve --config /etc/atl-broker/broker.json
+atl broker serve --config /etc/atl-broker/broker.json --enable-jira-comments
 ```
 
 The command requires exactly one `--config` file and starts no background
@@ -416,10 +418,42 @@ credentials and TLS material. It accepts no inline secret, environment
 interpolation, URL path/query/fragment, proxy environment, public listener,
 system trust fallback, or hot reload.
 
-The configuration is capped at 64 KiB. Every referenced artifact must share
-its owner-private parent, be a stable regular owner-owned mode-`0600` file, and
-stay within its bound: 8 KiB credentials, 4 MiB CA bundles, 256 KiB certificate
-chain, and 64 KiB private key. Credential files contain exact visible ASCII
+Guarded Jira comments require both `--enable-jira-comments` and an exact
+top-level block in the host configuration:
+
+```json named-broker-jira-comment-host-config-v1
+{
+  "jira_comment": {
+    "qualification_profile": "exact_jira_comment_v1",
+    "journal_directory": "jira-comment-journal",
+    "journal_records": 128,
+    "journal_reserved_bytes": 67108864,
+    "local_policy_file": "jira-comment-policy.json",
+    "local_policy_sha256": "<64 lowercase hex characters>"
+  }
+}
+```
+
+The block requires a configured Jira backend. Journal/policy names are simple
+same-parent references; the policy is capped at 64 KiB, digest-pinned, and its
+Jira backend binding must equal the configured origin. Journal limits are
+1..1024 records and 1..268435456 reserved bytes. The runtime always opens the
+existing journal and never creates one. A flag/block mismatch fails closed.
+With neither, the host preserves its read-only operation set. The command's
+static effect metadata reports its maximum guarded-write profile, but the
+process `--read-only`/`ATL_READ_ONLY` policy permits the no-flag host and rejects
+`--enable-jira-comments` before config, credentials, or network access.
+Open holds the sole writer lock through handler closeout and drain. Recovery
+maps a durable pre-dispatch `admitted` record to `not_applied` and a
+`dispatching` record to `outcome_unknown`, restores their fences, and performs
+no Jira request.
+
+The configuration is capped at 64 KiB. Every referenced file artifact must
+share its owner-private parent, be a stable regular owner-owned mode-`0600`
+file, and stay within its bound: 8 KiB credentials, 4 MiB CA bundles, 256 KiB
+certificate chain, 64 KiB private key, and 64 KiB comment policy. The journal
+is instead an existing owner-private directory created by the separate command
+below. Credential files contain exact visible ASCII
 bearer bytes without surrounding whitespace or a trailing newline. Files are
 pinned for the process lifetime; replacement takes effect only after restart.
 Windows hosting is refused because Go file modes cannot prove the required ACL
@@ -439,8 +473,9 @@ and 4 admin, one data execution, two admin requests, data/admin admission rates
 of 4/2 requests per second with equal bursts, a 5-second header timeout,
 10-second request-read timeout, 15-second idle timeout, 60-second request
 context, 65-second server write fallback, and 5-second shutdown grace. HTTP/2,
-upgrades, streaming, browser/CORS/debug routes, public binds, and mutations are
-unavailable. SIGINT or SIGTERM marks the host draining, cancels admitted work,
+upgrades, streaming, browser/CORS/debug routes, public binds, and unselected
+mutations are unavailable. A selected guarded apply permits at most one Jira
+comment POST and never retries it. SIGINT or SIGTERM marks the host draining, cancels admitted work,
 performs bounded shutdown, and force-closes the remainder.
 The single five-second budget also covers handler completion and audit close.
 If a handler does not exit within it, the command returns a closed failure and
@@ -461,8 +496,36 @@ diagnostics are suppressed instead of bypassing this closed channel.
 See the credential-free [local deployment example](../../broker-local-deployment.md)
 and the [Broker contract](../../broker-contract.md). The runtime owner must
 provide the external authority and destination-level egress controls. Starting
-the service does not activate a provider or policy and makes no authority or
-backend request until an authenticated route is called.
+the no-flag service does not activate the guarded policy. The selected flag
+loads the pinned policy and opens its journal, but neither form makes an
+authority or backend request until an authenticated route is called.
+
+For a guarded runtime, the configured authority must explicitly support the
+comment profile and all decision/proposal phases. The profile binds immutable
+numeric issue identity and point-in-time key/project/update, not atomic current
+project membership or live-provider readiness. After restoring journal storage,
+invalidate or rotate Broker/session execution identity before allowing writes;
+the journal cannot detect a coherent rollback by itself.
+
+## `atl broker journal initialize`
+
+Create the absent guarded-comment journal before starting the selected host:
+
+```bash named-broker-journal-initialize
+atl broker journal initialize --config /etc/atl-broker/broker.json
+```
+
+This is a local operator write, not a provider mutation. It reads only the
+owner-private configuration, derives journal identity from the Broker id and
+complete Jira backend binding, and calls the create-only journal boundary. It
+does not load authority/backend credentials, the pinned policy, ordinary ATL
+configuration or PATs, and performs no network request. Process `--read-only`
+or `ATL_READ_ONLY` rejects it before reading the operator config; the ordinary
+client's persisted policy is not loaded by this operator command. The parent directory
+must already be current-owner mode `0700`; existing, missing-parent,
+wrong-owner, unsupported, or invalid storage fails closed. The command never
+opens an existing journal, falls back from `Open` to `Create`, or prints the
+journal path. See the [initialization output](../output/agent-interfaces.md#broker-journal-initialization-result).
 
 ## `atl profile`
 

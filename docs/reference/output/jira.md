@@ -1827,7 +1827,7 @@ reviewed native body, actor values, individual baseline ids/metadata, backend
 URL, and backend response detail are never emitted. `-o text` is the same
 content-minimized contract in human form.
 
-Preview is the independently GET-only command available under read-only policy;
+Direct preview is the independently GET-only command available under read-only policy;
 the parent remains mutation-classified even in dry-run mode. The versioned hash
 binds exact native body bytes and the full sorted qualified record baseline—not
 only comment ids—plus immutable issue/project/revision, actor, backend digest,
@@ -1844,6 +1844,61 @@ conflicting readback reports `complete:true`, while unavailable or incomplete
 readback reports `complete:false`. An attempted POST is never replayed; a
 stdout failure after `write_attempted:true` also exits 8 with an explicit
 no-replay diagnostic.
+
+### Broker guarded comment and outcome
+
+In Broker mode, preview/apply emit a separate content-minimized schema rather
+than changing the direct result above. A preview has this shape:
+
+```json named-broker-jira-comment-preview
+{
+  "schema_version": 1,
+  "operation": "jira.comment.preview",
+  "qualification_profile": "exact_jira_comment_v1",
+  "arguments_sha256": "<64 lowercase hex characters>",
+  "operation_ticket": "<opaque ticket>",
+  "mode": "preview",
+  "status": "proposed",
+  "proposal_hash": "<64 lowercase hex characters>",
+  "native_candidate_sha256": "<64 lowercase hex characters>",
+  "version_evidence_sha256": "<64 lowercase hex characters>",
+  "write_attempted": false,
+  "complete": true,
+  "reconciled": false
+}
+```
+
+Apply uses `operation:"jira.comment.apply"`, `mode:"apply"`, and the same
+fixed fields, with optional `comment_id`. Status is
+`applied|recovered|not_applied|outcome_unknown`. `not_applied` and
+`outcome_unknown` are emitted before exit 8; they do not disappear because the
+command also returns a typed terminal error. Any result with
+`write_attempted:true`, or any apply response/output ambiguity, must not be
+replayed. Text output projects exactly these fields and no native body, actor,
+session, policy, URL, or backend response.
+
+`atl jira issue comment outcome --operation-ticket TICKET` returns durable
+metadata for that same opaque ticket:
+
+```json named-broker-jira-comment-outcome
+{
+  "schema_version": 1,
+  "operation": "broker.operation.outcome",
+  "qualification_profile": "operation_ticket_v1",
+  "operation_ticket": "<same opaque ticket>",
+  "ticket_sha256": "<64 lowercase hex characters>",
+  "phase": "outcome_unknown",
+  "observed_at_millis": 1700000000000,
+  "complete": false,
+  "reconciled": false
+}
+```
+
+`phase` is `admitted|dispatching|applied|not_applied|outcome_unknown`; a
+qualified applied record also carries `result_sha256`. Observation reports
+stored journal truth only, performs no Jira read or recovery, and never makes
+the supplied ticket replay-safe. Unknown/foreign tickets fail with the same
+closed denial rather than exposing ownership or existence.
 
 `atl jira issue watchers list <KEY>` emits
 `{key,watch_count,is_watching,watchers:[{name,key?,display_name?,active}],

@@ -26,7 +26,8 @@ only within its effective `grants` and treat content-policy denial as a human
 decision boundary. Jira issue-ID grants apply only to guarded comments; other
 issue writes can lack ID evidence.
 
-If `atl` or Jira URL/auth is missing, run `{{atl.setup_cmd}}` and stop. Exit 7
+If `atl` or the selected connection's configuration/auth is missing, run
+`{{atl.setup_cmd}}` and stop. Exit 7
 also means setup is incomplete. Exit 8 with `policy:"read_only"` is a human
 decision boundary; never disable it to create, update, transition, comment,
 link, upload, log work, push, or delete. Route other failures by stable JSON
@@ -67,6 +68,12 @@ or `jira_project_issue_page` for one project-qualified page. Only summary and
 description are selectable. Each cursor starts fresh discovery and authorization;
 `coordinate_exhausted` is not stable absence and `selection_complete` is always
 false. Never turn `unsupported` into direct REST, arbitrary JQL or a PAT request.
+Broker guarded comments are separate CLI-only operations. Preview the final
+native body to obtain both proposal hash and opaque ticket, then apply that
+unchanged body once with the same writer session. If apply is ambiguous, query
+the same ticket with the independently configured observer session; never
+retry apply or fall back to direct Jira. Load
+[reference/commands.md](reference/commands.md) for the exact Broker flags.
 
 If the plugin exposes typed MCP, prefer `jira_fields`, `jira_issue_search`,
 `jira_issue_history`, `jira_issue_graph`, `jira_issue_refs`, `jira_epic_digest`, `jira_board_view`,
@@ -421,12 +428,14 @@ shell/workspace configuration implicitly.
   digests; `recovered` proves only the bounded end state, and
   `outcome_unknown` is never replay-safe.
 - For a comment, use the separately read-only `jira issue comment preview` on
-  the final file, review its content-minimized body/actor/baseline hashes,
-  immutable issue identity, exact-body count, bounds, and usage, then apply that
-  exact file once with `comment add --apply --expected-proposal-hash`. The
-  direct command is always `append_always`: identical text is still a new
-  event. Accept only `applied` or `recovered`; `outcome_unknown` and every
-  attempted write without trustworthy stdout are never replay-safe.
+  the final file. In direct mode, review body/actor/baseline hashes, immutable
+  identity, bounds, and usage, then apply the exact file once with
+  `comment add --apply --expected-proposal-hash`; `append_always` means identical
+  text is still a new event. In Broker mode, also retain the opaque ticket and
+  pass `--operation-ticket` with the same writer session. Accept only `applied`
+  or `recovered`. For an ambiguous Broker apply, use read-only `comment outcome`
+  with that same ticket and the separate observer session. Never replay an
+  attempted write or substitute a direct request.
 - For a transition, use separately read-only `jira issue transition preview`
   with the exact target, fields, and optional native-wiki comment. Review the
   issue/status/update, selected transition, current/desired field evidence, and
