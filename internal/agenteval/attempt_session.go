@@ -533,6 +533,24 @@ func (session *DurableAttemptSession) Timeout(terminationProven bool, usage life
 	return session.triggerTerminal(lifecycle.StateTimedOut, lifecycle.ErrorDeadline, lifecycle.ProofDurableDeadline, terminationProven, usage)
 }
 
+func (session *DurableAttemptSession) cancelBeforeSpawn(usage lifecycle.Usage) error {
+	return session.triggerBeforeSpawn(lifecycle.StateCanceled, lifecycle.ErrorCanceled, lifecycle.ProofDurableCancel, usage)
+}
+
+func (session *DurableAttemptSession) timeoutBeforeSpawn(usage lifecycle.Usage) error {
+	return session.triggerBeforeSpawn(lifecycle.StateTimedOut, lifecycle.ErrorDeadline, lifecycle.ProofDurableDeadline, usage)
+}
+
+func (session *DurableAttemptSession) triggerBeforeSpawn(to lifecycle.State, code string, trigger lifecycle.Proof, usage lifecycle.Usage) error {
+	inspection, err := session.store.Inspect(session.plan.AttemptID)
+	if err != nil || inspection.Projection.State != lifecycle.StateSpawning {
+		return attemptLedgerError("pre_spawn_trigger_state", err)
+	}
+	_, err = session.store.Append(session.plan.AttemptID, to,
+		[]lifecycle.Proof{trigger, lifecycle.ProofNonExecution}, attemptEvidenceWithUsage(code, usage))
+	return err
+}
+
 func (session *DurableAttemptSession) Unknown(code string, usage lifecycle.Usage) error {
 	inspection, err := session.store.Inspect(session.plan.AttemptID)
 	if err != nil {

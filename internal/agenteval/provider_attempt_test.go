@@ -1,6 +1,7 @@
 package agenteval
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -10,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/isukharev/atl/internal/agenteval/lifecycle"
 )
@@ -216,6 +218,155 @@ func TestExecuteProviderAttemptStartFailureIsDurablyTerminal(t *testing.T) {
 	}
 }
 
+func TestExecuteProviderAttemptContextFailureBeforeSpawnPreservesNonExecution(t *testing.T) {
+	tests := []struct {
+		name      string
+		context   func() (context.Context, context.CancelFunc)
+		wantErr   error
+		wantState lifecycle.State
+		wantProof lifecycle.Proof
+		wantClass string
+	}{
+		{
+			name: "deadline already expired",
+			context: func() (context.Context, context.CancelFunc) {
+				return context.WithDeadline(context.Background(), time.Unix(0, 0))
+			},
+			wantErr: context.DeadlineExceeded, wantState: lifecycle.StateTimedOut,
+			wantProof: lifecycle.ProofDurableDeadline, wantClass: lifecycle.ErrorDeadline,
+		},
+		{
+			name: "already canceled",
+			context: func() (context.Context, context.CancelFunc) {
+				ctx, cancel := context.WithCancel(context.Background())
+				cancel()
+				return ctx, cancel
+			},
+			wantErr: context.Canceled, wantState: lifecycle.StateCanceled,
+			wantProof: lifecycle.ProofDurableCancel, wantClass: lifecycle.ErrorCanceled,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			store := newAttemptLedgerForTest(t)
+			plan, err := store.Allocate(testAttemptBinding())
+			if err != nil {
+				t.Fatal(err)
+			}
+			session, err := NewDurableAttemptSession(store, plan)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := test.context()
+			defer cancel()
+			marker := filepath.Join(t.TempDir(), "executions")
+			command := providerAttemptHelperCommandContext(t, ctx, marker, 0)
+
+			stage, terminationProven, processReceipt, err := executeProviderAttemptWithSession(command, nil, nil, session)
+			if err != test.wantErr {
+				t.Fatalf("start error = %v, want exact %v", err, test.wantErr)
+			}
+			if stage != providerAttemptStageStart || terminationProven || processReceipt != "" {
+				t.Fatalf("start result: stage=%v termination=%t receipt=%q", stage, terminationProven, processReceipt)
+			}
+			if command.Process != nil || command.ProcessState != nil {
+				t.Fatalf("context start failure created process: Process=%v ProcessState=%v", command.Process, command.ProcessState)
+			}
+			assertProviderAttemptExecutions(t, marker, 0)
+
+			inspection, inspectErr := store.Inspect(plan.AttemptID)
+			if inspectErr != nil || !inspection.Projection.Terminal || inspection.Projection.State != test.wantState ||
+				inspection.Projection.ProcessSHA256 != "" || len(inspection.Events) != 3 {
+				t.Fatalf("terminal inspection=%+v err=%v", inspection, inspectErr)
+			}
+			terminal := inspection.Events[2]
+			if terminal.From != lifecycle.StateSpawning || terminal.To != test.wantState ||
+				len(terminal.Proofs) != 2 || terminal.Proofs[0] != test.wantProof || terminal.Proofs[1] != lifecycle.ProofNonExecution ||
+				terminal.Evidence.ErrorClass != test.wantClass {
+				t.Fatalf("terminal event=%+v", terminal)
+			}
+
+			replayMarker := filepath.Join(t.TempDir(), "replay-executions")
+			replay := providerAttemptHelperCommand(t, replayMarker, 0)
+			replayStage, _, _, replayErr := executeProviderAttemptWithSession(replay, nil, nil, session)
+			if replayErr == nil || replayStage != providerAttemptStageStart || replay.Process != nil {
+				t.Fatalf("terminal attempt replay: stage=%v Process=%v err=%v", replayStage, replay.Process, replayErr)
+			}
+			assertProviderAttemptExecutions(t, replayMarker, 0)
+			afterReplay, inspectErr := store.Inspect(plan.AttemptID)
+			if inspectErr != nil || afterReplay.Projection.State != test.wantState || len(afterReplay.Events) != 3 {
+				t.Fatalf("absorbing terminal changed after replay: inspection=%+v err=%v", afterReplay, inspectErr)
+			}
+		})
+	}
+}
+
+func TestExecuteProviderAttemptCancellationAfterRunningIsCanceled(t *testing.T) {
+	store := newAttemptLedgerForTest(t)
+	plan, err := store.Allocate(testAttemptBinding())
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err := NewDurableAttemptSession(store, plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	marker := filepath.Join(t.TempDir(), "executions")
+	command := providerAttemptHelperCommandContext(t, ctx, marker, -1)
+	type outcome struct {
+		stage             providerAttemptStage
+		terminationProven bool
+		receipt           string
+		err               error
+	}
+	done := make(chan outcome, 1)
+	go func() {
+		stage, terminationProven, receipt, err := executeProviderAttemptWithSession(command, nil, nil, session)
+		done <- outcome{stage, terminationProven, receipt, err}
+	}()
+
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		inspection, inspectErr := store.Inspect(plan.AttemptID)
+		markerContents, markerErr := os.ReadFile(marker)
+		if inspectErr == nil && inspection.Projection.State == lifecycle.StateRunning && string(markerContents) == "executed\n" {
+			break
+		}
+		if markerErr != nil && !errors.Is(markerErr, fs.ErrNotExist) {
+			t.Fatalf("read running marker: %v", markerErr)
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("attempt did not reach running marker barrier: inspection=%+v inspectErr=%v marker=%q markerErr=%v",
+				inspection, inspectErr, markerContents, markerErr)
+		}
+		time.Sleep(time.Millisecond)
+	}
+	cancel()
+	var result outcome
+	select {
+	case result = <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("canceled process did not terminate")
+	}
+	if result.err == nil || result.stage != providerAttemptStageWait || !result.terminationProven || !validSHA256(result.receipt) {
+		t.Fatalf("canceled execution: stage=%v termination=%t receipt=%q err=%v", result.stage, result.terminationProven, result.receipt, result.err)
+	}
+	if err := session.Cancel(result.terminationProven, UnknownAttemptUsage()); err != nil {
+		t.Fatal(err)
+	}
+	inspection, err := store.Inspect(plan.AttemptID)
+	if err != nil || inspection.Projection.State != lifecycle.StateCanceled || !inspection.Projection.Terminal || len(inspection.Events) != 4 {
+		t.Fatalf("canceled lifecycle=%+v err=%v", inspection, err)
+	}
+	terminal := inspection.Events[3]
+	if terminal.From != lifecycle.StateRunning || terminal.To != lifecycle.StateCanceled || terminal.Evidence.ErrorClass != lifecycle.ErrorCanceled ||
+		len(terminal.Proofs) != 2 || terminal.Proofs[0] != lifecycle.ProofDurableCancel || terminal.Proofs[1] != lifecycle.ProofTermination {
+		t.Fatalf("canceled terminal event=%+v", terminal)
+	}
+}
+
 func TestExecuteProviderAttemptBridgesLegacyCommitAfterGenericCommit(t *testing.T) {
 	store := newAttemptLedgerForTest(t)
 	plan, err := store.Allocate(testAttemptBinding())
@@ -247,7 +398,12 @@ func TestExecuteProviderAttemptBridgesLegacyCommitAfterGenericCommit(t *testing.
 
 func providerAttemptHelperCommand(t *testing.T, marker string, exitCode int) *exec.Cmd {
 	t.Helper()
-	command := exec.Command(os.Args[0],
+	return providerAttemptHelperCommandContext(t, context.Background(), marker, exitCode)
+}
+
+func providerAttemptHelperCommandContext(t *testing.T, ctx context.Context, marker string, exitCode int) *exec.Cmd {
+	t.Helper()
+	command := exec.CommandContext(ctx, os.Args[0],
 		"-test.run=^TestProviderAttemptHelperProcess$",
 		"--",
 		marker,
@@ -305,6 +461,9 @@ func TestProviderAttemptHelperProcess(_ *testing.T) {
 	if err := marker.Close(); err != nil {
 		fmt.Fprintf(os.Stderr, "close provider attempt helper marker: %v\n", err)
 		os.Exit(101)
+	}
+	if exitCode < 0 {
+		time.Sleep(10 * time.Minute)
 	}
 	os.Exit(exitCode)
 }
