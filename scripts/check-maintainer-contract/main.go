@@ -124,47 +124,6 @@ check-onboarding-docs: build
 	ATL_NO_UPDATE=1 $(GO_ENV) go run ./scripts/check-onboarding-docs -root . -atl ./atl
 `
 
-const agentEvalFacadeMakeContract = `.PHONY: agent-eval-build agent-eval-unit agent-eval-race agent-eval-lint agent-eval-vet agent-eval-vuln agent-eval-tidy-check agent-eval-windows
-agent-eval-build:
-	$(AGENT_EVAL_MAKE) build
-
-agent-eval-unit:
-	$(AGENT_EVAL_MAKE) unit
-
-agent-eval-race:
-	$(AGENT_EVAL_MAKE) race
-
-agent-eval-lint:
-	$(AGENT_EVAL_MAKE) lint
-
-agent-eval-vet:
-	$(AGENT_EVAL_MAKE) vet
-
-agent-eval-vuln:
-	$(AGENT_EVAL_MAKE) vuln
-
-agent-eval-tidy-check:
-	$(AGENT_EVAL_MAKE) tidy-check
-
-agent-eval-windows:
-	$(AGENT_EVAL_MAKE) windows
-
-.PHONY: agent-eval-compat
-agent-eval-compat: check-agent-eval-support check-skill-routing
-	$(AGENT_EVAL_MAKE) compat
-
-.PHONY: agent-eval-contract
-agent-eval-contract: check-skill-routing
-	$(AGENT_EVAL_MAKE) contract
-
-.PHONY: agent-eval-product-boundary
-agent-eval-product-boundary: check-package-boundary
-
-.PHONY: agent-eval-full
-agent-eval-full: check-agent-eval-support check-skill-routing check-module-boundary
-	$(AGENT_EVAL_MAKE) full
-`
-
 const agentEvalDistributionMakeContract = `.PHONY: agent-eval-distribution-clean
 agent-eval-distribution-clean:
 	@set -eu; \
@@ -518,15 +477,20 @@ func validateBootstrap(root string) error {
 		"agent-eval-build", "agent-eval-unit", "agent-eval-race", "agent-eval-lint",
 		"agent-eval-vet", "agent-eval-vuln", "agent-eval-tidy-check", "agent-eval-windows",
 		"agent-eval-compat", "agent-eval-contract", "agent-eval-product-boundary", "agent-eval-full",
+		"agent-eval-hosted-full-nonrace", "agent-eval-hosted-race-shard",
 	} {
 		if countMakeTargetDeclarations(makefile, target) != 1 {
 			return fmt.Errorf("makefile must define exactly one %q evaluator facade", target)
 		}
 	}
 	if bytes.Count(makefile, []byte(agentEvalFacadeMakeContract)) != 1 ||
+		bytes.Count(makefile, []byte(agentEvalFullPrerequisitesContract)) != 1 ||
 		legacyEvaluatorScriptPath.Match(makefile) ||
 		bytes.Contains(makefile, []byte("go test ./internal/agenteval")) {
 		return errors.New("makefile must keep evaluator gates behind the reviewed nested-module facades")
+	}
+	if err := validateAgentEvalRaceRunner(root); err != nil {
+		return err
 	}
 	if err := validateEvaluatorMakefile(root); err != nil {
 		return err
@@ -630,7 +594,8 @@ ATL_BINARY ?= $(REPOSITORY_ROOT)/atl
 		{"compat-oracles", ".PHONY: compat-oracles\ncompat-oracles: product-atl\n"},
 		{"compat", ".PHONY: compat\ncompat: compat-tests compat-oracles\n"},
 		{"contract", ".PHONY: contract\ncontract: compat-oracles unit\n"},
-		{"full", ".PHONY: full\nfull: tidy-check build race lint vet vuln contract windows product-boundary\n"},
+		{"hosted-full-nonrace", ".PHONY: hosted-full-nonrace\nhosted-full-nonrace: $(filter-out race,$(FULL_GATES))\n"},
+		{"full", ".PHONY: full\nfull: $(FULL_GATES)\n"},
 	}
 	for _, target := range required {
 		if countMakeTargetDeclarations(makefile, target.target) != 1 || bytes.Count(makefile, []byte(target.contract)) != 1 {
@@ -643,6 +608,7 @@ ATL_BINARY ?= $(REPOSITORY_ROOT)/atl
 		}
 	}
 	for _, requiredSnippet := range []string{
+		"override FULL_GATES := tidy-check build race lint vet vuln contract windows product-boundary\n",
 		"CAPABILITY_CATALOG_FIXTURE := $(CURDIR)/testdata/capability-catalog.v1.json\n",
 		"COMPAT_TEST_COUNT := ",
 		"COMPAT_TESTS_WIRES := ",

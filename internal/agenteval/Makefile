@@ -4,6 +4,7 @@
 GO_ENV := env -u GOROOT GOTOOLCHAIN=auto GOWORK=off
 REPOSITORY_ROOT ?= $(abspath ../..)
 ATL_BINARY ?= $(REPOSITORY_ROOT)/atl
+override FULL_GATES := tidy-check build race lint vet vuln contract windows product-boundary
 
 # The small product/evaluator compatibility selection is owned here, once. The
 # root facade delegates instead of carrying a second copy of this reviewed list.
@@ -90,5 +91,8 @@ contract: compat-oracles unit
 product-boundary:
 	$(MAKE) -C $(REPOSITORY_ROOT) check-package-boundary
 
+.PHONY: hosted-full-nonrace
+hosted-full-nonrace: $(filter-out race,$(FULL_GATES))
+
 .PHONY: full
-full: tidy-check build race lint vet vuln contract windows product-boundary
+full: $(FULL_GATES)

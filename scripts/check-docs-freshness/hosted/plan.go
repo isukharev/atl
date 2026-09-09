@@ -35,7 +35,7 @@ func (p Plan) Jobs() map[string]bool {
 	return map[string]bool{
 		"binding": true, "contracts": true,
 		"test": p.Has("product"), "lint": p.Has("product"),
-		"agent-eval":          p.Evaluator() != "none",
+		"agent-eval": p.Evaluator() != "none", "agent-eval-race": p.Has("eval-full"),
 		"agent-eval-platform": p.Has("platform"), "agent-eval-extension-windows": p.Has("platform"),
 		"govulncheck": p.Has("security"), "codeql": p.Has("security"),
 		"corpus-devcontainer": p.Has("corpus"),

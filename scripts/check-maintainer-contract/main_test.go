@@ -163,7 +163,10 @@ func TestMaintainerContractRejectsDrift(t *testing.T) {
 		{name: "evaluator patch drift", path: "internal/agenteval/go.mod", old: "go " + fixtureGoVersion, replacement: "go 1.26.4", want: "evaluator module go directive"},
 		{name: "root evaluator environment", path: "Makefile", old: "GOWORK=off", replacement: "GOWORK=on", want: "workspace-independent root and evaluator environments"},
 		{name: "nested evaluator environment", path: "internal/agenteval/Makefile", old: "GOWORK=off", replacement: "GOWORK=on", want: "workspace-independent environment"},
-		{name: "nested full gate", path: "internal/agenteval/Makefile", old: "full: tidy-check build race lint vet vuln contract windows product-boundary", replacement: "full: tidy-check build race lint vet vuln contract windows", want: "exact \"full\" gate"},
+		{name: "nested full gate", path: "internal/agenteval/Makefile", old: "full: $(FULL_GATES)", replacement: "full: $(filter-out race,$(FULL_GATES))", want: "exact \"full\" gate"},
+		{name: "nested full inventory omits race", path: "internal/agenteval/Makefile", old: "override FULL_GATES := tidy-check build race lint vet vuln contract windows product-boundary", replacement: "override FULL_GATES := tidy-check build lint vet vuln contract windows product-boundary", want: "compatibility and deterministic contract commands"},
+		{name: "nested full inventory becomes caller controlled", path: "internal/agenteval/Makefile", old: "override FULL_GATES :=", replacement: "FULL_GATES :=", want: "compatibility and deterministic contract commands"},
+		{name: "root full prerequisites become caller controlled", path: "Makefile", old: "override AGENT_EVAL_FULL_PREREQUISITES :=", replacement: "AGENT_EVAL_FULL_PREREQUISITES :=", want: "nested-module facades"},
 		{name: "nested contract repeats compatibility tests", path: "internal/agenteval/Makefile", old: "contract: compat-oracles unit\n", replacement: "contract: compat unit\n", want: "exact \"contract\" gate"},
 		{name: "nested race timeout drift", path: "internal/agenteval/Makefile", old: "-timeout=45m", replacement: "-timeout=30m", want: "exact \"race\" gate"},
 		{name: "nested compatibility test omission", path: "internal/agenteval/Makefile", old: "COMPAT_TEST_COUNT := 4", replacement: "COMPAT_TEST_COUNT := 5", want: "selects 4 compatibility tests, want 5"},
@@ -173,11 +176,23 @@ func TestMaintainerContractRejectsDrift(t *testing.T) {
 		{name: "nested MCP package recursion", path: "internal/agenteval/Makefile", old: "go test ./... -run '$(COMPAT_TESTS_MCP)'", replacement: "go test . -run '$(COMPAT_TESTS_MCP)'", want: "compatibility and deterministic contract commands"},
 		{name: "nested lint pin", path: "internal/agenteval/Makefile", old: "golangci-lint@v2.12.2 run", replacement: "golangci-lint@latest run", want: "exact \"lint\" gate"},
 		{name: "root facade bypass", path: "Makefile", old: "\t$(AGENT_EVAL_MAKE) race", replacement: "\tgo test -race ./internal/agenteval", want: "nested-module facades"},
+		{name: "hosted runner shard count", path: "scripts/agent-eval-race/main.go", old: "shardCount       = 4", replacement: "shardCount       = 3", want: "runner contract"},
+		{name: "hosted runner process bound", path: "scripts/agent-eval-race/main.go", old: "testTimeout      = 47 * time.Minute", replacement: "testTimeout      = 60 * time.Minute", want: "runner contract"},
+		{name: "hosted runner leaks ambient environment", path: "scripts/agent-eval-race/main.go", old: "if allowed[key]", replacement: "if true || allowed[key]", want: "runner contract"},
+		{name: "hosted runner weakens amd64 level", path: "scripts/agent-eval-race/main.go", old: `"GOARCH=amd64", "GOAMD64=v1"`, replacement: `"GOARCH=amd64", "GOAMD64=v4"`, want: "runner contract"},
+		{name: "hosted runner enables persistent Go environment", path: "scripts/agent-eval-race/main.go", old: `"GOENV=off", "GOFLAGS="`, replacement: `"GOENV=", "GOFLAGS="`, want: "runner contract"},
+		{name: "hosted runner enables toolchain experiments", path: "scripts/agent-eval-race/main.go", old: `"GOAMD64=v1", "GOEXPERIMENT="`, replacement: `"GOAMD64=v1", "GOEXPERIMENT=arenas"`, want: "runner contract"},
+		{name: "hosted runner residue proof", path: "scripts/agent-eval-race/source.go", old: `"status", "--porcelain=v1", "--untracked-files=all", "--ignored=matching"`, replacement: `"status", "--porcelain=v1"`, want: "runner contract"},
+		{name: "hosted runner process ownership", path: "scripts/agent-eval-race/process_linux.go", old: "Setpgid: true", replacement: "Setpgid: false", want: "runner contract"},
+		{name: "hosted runner parser cancellation", path: "scripts/agent-eval-race/events.go", old: "_ = command.Cancel()", replacement: "", want: "runner contract"},
+		{name: "hosted runner seed terminal conflation", path: "scripts/agent-eval-race/events.go", old: "seed.terminals++", replacement: "seed.runs++", want: "runner contract"},
+		{name: "hosted runner product import", path: "scripts/agent-eval-race/main.go", old: `"context"`, replacement: `"github.com/isukharev/atl/internal/app"`, want: "standard-library-only"},
+		{name: "hosted runner bootstrap Go environment", path: "Makefile", old: "GOENV=off GOFLAGS= GOOS=linux GOARCH=amd64 GOAMD64=v1 GOEXPERIMENT= CGO_ENABLED=1", replacement: "GOFLAGS=", want: "nested-module facades"},
 		{name: "root module boundary", path: "Makefile", old: "go run ./scripts/check-module-boundary -root .", replacement: "echo skipped", want: "exact two-module boundary gate"},
 		{name: "nested ignored failures", path: "internal/agenteval/Makefile", old: ".PHONY: build", replacement: ".IGNORE: build\n.PHONY: build", want: "failure propagation"},
 		{name: "capability catalog generation fail open", path: "internal/agenteval/Makefile", old: "@set -eu;", replacement: "@set +e;", want: "compatibility and deterministic contract commands"},
 		{name: "ci evaluator timeout drift", path: ".github/workflows/ci.yml", old: "    timeout-minutes: 75", replacement: "    timeout-minutes: 30", want: "premerge workflow contract"},
-		{name: "ci evaluator allowed failure", path: ".github/workflows/ci.yml", old: "        run: make agent-eval-full", replacement: "        run: make agent-eval-full\n        continue-on-error: true", want: "premerge workflow contract"},
+		{name: "ci evaluator allowed failure", path: ".github/workflows/ci.yml", old: "        run: make agent-eval-hosted-full-nonrace", replacement: "        run: make agent-eval-hosted-full-nonrace\n        continue-on-error: true", want: "premerge workflow contract"},
 		{name: "ci extension runtime selector", path: ".github/workflows/ci.yml", old: "TestExtensionProtocolV1StateMachineIsClosed", replacement: "TestExtensionProtocolV1StateMachine", want: "premerge workflow contract"},
 		{name: "ci scheduler runtime selector", path: ".github/workflows/ci.yml", old: "TestSchedulerDispatchIsRoundOrderedBoundedAndCompletionOrderIndependent", replacement: "TestSchedulerDispatchIsRoundOrderedBoundedAndCompletionOrder", want: "premerge workflow contract"},
 		{name: "ci Darwin zombie group selector", path: ".github/workflows/ci.yml", old: "|TestDarwinZombieOnlyProcessGroupSignal", replacement: "", want: "premerge workflow contract"},
@@ -524,10 +539,11 @@ readonly GRAPHIFY_WHEEL_URL="https://files.pythonhosted.org/packages/c3/fe/eb0af
 			maintainabilityMakeContract + pluginsMakeContract + docsCatalogMakeContract + docsFreshnessMakeContract +
 			supportPolicyMakeContract +
 			repositorySkillsMakeContract + referenceSplitMakeContract + context7MakeContract + onboardingMakeContract +
-			agentEvalFacadeMakeContract + agentEvalDistributionMakeContract,
+			agentEvalFullPrerequisitesContract + "\n" + agentEvalFacadeMakeContract + agentEvalDistributionMakeContract,
 		"internal/agenteval/Makefile": `GO_ENV := env -u GOROOT GOTOOLCHAIN=auto GOWORK=off
 REPOSITORY_ROOT ?= $(abspath ../..)
 ATL_BINARY ?= $(REPOSITORY_ROOT)/atl
+override FULL_GATES := tidy-check build race lint vet vuln contract windows product-boundary
 
 CAPABILITY_CATALOG_FIXTURE := $(CURDIR)/testdata/capability-catalog.v1.json
 COMPAT_TEST_COUNT := 4
@@ -611,8 +627,11 @@ contract: compat-oracles unit
 product-boundary:
 	$(MAKE) -C $(REPOSITORY_ROOT) check-package-boundary
 
+.PHONY: hosted-full-nonrace
+hosted-full-nonrace: $(filter-out race,$(FULL_GATES))
+
 .PHONY: full
-full: tidy-check build race lint vet vuln contract windows product-boundary
+full: $(FULL_GATES)
 `,
 		"internal/agenteval/fixture_test.go": "package agenteval\n\nimport \"testing\"\n\nfunc TestFixtureWires(t *testing.T) {}\nfunc TestFixtureMirror(t *testing.T) {}\nfunc TestFixtureWrites(t *testing.T) {}\nfunc TestFixtureMCP(t *testing.T) {}\n",
 		".github/workflows/ci.yml": "name: ci\n" + ciTriggerContract + `permissions:
@@ -621,7 +640,7 @@ concurrency:
   group: fixture
 jobs:
 ` + bindingJobContract + readyJobContract + codeQLCallJobContract + contractsJobContract +
-			lintJobContract + evaluatorJobContract + platformJobContract + windowsRuntimeJobContract + vulnerabilityJobContract + `  test:
+			lintJobContract + evaluatorJobContract + evaluatorRaceJobContract + platformJobContract + windowsRuntimeJobContract + vulnerabilityJobContract + `  test:
     needs: binding
     if: needs.binding.outputs.product == 'true'
     strategy:
@@ -725,6 +744,19 @@ updates:
 			t.Fatal(err)
 		}
 		if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, name := range []string{"main.go", "source.go", "inventory.go", "events.go", "process.go", "process_linux.go", "process_other.go", "main_test.go", "process_linux_test.go"} {
+		body, err := os.ReadFile(filepath.Join("..", "..", "scripts", "agent-eval-race", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		path := filepath.Join(root, "scripts", "agent-eval-race", name)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, body, 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
