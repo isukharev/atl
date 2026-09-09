@@ -72,10 +72,10 @@
       "kind": "capability-catalog",
       "version": 1,
       "source_path": "testdata/capability-catalog.v1.json",
-      "source_sha256": "403d7a24a696f9506723aea487f8335d4ccdf98d961058038295411e57f93717",
+      "source_sha256": "f0bd6a7a8c8ab3c007f98c211a377e7fa773e0a04572845d0da6316b44e58c8a",
       "expected_projection": {
         "schema_version": 1,
-        "capability_count": 70,
+        "capability_count": 71,
         "first_capability": "confluence.attachment.search",
         "last_capability": "knowledge.confluence.sections"
       }
