@@ -14,6 +14,7 @@
   ],
   "routes": [
     {"id":"agent-broker","document":"docs/reference/cli/agent-interfaces.md","evidence":"## `atl broker serve`","commands":["broker serve"]},
+    {"id":"agent-broker-discovery","document":"docs/reference/cli/agent-interfaces.md","evidence":"## `atl broker discover`","commands":["broker discover"]},
     {"id":"agent-capabilities","document":"docs/reference/cli/agent-interfaces.md","evidence":"## Offline agent capability catalog","commands":["capabilities"]},
     {"id":"agent-mcp","document":"docs/reference/cli/agent-interfaces.md","evidence":"## `atl mcp serve`","commands":["mcp serve"]},
     {"id":"agent-profile-apply","document":"docs/reference/cli/agent-interfaces.md","evidence":"## Preview and apply","safety_document":"docs/safe-writes.md","safety_evidence":"## Pre-write checklist","commands":["profile apply","profile preview"]},

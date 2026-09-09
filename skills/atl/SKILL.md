@@ -131,6 +131,11 @@ exact-read subset: Jira issue get with an explicit nonempty subset of
 `summary,description,updated`, and numeric-id Confluence page
 metadata/CSF/outline/section reads. Treat `unsupported` as a closed capability
 boundary; do not retry through direct REST or request a backend PAT.
+Read `atl broker discover --service jira|confluence`, or the corresponding
+private MCP `atl://broker/discovery/jira|confluence` resource, for current
+operation support and advisory access. Each read is fresh; never cache or
+reuse it as authorization. `access_request_required` does not submit a request
+or grant access, and every operation invocation reauthorizes independently.
 
 ## Mental model
 

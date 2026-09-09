@@ -12,8 +12,8 @@ import (
 )
 
 func TestSyntheticMCPResourceInventoryIsExactAndClosed(t *testing.T) {
-	valid := syntheticMCPResourceInventoryResultForTest()
-	if err := validateSyntheticMCPResourceInventory(valid); err != nil {
+	valid := syntheticMCPResourceInventoryResultForTest("default")
+	if err := validateSyntheticMCPResourceInventory(valid, "default"); err != nil {
 		t.Fatalf("released resource inventory rejected: %v", err)
 	}
 
@@ -27,7 +27,7 @@ func TestSyntheticMCPResourceInventoryIsExactAndClosed(t *testing.T) {
 		},
 		"reordered resources": func(result map[string]any) {
 			resources := result["resources"].([]any)
-			result["resources"] = []any{resources[1], resources[0]}
+			resources[0], resources[1] = resources[1], resources[0]
 		},
 		"unknown result member": func(result map[string]any) {
 			result["nextCursor"] = "more"
@@ -67,9 +67,9 @@ func TestSyntheticMCPResourceInventoryIsExactAndClosed(t *testing.T) {
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			result := syntheticMCPResourceInventoryValueForTest()
+			result := syntheticMCPResourceInventoryValueForTest("default")
 			mutate(result)
-			if err := validateSyntheticMCPResourceInventory(marshalSyntheticMCPTestValue(t, result)); err == nil {
+			if err := validateSyntheticMCPResourceInventory(marshalSyntheticMCPTestValue(t, result), "default"); err == nil {
 				t.Fatal("resource inventory drift passed")
 			}
 		})
@@ -77,20 +77,40 @@ func TestSyntheticMCPResourceInventoryIsExactAndClosed(t *testing.T) {
 
 	duplicate := strings.Replace(string(valid), `"name":"atl-runtime"`,
 		`"name":"atl-runtime","name":"atl-runtime"`, 1)
-	if err := validateSyntheticMCPResourceInventory([]byte(duplicate)); err == nil {
+	if err := validateSyntheticMCPResourceInventory([]byte(duplicate), "default"); err == nil {
 		t.Fatal("duplicate resource descriptor member passed")
 	}
 	decimalTTL := strings.Replace(string(valid), `"ttlMs":0`, `"ttlMs":0.0`, 1)
-	if err := validateSyntheticMCPResourceInventory([]byte(decimalTTL)); err == nil {
+	if err := validateSyntheticMCPResourceInventory([]byte(decimalTTL), "default"); err == nil {
 		t.Fatal("non-integer lexical cache TTL passed")
 	}
 	exponentTTL := strings.Replace(string(valid), `"ttlMs":0`, `"ttlMs":0e0`, 1)
-	if err := validateSyntheticMCPResourceInventory([]byte(exponentTTL)); err == nil {
+	if err := validateSyntheticMCPResourceInventory([]byte(exponentTTL), "default"); err == nil {
 		t.Fatal("exponent cache TTL passed")
 	}
 	duplicateTTL := strings.Replace(string(valid), `"ttlMs":0`, `"ttlMs":0,"ttlMs":0`, 1)
-	if err := validateSyntheticMCPResourceInventory([]byte(duplicateTTL)); err == nil {
+	if err := validateSyntheticMCPResourceInventory([]byte(duplicateTTL), "default"); err == nil {
 		t.Fatal("duplicate cache TTL passed")
+	}
+}
+
+func TestSyntheticMCPDiscoveryInventoryIsBoundToSelectedService(t *testing.T) {
+	for service, count := range map[string]int{"default": 4, "jira": 3, "confluence": 3, "offline": 2} {
+		value := syntheticMCPResourceInventoryValueForTest(service)
+		if len(value["resources"].([]any)) != count {
+			t.Fatalf("service=%s inventory count differs", service)
+		}
+		if err := validateSyntheticMCPResourceInventory(marshalSyntheticMCPTestValue(t, value), service); err != nil {
+			t.Fatal(err)
+		}
+		for _, other := range []string{"default", "jira", "confluence", "offline", "unknown"} {
+			if other == service {
+				continue
+			}
+			if err := validateSyntheticMCPResourceInventory(marshalSyntheticMCPTestValue(t, value), other); err == nil {
+				t.Fatalf("%s inventory accepted for %s", service, other)
+			}
+		}
 	}
 }
 
@@ -230,7 +250,7 @@ func TestSyntheticATLProcessRefusesRuntimeResourceDriftBeforeToolCall(t *testing
 			root := privateSyntheticScratch(t)
 			marker := filepath.Join(root, "unexpected-followup")
 			binary := filepath.Join(root, "atl-fake")
-			list := syntheticMCPResourceInventoryValueForTest()
+			list := syntheticMCPResourceInventoryValueForTest("jira")
 			if test.mutateList != nil {
 				test.mutateList(list)
 			}
@@ -275,7 +295,7 @@ func TestSyntheticATLProcessRuntimePreflightPrecedesOrdinaryToolCall(t *testing.
 	root := privateSyntheticScratch(t)
 	audit := filepath.Join(root, "mcp-sequence")
 	binary := filepath.Join(root, "atl-fake")
-	listResult := string(syntheticMCPResourceInventoryResultForTest())
+	listResult := string(syntheticMCPResourceInventoryResultForTest("jira"))
 	readResult := string(syntheticMCPRuntimeReadResultForTest("jira", "private", nil))
 	script := "#!/bin/sh\n" + testATLCapabilityCatalogHandler() + fmt.Sprintf(`
 if [ "$1" = "mcp" ]; then
@@ -524,8 +544,8 @@ func assertSyntheticMCPSequence(t *testing.T, path string, want []string) {
 	}
 }
 
-func syntheticMCPResourceInventoryValueForTest() map[string]any {
-	return map[string]any{
+func syntheticMCPResourceInventoryValueForTest(service string) map[string]any {
+	value := map[string]any{
 		"resources": []any{
 			map[string]any{
 				"uri": "atl://capabilities", "name": "atl-capabilities", "title": "atl capability routes",
@@ -540,10 +560,22 @@ func syntheticMCPResourceInventoryValueForTest() map[string]any {
 		},
 		"ttlMs": 0, "cacheScope": "public",
 	}
+	var discovery []any
+	for _, selected := range []string{"confluence", "jira"} {
+		if service == "default" || service == selected {
+			discovery = append(discovery, map[string]any{
+				"uri": "atl://broker/discovery/" + selected, "name": "atl-broker-discovery-" + selected,
+				"title": "atl Broker " + selected + " discovery", "mimeType": "application/json",
+				"description": "Fresh private advisory Broker operation access; every invocation reauthorizes.",
+			})
+		}
+	}
+	value["resources"] = append(discovery, value["resources"].([]any)...)
+	return value
 }
 
-func syntheticMCPResourceInventoryResultForTest() json.RawMessage {
-	data, err := json.Marshal(syntheticMCPResourceInventoryValueForTest())
+func syntheticMCPResourceInventoryResultForTest(service string) json.RawMessage {
+	data, err := json.Marshal(syntheticMCPResourceInventoryValueForTest(service))
 	if err != nil {
 		panic(err)
 	}

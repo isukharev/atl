@@ -124,7 +124,7 @@ func (c *Client) execute(ctx context.Context, request domain.BrokerRequest) ([]b
 	bounded, cancel := context.WithTimeout(ctx, time.Duration(definition.Limits.MaxOperationMillis)*time.Millisecond)
 	defer cancel()
 	requestContext := domain.WithRedactedHTTPTrace(domain.WithSingleAttempt(domain.WithReadIntent(domain.WithReadBudget(bounded, budget))))
-	httpClient, err := httpx.NewWithSchedulerTLS(c.config.BaseURL, string(session.Credential), c.config.Version, c.config.Scheduler, c.config.TLS)
+	httpClient, err := c.newHTTPClient(session)
 	if err != nil {
 		return nil, domain.BrokerRequest{}, clientError(domain.ErrConfig)
 	}
@@ -148,6 +148,10 @@ func (c *Client) execute(ctx context.Context, request domain.BrokerRequest) ([]b
 	}
 	accepted, err := acceptedBody(executeResponse)
 	return accepted, request, err
+}
+
+func (c *Client) newHTTPClient(session Session) (*httpx.Client, error) {
+	return httpx.NewWithSchedulerTLS(c.config.BaseURL, string(session.Credential), c.config.Version, c.config.Scheduler, c.config.TLS)
 }
 
 func acceptedBody(response httpx.BoundedResponse) ([]byte, error) {

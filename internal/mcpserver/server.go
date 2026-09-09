@@ -47,13 +47,17 @@ type ConfluenceReader interface {
 // Dependencies are lazy so one unconfigured backend does not prevent MCP
 // initialization or use of the configured sibling backend.
 type Dependencies struct {
-	Jira       func() (JiraReader, error)
-	Confluence func() (ConfluenceReader, error)
-	MirrorRoot func() (string, error)
+	Jira            func() (JiraReader, error)
+	Confluence      func() (ConfluenceReader, error)
+	MirrorRoot      func() (string, error)
+	BrokerDiscovery func(string) (domain.BrokerDiscoveryReader, error)
 }
 
 func ProductionDependencies(version string) Dependencies {
 	return Dependencies{
+		BrokerDiscovery: func(service string) (domain.BrokerDiscoveryReader, error) {
+			return compose.LoadBrokerDiscovery(service, version)
+		},
 		Jira: func() (JiraReader, error) {
 			return compose.LoadJira(version)
 		},
@@ -100,6 +104,7 @@ func NewForServiceWithRuntime(version string, deps Dependencies, profile Service
 	server.AddReceivingMiddleware(privateRuntimeResourceCache)
 	registerCapabilitiesResource(server)
 	registerRuntimeResource(server, profile, runtime)
+	registerBrokerDiscoveryResources(server, deps, profile)
 	switch profile {
 	case ServiceDefault:
 		registerJiraTools(server, deps)

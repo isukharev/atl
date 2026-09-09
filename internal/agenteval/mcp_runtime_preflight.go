@@ -22,8 +22,19 @@ type syntheticMCPResourceDescriptor struct {
 	MIMEType    string
 }
 
-func syntheticMCPExpectedResourceInventory() [2]syntheticMCPResourceDescriptor {
-	return [2]syntheticMCPResourceDescriptor{
+func syntheticMCPExpectedResourceInventory(service string) []syntheticMCPResourceDescriptor {
+	var descriptors []syntheticMCPResourceDescriptor
+	for _, selected := range []string{"confluence", "jira"} {
+		if service == "default" || service == selected {
+			descriptors = append(descriptors, syntheticMCPResourceDescriptor{
+				URI: "atl://broker/discovery/" + selected, Name: "atl-broker-discovery-" + selected,
+				Title:       "atl Broker " + selected + " discovery",
+				Description: "Fresh private advisory Broker operation access; every invocation reauthorizes.",
+				MIMEType:    syntheticMCPResourceMIMEType,
+			})
+		}
+	}
+	return append(descriptors, []syntheticMCPResourceDescriptor{
 		{
 			URI:         syntheticMCPCapabilitiesResourceURI,
 			Name:        "atl-capabilities",
@@ -38,7 +49,7 @@ func syntheticMCPExpectedResourceInventory() [2]syntheticMCPResourceDescriptor {
 			Description: "Immutable content-free startup safety and compatibility metadata for this atl MCP invocation.",
 			MIMEType:    syntheticMCPResourceMIMEType,
 		},
-	}
+	}...)
 }
 
 // verifyRuntimeResourceContract attests the invocation-specific safety
@@ -67,7 +78,7 @@ func (p *boundedMCPCommand) verifyRuntimeResourceContract(ctx context.Context, e
 	if listed.err != nil {
 		return fmt.Errorf("list ATL MCP resources: protocol error")
 	}
-	if err := validateSyntheticMCPResourceInventory(listed.result); err != nil {
+	if err := validateSyntheticMCPResourceInventory(listed.result, expectedService); err != nil {
 		return fmt.Errorf("list ATL MCP resources: %w", err)
 	}
 
@@ -93,12 +104,15 @@ func (p *boundedMCPCommand) verifyRuntimeResourceContract(ctx context.Context, e
 	return nil
 }
 
-func validateSyntheticMCPResourceInventory(result json.RawMessage) error {
+func validateSyntheticMCPResourceInventory(result json.RawMessage, expectedService string) error {
+	if !syntheticMCPServiceProfile(expectedService) {
+		return fmt.Errorf("resource inventory service is invalid")
+	}
 	resourcesRaw, err := syntheticMCPCachedPayload(result, "resource inventory", "resources", "public")
 	if err != nil {
 		return err
 	}
-	expectedInventory := syntheticMCPExpectedResourceInventory()
+	expectedInventory := syntheticMCPExpectedResourceInventory(expectedService)
 	resources, err := syntheticMCPRawArray(resourcesRaw)
 	if err != nil || len(resources) != len(expectedInventory) {
 		return fmt.Errorf("resource inventory is not the exact one-page ATL inventory")

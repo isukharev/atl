@@ -3,15 +3,17 @@
 This document defines ATL's Broker semantic contracts and authenticated HTTP
 v1. Explicit Broker client mode routes the supported exact Jira issue and
 Confluence page reads through the local host; direct mode remains the default.
-Guarded writes, durable outcomes, cache reuse and discovery v2 runtime routes
-remain unavailable until their owning slices are composed.
+Execution-scoped discovery v2 is available through its separate authenticated
+routes. Guarded writes, durable outcomes and cache reuse remain unavailable
+until their owning slices are composed.
 
 The machine-readable shapes are the semantic
 [`schemas/broker-v1.schema.json`](schemas/broker-v1.schema.json) and HTTP
 [`schemas/broker-http-v1.schema.json`](schemas/broker-http-v1.schema.json).
-Execution-scoped discovery has a separate, currently uncomposed
+Execution-scoped discovery has a separate
 [`schemas/broker-discovery-v2.schema.json`](schemas/broker-discovery-v2.schema.json)
-so its evolution does not redefine either v1 digest. The normative strict codecs and canonical vectors live in
+and [HTTP v2 schema](schemas/broker-discovery-http-v2.schema.json), so its
+evolution does not redefine either v1 digest. The normative strict codecs and canonical vectors live in
 `internal/brokercontract` and `internal/brokertransport`. JSON Schema alone
 does not prove duplicate-key rejection, temporal ordering, authority provenance
 or canonical bytes.
@@ -410,9 +412,46 @@ The request digest uses its own versioned domain:
 SHA256("atl.broker.discovery.v2/request\x00" || canonical_request_json)
 ```
 
-This increment publishes the pure v2 codec and schema only. It intentionally
-does not add an HTTP route, CLI command, MCP resource, cache, polling loop or
-authority call; those require the subsequent runtime composition review.
+`atl broker discover --service jira|confluence` and the selected read-only MCP
+resources `atl://broker/discovery/jira` and
+`atl://broker/discovery/confluence` obtain a fresh projection on every read.
+They require explicit Broker mode, use only the selected workload session and
+never resolve a direct backend PAT or fall back to a direct adapter.
+
+The existing v1 workload session intentionally contains only its credential,
+execution and authority equality guards. It cannot supply an authenticated
+context digest or lifetime ceiling. Discovery therefore uses two stateless,
+single-attempt POSTs, sharing one five-second deadline and two-response budget:
+
+1. `/v2/discovery/negotiate` authenticates a bounded request containing the
+   service, Broker/audience, request id, session equality guards and client
+   deadline. It returns only a strict v2 discovery request, now bound to the
+   authenticated context digest and the earliest execution/grant/credential
+   expiry, together with the discovery HTTP schema digest.
+2. `/v2/discovery` authenticates again and requires that exact context and
+   session binding. The server invokes the fixed authority `/v2/discovery`
+   endpoint with the context-bound semantic authorization request. Only a
+   complete, canonical, current projection for the configured service is
+   published; no qualification or business read occurs.
+
+The negotiation request and response are capped at 16 KiB; authority and final
+projection responses are capped at 256 KiB. Failures use the independent v2
+closed failure envelope, capped at 4 KiB. Redirects, duplicate/unknown members,
+unsupported schema identities, context changes, oversized and late responses
+fail closed without retry. The client reloads the session before accepting the
+final projection and rejects replacements during the call. HTTP responses are
+`no-store`; MCP discovery reads are private with a zero TTL. Resource listing
+returns static descriptors only, and tool registration is unchanged.
+
+Closed recovery distinguishes access requests (`denied`, `revoked`,
+`grant_expired`), refreshed credentials/execution (`credential_expired`,
+`stale_execution`, `stale_authority`), rereading discovery (`decision_expired`),
+unsupported request adjustment, and authority outages requiring inspection.
+Proposal clearance retains human-approval precedence, and `outcome_unknown`
+requires outcome reconciliation. Every Broker recovery has `retry_safe:false`;
+an enclosing runtime must obtain the required fresh state or access and issue
+a separate explicit operation. HTTP status and backend prose never select a
+recovery action. Existing v1 transport failure mappings remain unchanged.
 
 ## Dependent implementation slices
 

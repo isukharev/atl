@@ -32,10 +32,18 @@ func TestRuntimeResourceExactFrozenProjectionForEveryProfile(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if len(listed.Resources) != 2 || listed.Resources[0].URI != CapabilitiesResourceURI || listed.Resources[1].URI != RuntimeResourceURI {
+			if len(listed.Resources) != brokerResourceCount(profile) {
 				t.Fatalf("profile %q resource order=%+v", profile, listed.Resources)
 			}
-			resource := listed.Resources[1]
+			var resource *mcp.Resource
+			for _, entry := range listed.Resources {
+				if entry.URI == RuntimeResourceURI {
+					resource = entry
+				}
+			}
+			if resource == nil {
+				t.Fatal("missing runtime descriptor")
+			}
 			if resource.Name != runtimeResourceName || resource.Title != runtimeResourceTitle ||
 				resource.Description != runtimeResourceDescription || resource.MIMEType != runtimeResourceMIMEType {
 				t.Fatalf("runtime resource descriptor=%+v", resource)
@@ -146,6 +154,10 @@ func TestRuntimeCacheMiddlewareIsNarrow(t *testing.T) {
 		wantScope         string
 	}{
 		{name: "runtime read", method: "resources/read", uri: RuntimeResourceURI, wantScope: "private"},
+		{name: "Jira discovery read", method: "resources/read", uri: BrokerDiscoveryJiraURI, wantScope: "private"},
+		{name: "Confluence discovery read", method: "resources/read", uri: BrokerDiscoveryConfluenceURI, wantScope: "private"},
+		{name: "discovery other method", method: "resources/list", uri: BrokerDiscoveryJiraURI, wantScope: "public"},
+		{name: "unknown discovery URI", method: "resources/read", uri: BrokerDiscoveryJiraURI + "/unknown", wantScope: "public"},
 		{name: "capabilities read", method: "resources/read", uri: CapabilitiesResourceURI, wantScope: "public"},
 		{name: "runtime different method", method: "resources/list", uri: RuntimeResourceURI, wantScope: "public"},
 	}

@@ -122,6 +122,20 @@ func Recover(err error, operation OperationContext) Recovery {
 		base.Action = RecoveryReconcileWriteOutcome
 		return base
 	}
+	var broker interface{ DiagnosticBrokerReason() domain.BrokerReason }
+	if errors.As(err, &broker) {
+		switch broker.DiagnosticBrokerReason() {
+		case domain.BrokerReasonDenied, domain.BrokerReasonRevoked, domain.BrokerReasonGrantExpired:
+			base.Action = RecoveryRequestAccess
+		case domain.BrokerReasonCredentialExpired, domain.BrokerReasonStaleExecution, domain.BrokerReasonStaleAuthority:
+			base.Action = RecoveryReauthenticate
+		case domain.BrokerReasonDecisionExpired:
+			base.Action = RecoveryRereadThenReselect
+		case domain.BrokerReasonMalformed, domain.BrokerReasonUnsupported, domain.BrokerReasonUnsupportedConsistency:
+			base.Action = RecoveryAdjustRequest
+		}
+		return base
+	}
 	var terminal terminalCheckFailureMetadata
 	if errors.Is(err, domain.ErrCheckFailed) && errors.As(err, &terminal) && terminal.DiagnosticTerminalCheckFailure() {
 		return base

@@ -86,6 +86,7 @@ HTTPS; explicit HTTP needs the override. `doctor --service` scopes health and
 
 See [Broker client mode](docs/reference/cli/configuration.md#broker-client-mode)
 for its exact-read scope and owner-private sessions.
+Advisory access: `atl broker discover --service jira|confluence`.
 
 For Confluence:
 

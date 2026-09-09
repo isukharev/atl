@@ -73,11 +73,17 @@ func (s *serverAuthenticatorStub) Authenticate(_ context.Context, credential []b
 }
 
 type serverAuthorizerStub struct {
-	nowMillis int64
-	denyPhase domain.BrokerAuthorizationPhase
+	admissionCalls  int
+	nowMillis       int64
+	denyPhase       domain.BrokerAuthorizationPhase
+	discoveryAccess domain.BrokerDiscoveryAccess
+	discoveryReason domain.BrokerReason
+	discoveryCalls  int
+	discoveryMutate func(*domain.BrokerDiscoveryProjectionV2)
 }
 
 func (a *serverAuthorizerStub) Admit(_ context.Context, request domain.BrokerAdmissionRequest) (domain.BrokerAdmissionDecision, error) {
+	a.admissionCalls++
 	contextSHA256, _ := brokercontract.VerifiedContextSHA256(request.Context)
 	requestSHA256, _ := brokercontract.AdmissionRequestSHA256(request)
 	value := domain.BrokerAdmissionDecision{BrokerDecisionCore: a.core(domain.BrokerPhaseAdmission, contextSHA256, requestSHA256, request.Context.AuthorityRevision)}
@@ -134,6 +140,7 @@ type brokerServerFixture struct {
 	backendCalls  *atomic.Int32
 	requestBody   []byte
 	baseTime      time.Time
+	authorizer    *serverAuthorizerStub
 }
 
 func newBrokerServerFixture(t *testing.T, summary string, denyPhase domain.BrokerAuthorizationPhase, authErr error, guardCredentials ...[]byte) brokerServerFixture {
@@ -181,7 +188,7 @@ func newBrokerServerFixture(t *testing.T, summary string, denyPhase domain.Broke
 	if err != nil {
 		t.Fatal(err)
 	}
-	return brokerServerFixture{handler: handler, authenticator: authenticator, backend: backend, backendCalls: &backendCalls, requestBody: requestBody, baseTime: baseTime}
+	return brokerServerFixture{handler: handler, authenticator: authenticator, backend: backend, backendCalls: &backendCalls, requestBody: requestBody, baseTime: baseTime, authorizer: authorizer}
 }
 
 func TestBrokerServerExactReadBoundaries(t *testing.T) {

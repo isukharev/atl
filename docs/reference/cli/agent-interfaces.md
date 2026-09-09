@@ -9,6 +9,7 @@ Offline capability routing, MCP serving, and profile review/apply contracts.
 
 - [Offline agent capability catalog](#offline-agent-capability-catalog)
 - [`atl mcp serve`](#atl-mcp-serve)
+- [`atl broker discover`](#atl-broker-discover)
 - [`atl broker serve`](#atl-broker-serve)
 - [`atl profile`](#atl-profile)
 - [Preview and apply](#preview-and-apply)
@@ -263,8 +264,8 @@ structured requested/supported version data. The closed one-page `tools/list`
 result has no cursor and always carries `ttlMs:0` plus
 `cacheScope:"public"`.
 `resources/list` has the same public zero-TTL cache contract. Resource reads
-also have `ttlMs:0`: `atl://capabilities` is public and `atl://runtime` is
-private in both protocol eras.
+also have `ttlMs:0`: `atl://capabilities` is public; `atl://runtime` and the
+Broker discovery resources are private in both protocol eras.
 
 Committed Claude Code and Codex plugin definitions add hidden generated
 `plugin-interface-contract` and `plugin-product-version` startup markers. The
@@ -296,7 +297,7 @@ capability ids, ordering, CLI routes, bounded MCP mappings/scopes, and CLI-only
 facts. Reading it loads no config, credentials, backend, mirror path, or user
 content.
 
-The second descriptor is URI `atl://runtime`, name `atl-runtime`, title `atl
+The runtime descriptor is URI `atl://runtime`, name `atl-runtime`, title `atl
 runtime safety projection`, description `Immutable content-free startup safety
 and compatibility metadata for this atl MCP invocation.`, and MIME type
 `application/json`. Its schema-v1 content records `access:"hard_read_only"`,
@@ -312,6 +313,15 @@ protocol output. A running projection does not reread config or environment
 and changes activate only after restart. See the [output
 contract](../output/agent-interfaces.md#mcp-tool-results) for the exact JSON and
 private zero-TTL cache semantics.
+
+Broker discovery descriptors are additionally listed for Jira and Confluence
+in the default profile, only the selected service in `jira` or `confluence`,
+and neither in `offline`. Their URIs are `atl://broker/discovery/jira` and
+`atl://broker/discovery/confluence`, with `application/json` content. Listing
+descriptors loads no configuration, session, PAT, or backend. Each read lazily
+loads the selected Broker client and obtains fresh advisory access facts;
+responses are private with zero TTL. These resources do not change the static
+tool inventory. See [`atl broker discover`](#atl-broker-discover).
 
 `confluence_page_meta` is the body-free governance read: it returns only
 schema/page identity, title, space, a positive version, an optional update
@@ -341,6 +351,38 @@ buckets, and reconciliation facts, but omits raw reference URLs, issue
 summaries/types, and source text. JQL mode performs one paginated comment
 listing per emitted issue, so backend traffic scales with the selected limit.
 Use the CLI `jira issue refs` when the URLs themselves are required evidence.
+
+## `atl broker discover`
+
+Read current operation-level support and advisory access for one configured
+Broker service:
+
+```bash named-broker-discover
+atl broker discover --service jira
+atl broker discover --service confluence -o text
+```
+
+`--service` is required and accepts exactly `jira` or `confluence`. The
+command requires explicit Broker client mode and the selected owner-private
+execution session. It never loads a backend PAT or falls back to direct REST.
+Each invocation makes at most two authenticated single-attempt requests:
+discovery negotiation followed by the projection read. Discovery protocol v2
+is separately versioned from operation protocol v1; existing v1 session files
+and exact-read invocation bytes remain unchanged.
+
+The projection contains structural operation support, features, limits,
+effects, and current `allowed|access_request_required|unavailable` access.
+An access request correlation is advisory and appears only when access must
+be requested. Discovery neither grants access nor submits an access request.
+No resource content or backend object selector is returned. Every subsequent
+operation performs its own authentication and authorization, including after
+an `allowed` discovery result. Read again to observe grants or revocations;
+never reuse the projection as authorization or share it across executions.
+
+JSON is the default validated [discovery v2
+projection](../output/agent-interfaces.md#broker-discovery-result); text emits
+one compact operation/version/access line. MCP exposes the same projection
+through private zero-TTL resources in the selected service profile.
 
 ## `atl broker serve`
 

@@ -11,11 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added `atl broker discover --service jira|confluence` and private zero-TTL
+  MCP Broker discovery resources. Each read negotiates discovery v2 and
+  refreshes operation-level advisory access without backend PATs or direct
+  fallback; operation execution still reauthorizes independently.
 - Added a separate strict Broker discovery v2 semantic schema and codec for
   operation-level structural support and current advisory access state. It
   binds request, authenticated execution, authority revision, service, schema
   and registry digests under a five-second lease without changing v1 bytes or
-  activating a server, CLI or MCP discovery route.
+  existing v1 execution sessions.
 - Added explicit Broker client mode for exact projected Jira issue reads and
   exact Confluence native page/metadata reads through ordinary CLI and
   read-only MCP application services. The client validates Broker identity and

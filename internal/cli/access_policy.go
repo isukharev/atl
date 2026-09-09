@@ -345,6 +345,7 @@ R stdio-server json mcp serve
 M local-write preview-apply none none apply,expected-backend-sha256,confirm pre-config-on-apply generic json,text mirror backend bind
 R local-read json,text mirror backend status
 R broker-server json,text broker serve
+R remote-read-fixed json,text broker discover
 M local-write dedicated-apply none none from-file,candidate-hash,expected-current-hash pre-config generic json,text profile apply
 R local-prose json,text profile guidance
 R local-read json,text profile preview

@@ -164,8 +164,8 @@ func preRenderRuntimeResource(profile ServiceProfile, snapshot RuntimeSnapshot) 
 	return string(encoded)
 }
 
-// privateRuntimeResourceCache runs outside the SDK resource handler so its
-// post-handler assignment wins over v1.7's public cache default.
+// privateRuntimeResourceCache protects runtime and Broker discovery reads
+// outside the SDK handler so its assignment wins over v1.7's public default.
 func privateRuntimeResourceCache(next mcp.MethodHandler) mcp.MethodHandler {
 	return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
 		result, err := next(ctx, method, req)
@@ -173,7 +173,7 @@ func privateRuntimeResourceCache(next mcp.MethodHandler) mcp.MethodHandler {
 			return result, err
 		}
 		params, ok := req.GetParams().(*mcp.ReadResourceParams)
-		if !ok || params == nil || params.URI != RuntimeResourceURI {
+		if !ok || params == nil || (params.URI != RuntimeResourceURI && params.URI != BrokerDiscoveryJiraURI && params.URI != BrokerDiscoveryConfluenceURI) {
 			return result, nil
 		}
 		read, ok := result.(*mcp.ReadResourceResult)

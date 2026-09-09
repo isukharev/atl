@@ -28,7 +28,8 @@ also carries the modern completion and server metadata required by that era.
 `resources/list` remains public and immediately stale with `ttlMs:0` and
 `cacheScope:"public"`. Every `resources/read` result also has `ttlMs:0`;
 `atl://capabilities` is public, while the invocation-specific
-`atl://runtime` result has `cacheScope:"private"`. Legacy results contain the
+`atl://runtime` and Broker discovery results have `cacheScope:"private"`.
+Legacy results contain the
 payload member (`resources` or `contents`) plus those cache fields. Modern
 results add only `resultType:"complete"` and server `_meta`.
 
@@ -92,6 +93,20 @@ read-only, untrusted-evidence, completeness, no-shell, and no-arbitrary-file
 rules while mentioning only tools present in that profile.
 
 Every profile advertises two fixed `application/json` resources.
+The default profile additionally advertises `atl://broker/discovery/jira` and
+`atl://broker/discovery/confluence`; a Jira or Confluence profile advertises
+only its matching discovery resource. Offline advertises neither. Listings
+contain descriptors only and load no Broker configuration or session.
+Each discovery read lazily loads the selected Broker client, negotiates
+discovery v2 and obtains fresh advisory operation support/access facts.
+It uses the existing v1 execution session without backend PATs or direct
+fallback. Reads are private with zero TTL and must not be reused as authority.
+Grants and revocations appear on the next read; every subsequent operation
+reauthorizes independently. Discovery submits no access request and returns no
+resource content. The CLI equivalent is
+`atl broker discover --service jira|confluence`; see the [discovery output
+contract](reference/output/agent-interfaces.md#broker-discovery-result).
+
 `atl://capabilities` returns only static capability identity and ordering, the
 CLI command, an optional bounded MCP route and its scope, and the explicit
 CLI-only fact. It accepts no arguments and reads no config, credentials,
