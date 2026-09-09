@@ -3,8 +3,10 @@
 package brokerjournal
 
 import (
+	"bufio"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -47,7 +49,7 @@ func TestProcessKillDurabilityBoundaries(t *testing.T) {
 			f := newFixture(t, Limits{})
 			must(t, f.journal.Close())
 			cmd := journalChild(t, f.path, tc.point)
-			err := cmd.Run()
+			err := killJournalAtCheckpoint(t, cmd, tc.point)
 			var exit *exec.ExitError
 			if !errors.As(err, &exit) {
 				t.Fatalf("child did not hit kill boundary: %v", err)
@@ -97,6 +99,24 @@ func TestProcessKillDurabilityBoundaries(t *testing.T) {
 	}
 }
 
+func killJournalAtCheckpoint(t *testing.T, cmd *exec.Cmd, point string) error {
+	t.Helper()
+	output, err := cmd.StdoutPipe()
+	must(t, err)
+	must(t, cmd.Start())
+	t.Cleanup(func() {
+		_ = output.Close()
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+	})
+	checkpoint, err := bufio.NewReader(output).ReadString('\n')
+	if err != nil || checkpoint != "journal-checkpoint:"+point+"\n" {
+		t.Fatalf("child did not acknowledge the exact crash checkpoint: %v", err)
+	}
+	must(t, cmd.Process.Kill())
+	return cmd.Wait()
+}
+
 func TestSecondProcessCannotAcquireWriter(t *testing.T) {
 	f := newFixture(t, Limits{})
 	if err := journalChild(t, f.path, "lock_denied").Run(); err != nil {
@@ -130,9 +150,14 @@ func TestJournalProcessHelper(t *testing.T) {
 	}
 	must(t, err)
 	kill := func() {
-		if err := syscall.Kill(os.Getpid(), syscall.SIGKILL); err != nil {
-			t.Fatal("test kill failed")
-		}
+		// A successful self-signal request need not stop this goroutine before
+		// its next write. Park at the exact checkpoint; the parent owns SIGKILL.
+		_, err := fmt.Fprintln(os.Stdout, "journal-checkpoint:"+point)
+		must(t, err)
+		time.Sleep(10 * time.Second)
+		// Failure to receive the parent's signal must not fall through to a
+		// later journal phase or count as the expected signal termination.
+		os.Exit(98)
 	}
 	j.hook = func(at string) error {
 		if at == point {
