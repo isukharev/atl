@@ -67,14 +67,14 @@ func newStrictHTTP1Transport(base http.RoundTripper) http.RoundTripper {
 	return strict
 }
 
-// readBudgetTransport charges immediately before strict dispatch, so each
-// admitted retry or redirect is bounded independently of scheduler waits.
-// An absent context budget leaves transport behavior unchanged.
-type readBudgetTransport struct {
-	base http.RoundTripper
-}
+// readBudgetTransport admits the deadline and budget immediately before strict
+// dispatch; absent controls leave ordinary behavior unchanged.
+type readBudgetTransport struct{ base http.RoundTripper }
 
 func (t readBudgetTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if err := checkReadDispatch(req.Context()); err != nil {
+		return nil, err
+	}
 	if budget := domain.ReadBudgetFromContext(req.Context()); budget != nil {
 		if err := budget.TakeAttempt(); err != nil {
 			return nil, err

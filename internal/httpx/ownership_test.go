@@ -37,8 +37,9 @@ func TestTransportResponsibilityOwnersStayClosed(t *testing.T) {
 		"bounded_response.go": {"(*Client).DoBoundedResponse", "BoundedResponse", "maxReviewedResponseBody"},
 		"credential.go":       {"(*Client).ClearCredential"},
 		"download.go": {
-			"(*Client).GetStream", "validateNoReplayReadBudget",
+			"(*Client).GetStream", "(*Client).GetStreamBefore", "(*Client).getStream", "validateNoReplayReadBudget",
 		},
+		"dispatch.go": {"checkReadDispatch", "prepareStreamDispatchContext", "readDispatchNotAfter", "readDispatchNotAfterContextKey", "readDispatchWaitContext", "withReadDispatchNotAfter"},
 		"errors.go": {
 			"(*APIError).Error", "(*APIError).HTTPStatus", "(*APIError).Unwrap", "(*TransportError).Error", "(*TransportError).Format",
 			"(*TransportError).DiagnosticTransportFailure", "(*TransportError).Is", "(*unclearedWriteError).DiagnosticWriteAttempted", "(*unclearedWriteError).DiagnosticWriteClearanceFailure",

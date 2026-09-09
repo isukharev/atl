@@ -1,6 +1,9 @@
 package domain
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+)
 
 // Sentinel errors mapped to process exit codes by the CLI layer.
 // Exit map: 0 ok · 2 usage · 3 auth · 4 not-found · 5 version-conflict ·
@@ -21,6 +24,10 @@ var (
 	// gate can distinguish "the check failed" from a generic/transport error
 	// (exit 1) using only the exit code.
 	ErrCheckFailed = errors.New("check failed")
+	// ErrReadDispatchExpired is a content-free refusal raised before an HTTP
+	// attempt when the caller's latest permitted dispatch time has passed. It
+	// remains in the existing check-failed exit class.
+	ErrReadDispatchExpired = fmt.Errorf("read dispatch deadline expired: %w", ErrCheckFailed)
 	// ErrConfig marks a "not set up yet" condition: a missing backend URL or a
 	// missing PAT — i.e. the operator has not finished configuring atl, as
 	// opposed to ErrAuth (the server rejected a token that *was* supplied). It
