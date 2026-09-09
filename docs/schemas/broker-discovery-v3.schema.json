@@ -1,0 +1,188 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/isukharev/atl/docs/schemas/broker-discovery-v3.schema.json",
+  "title": "ATL Broker fixed-family execution-scoped discovery v3",
+  "oneOf": [
+    {"$ref": "#/$defs/request"},
+    {"$ref": "#/$defs/authorization_request"},
+    {"$ref": "#/$defs/projection"}
+  ],
+  "$defs": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[!-~]+$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "correlation": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[!-~]+$"
+    },
+    "millis": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "expect": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["execution_id", "execution_epoch", "authority_revision"],
+      "properties": {
+        "execution_id": {"$ref": "#/$defs/id"},
+        "execution_epoch": {"$ref": "#/$defs/id"},
+        "authority_revision": {"$ref": "#/$defs/id"}
+      }
+    },
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "request_id", "contract_family", "service", "broker_id", "audience", "context_sha256", "not_after_millis", "expect"],
+      "properties": {
+        "schema_version": {"const": 3},
+        "request_id": {"$ref": "#/$defs/id"},
+        "contract_family": {"const": "atl.broker.execution.v2"},
+        "service": {"const": "jira"},
+        "broker_id": {"$ref": "#/$defs/id"},
+        "audience": {"$ref": "#/$defs/id"},
+        "context_sha256": {"$ref": "#/$defs/digest"},
+        "not_after_millis": {"$ref": "#/$defs/millis"},
+        "expect": {"$ref": "#/$defs/expect"}
+      }
+    },
+    "authorization_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "request", "context", "request_sha256"],
+      "properties": {
+        "schema_version": {"const": 3},
+        "request": {"$ref": "#/$defs/request"},
+        "context": {"$ref": "broker-v1.schema.json#/$defs/verified_context"},
+        "request_sha256": {"$ref": "#/$defs/digest"}
+      }
+    },
+    "project_effect": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "resource_kind", "fields"],
+      "properties": {
+        "kind": {"const": "read"},
+        "resource_kind": {"const": "jira_project"},
+        "fields": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "prefixItems": [{"const": "id"}, {"const": "key"}, {"const": "pagination"}],
+          "items": false
+        }
+      }
+    },
+    "issue_effect": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "resource_kind", "fields"],
+      "properties": {
+        "kind": {"const": "read"},
+        "resource_kind": {"const": "jira_issue"},
+        "fields": {
+          "type": "array",
+          "minItems": 6,
+          "maxItems": 6,
+          "prefixItems": [
+            {"const": "description"}, {"const": "id"}, {"const": "key"},
+            {"const": "project"}, {"const": "summary"}, {"const": "updated"}
+          ],
+          "items": false
+        }
+      }
+    },
+    "operation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version", "supported", "access", "features", "limits", "effects"],
+      "properties": {
+        "id": {"const": "jira.project.issue_page.read"},
+        "version": {"const": 1},
+        "supported": {"const": true},
+        "access": {"enum": ["allowed", "access_request_required", "unavailable"]},
+        "request_access_correlation": {"$ref": "#/$defs/correlation"},
+        "features": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "prefixItems": [{"const": "bounded_project_page_v1"}, {"const": "identity_snapshot_v1"}],
+          "items": false
+        },
+        "limits": {"const": {
+          "max_request_bytes": 65536,
+          "max_response_bytes": 135266304,
+          "max_total_upstream_requests": 3,
+          "max_total_upstream_response_bytes": 68419584,
+          "qualification": {"max_requests": 2, "max_response_bytes": 1310720},
+          "business": {"max_requests": 1, "max_response_bytes": 67108864},
+          "max_resources": 16,
+          "max_fields": 2,
+          "max_native_body_bytes": 0,
+          "max_stream_chunks": 0,
+          "max_stream_chunk_bytes": 0,
+          "max_operation_millis": 60000,
+          "max_decision_lease_millis": 5000
+        }},
+        "effects": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "prefixItems": [{"$ref": "#/$defs/project_effect"}, {"$ref": "#/$defs/issue_effect"}],
+          "items": false
+        }
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"access": {"const": "access_request_required"}}},
+          "then": {"required": ["request_access_correlation"]},
+          "else": {"not": {"required": ["request_access_correlation"]}}
+        }
+      ]
+    },
+    "projection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version", "request_id", "request_sha256", "context_sha256",
+        "execution_id", "execution_epoch", "audience", "broker_id", "authority_revision",
+        "contract_family", "service", "registry_sha256", "contract_schema_sha256",
+        "discovery_schema_sha256", "issued_at_millis", "expires_at_millis", "operations", "complete"
+      ],
+      "properties": {
+        "schema_version": {"const": 3},
+        "request_id": {"$ref": "#/$defs/id"},
+        "request_sha256": {"$ref": "#/$defs/digest"},
+        "context_sha256": {"$ref": "#/$defs/digest"},
+        "execution_id": {"$ref": "#/$defs/id"},
+        "execution_epoch": {"$ref": "#/$defs/id"},
+        "audience": {"$ref": "#/$defs/id"},
+        "broker_id": {"$ref": "#/$defs/id"},
+        "authority_revision": {"$ref": "#/$defs/id"},
+        "contract_family": {"const": "atl.broker.execution.v2"},
+        "service": {"const": "jira"},
+        "registry_sha256": {"$ref": "#/$defs/digest"},
+        "contract_schema_sha256": {"$ref": "#/$defs/digest"},
+        "discovery_schema_sha256": {"$ref": "#/$defs/digest"},
+        "issued_at_millis": {"$ref": "#/$defs/millis"},
+        "expires_at_millis": {"$ref": "#/$defs/millis"},
+        "operations": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 1,
+          "prefixItems": [{"$ref": "#/$defs/operation"}],
+          "items": false
+        },
+        "complete": {"const": true}
+      }
+    }
+  }
+}
