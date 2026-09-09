@@ -54,6 +54,8 @@ type auditResponseWriter struct {
 	operation   domain.BrokerOperationID
 	reason      domain.BrokerReason
 	credential  []byte
+	// Only the attachment publisher records this after terminal flush/commit.
+	attachmentComplete bool
 }
 
 func (w *auditResponseWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
@@ -97,6 +99,7 @@ func (a *Audit) Wrap(route string, next http.Handler) http.Handler {
 		}
 		defer func() {
 			panicValue := recover()
+			streamStarted := route == "data_execute_v3" && captured.status >= 200 && captured.status < 300
 			if panicValue != nil {
 				captured.status = http.StatusInternalServerError
 				captured.reason = domain.BrokerReasonAuthorizationUnavailable
@@ -104,13 +107,21 @@ func (a *Audit) Wrap(route string, next http.Handler) http.Handler {
 			if captured.status == 0 {
 				captured.status = http.StatusOK
 			}
+			outcome := auditOutcome(captured.status)
+			if route == "data_execute_v3" && (streamStarted || outcome == "success") &&
+				(!captured.attachmentComplete || panicValue != nil || captured.reason != "") {
+				outcome = "partial"
+				if captured.reason == "" {
+					captured.reason = domain.BrokerReasonAuthorizationUnavailable
+				}
+			}
 			correlation := captured.correlation
 			if correlation == "" {
 				correlation = freshAuditCorrelation()
 			}
 			event := AuditEvent{
 				SchemaVersion: 1, CorrelationID: correlation, Route: route,
-				Operation: string(captured.operation), Outcome: auditOutcome(captured.status), Reason: string(captured.reason),
+				Operation: string(captured.operation), Outcome: outcome, Reason: string(captured.reason),
 				Timing: auditTiming(time.Since(started)), RequestIndex: a.index.Add(1), ResponseBytes: captured.bytes,
 				DroppedEvents: a.dropped.Swap(0), Complete: true,
 			}
@@ -185,15 +196,19 @@ func validAuditEvent(event AuditEvent) bool {
 		return false
 	}
 	switch event.Route {
-	case "data_execute", "data_execute_v2", "data_discovery_v3", "data_protocol", "data_cache_qualification", "data_unknown", "admin_health", "admin_readiness", "admin_unknown":
+	case "data_execute", "data_execute_v2", "data_execute_v3", "data_discovery_v3", "data_discovery_v4", "data_protocol", "data_cache_qualification", "data_unknown", "admin_health", "admin_readiness", "admin_unknown":
 	default:
 		return false
 	}
-	if event.Operation != "" && event.Operation != string(domain.BrokerOperationJiraIssueRead) && event.Operation != string(domain.BrokerOperationConfluencePageRead) && event.Operation != string(domain.BrokerOperationJiraProjectIssuePageRead) && event.Operation != string(domain.BrokerOperationJiraCommentPreview) && event.Operation != string(domain.BrokerOperationJiraCommentApply) && event.Operation != string(domain.BrokerOperationOutcomeLookup) {
+	if event.Operation != "" && event.Operation != string(domain.BrokerOperationJiraIssueRead) && event.Operation != string(domain.BrokerOperationConfluencePageRead) && event.Operation != string(domain.BrokerOperationJiraProjectIssuePageRead) && event.Operation != string(domain.BrokerOperationJiraCommentPreview) && event.Operation != string(domain.BrokerOperationJiraCommentApply) && event.Operation != string(domain.BrokerOperationOutcomeLookup) && event.Operation != string(domain.BrokerOperationJiraAttachmentDownload) {
 		return false
 	}
 	switch event.Outcome {
 	case "success", "rejected", "unavailable":
+	case "partial":
+		if event.Route != "data_execute_v3" {
+			return false
+		}
 	default:
 		return false
 	}
@@ -278,5 +293,13 @@ func recordAuditCredential(writer http.ResponseWriter, value []byte) {
 	if audit, ok := writer.(*auditResponseWriter); ok {
 		clear(audit.credential)
 		audit.credential = bytes.Clone(value)
+	}
+}
+
+// A missing audit wrapper cannot manufacture stream success: execution-v3
+// defaults to partial unless its publisher records this exact witness.
+func recordAuditAttachmentComplete(writer http.ResponseWriter) {
+	if audit, ok := writer.(*auditResponseWriter); ok && audit.operation == domain.BrokerOperationJiraAttachmentDownload {
+		audit.attachmentComplete = true
 	}
 }
