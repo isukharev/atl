@@ -51,6 +51,15 @@ validation keywords. Independent consumers must implement the normative codec
 checks for UTF-8 byte lengths, digest and cross-field equality, canonical line
 bytes and authorization lineage in addition to structural schema validation.
 
+Each attachment release receipt binds every exact emitted NDJSON line,
+including its newline, in order under the same prior receipt and current
+release decision. First releases contain manifest plus data (plus terminal
+when also last), or manifest plus terminal for an empty body. Subsequent
+releases contain data, plus terminal when last. Thus a receipt has one to
+three line digests; the stream owner validates the applicable shape and only
+commits it after successful authorized publication. A nonempty terminal does
+not introduce a separate authorization call or omit a line from the receipt.
+
 ## Trust boundary
 
 The client and every value in a `request` envelope are untrusted. A request can

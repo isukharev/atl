@@ -414,8 +414,11 @@ func AttachmentReleaseFactsSHA256V3(value domain.BrokerAttachmentReleaseFactsV3)
 	return digestExecutionV3("release-facts-v1", wire)
 }
 
+// AttachmentReleaseReceiptSHA256V3 binds every emitted line in release order.
+// A first-and-last data release has three lines: manifest, data, terminal.
+// The stream owner separately validates the permitted line shape and flush.
 func AttachmentReleaseReceiptSHA256V3(priorReleaseSHA256, releaseDecisionSHA256 string, exactLineSHA256s []string) (string, error) {
-	if !validDigest(priorReleaseSHA256) || !validDigest(releaseDecisionSHA256) || len(exactLineSHA256s) == 0 || len(exactLineSHA256s) > 2 {
+	if !validDigest(priorReleaseSHA256) || !validDigest(releaseDecisionSHA256) || len(exactLineSHA256s) == 0 || len(exactLineSHA256s) > 3 {
 		return "", reject(domain.BrokerReasonMalformed)
 	}
 	for _, value := range exactLineSHA256s {
