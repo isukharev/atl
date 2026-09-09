@@ -169,7 +169,9 @@ func TestMaintainerContractRejectsDrift(t *testing.T) {
 		{name: "root full prerequisites become caller controlled", path: "Makefile", old: "override AGENT_EVAL_FULL_PREREQUISITES :=", replacement: "AGENT_EVAL_FULL_PREREQUISITES :=", want: "nested-module facades"},
 		{name: "nested contract repeats compatibility tests", path: "internal/agenteval/Makefile", old: "contract: compat-oracles unit\n", replacement: "contract: compat unit\n", want: "exact \"contract\" gate"},
 		{name: "nested race timeout drift", path: "internal/agenteval/Makefile", old: "-timeout=45m", replacement: "-timeout=30m", want: "exact \"race\" gate"},
-		{name: "nested compatibility test omission", path: "internal/agenteval/Makefile", old: "COMPAT_TEST_COUNT := 4", replacement: "COMPAT_TEST_COUNT := 5", want: "selects 4 compatibility tests, want 5"},
+		{name: "nested compatibility test omission", path: "internal/agenteval/Makefile", old: "COMPAT_TEST_COUNT := 6", replacement: "COMPAT_TEST_COUNT := 7", want: "selects 6 compatibility tests, want 7"},
+		{name: "cross-module inventory omission with preserved count", path: "internal/agenteval/Makefile", old: "TestStableReadProductionInventory|", replacement: "TestUnselectedFixture|", want: `must retain "TestStableReadProductionInventory"`},
+		{name: "cross-module counting oracle omission with preserved count", path: "internal/agenteval/Makefile", old: "TestCountOSSameFileCalls|", replacement: "TestUnselectedFixture|", want: `must retain "TestCountOSSameFileCalls"`},
 		{name: "nested wires package recursion", path: "internal/agenteval/Makefile", old: "go test ./... -run '$(COMPAT_TESTS_WIRES)'", replacement: "go test . -run '$(COMPAT_TESTS_WIRES)'", want: "compatibility and deterministic contract commands"},
 		{name: "nested mirror package recursion", path: "internal/agenteval/Makefile", old: "go test ./... -run '$(COMPAT_TESTS_MIRROR)'", replacement: "go test . -run '$(COMPAT_TESTS_MIRROR)'", want: "compatibility and deterministic contract commands"},
 		{name: "nested writes package recursion", path: "internal/agenteval/Makefile", old: "go test ./... -run '$(COMPAT_TESTS_WRITES)'", replacement: "go test . -run '$(COMPAT_TESTS_WRITES)'", want: "compatibility and deterministic contract commands"},
@@ -550,9 +552,9 @@ ATL_BINARY ?= $(REPOSITORY_ROOT)/atl
 override FULL_GATES := tidy-check build race lint vet vuln contract windows product-boundary
 
 CAPABILITY_CATALOG_FIXTURE := $(CURDIR)/testdata/capability-catalog.v1.json
-COMPAT_TEST_COUNT := 4
+COMPAT_TEST_COUNT := 6
 COMPAT_TESTS_WIRES := ^(TestFixtureWires)$$
-COMPAT_TESTS_MIRROR := ^(TestFixtureMirror)$$
+COMPAT_TESTS_MIRROR := ^(TestStableReadProductionInventory|TestCountOSSameFileCalls|TestFixtureMirror)$$
 COMPAT_TESTS_WRITES := ^(TestFixtureWrites)$$
 COMPAT_TESTS_MCP := ^TestFixtureMCP$$
 
@@ -637,7 +639,7 @@ hosted-full-nonrace: $(filter-out race,$(FULL_GATES))
 .PHONY: full
 full: $(FULL_GATES)
 `,
-		"internal/agenteval/fixture_test.go": "package agenteval\n\nimport \"testing\"\n\nfunc TestFixtureWires(t *testing.T) {}\nfunc TestFixtureMirror(t *testing.T) {}\nfunc TestFixtureWrites(t *testing.T) {}\nfunc TestFixtureMCP(t *testing.T) {}\n",
+		"internal/agenteval/fixture_test.go": "package agenteval\n\nimport \"testing\"\n\nfunc TestFixtureWires(t *testing.T) {}\nfunc TestFixtureMirror(t *testing.T) {}\nfunc TestFixtureWrites(t *testing.T) {}\nfunc TestFixtureMCP(t *testing.T) {}\nfunc TestStableReadProductionInventory(t *testing.T) {}\nfunc TestCountOSSameFileCalls(t *testing.T) {}\nfunc TestUnselectedFixture(t *testing.T) {}\n",
 		".github/workflows/ci.yml": "name: ci\n" + ciTriggerContract + `permissions:
   contents: read
 concurrency:

@@ -690,6 +690,11 @@ func validateEvaluatorCompatSelections(root string, makefile []byte) error {
 	if wantCount < 0 || len(selectedTests) != wantCount {
 		return fmt.Errorf("evaluator Makefile selects %d compatibility tests, want %d", len(selectedTests), wantCount)
 	}
+	for _, name := range []string{"TestStableReadProductionInventory", "TestCountOSSameFileCalls"} {
+		if !selectedTests[name] {
+			return fmt.Errorf("evaluator compatibility selection must retain %q", name)
+		}
+	}
 	return nil
 }
 

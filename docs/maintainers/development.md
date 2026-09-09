@@ -258,7 +258,11 @@ The evaluator is an independent nested module at `internal/agenteval`, with its
 maintainer command at `internal/agenteval/cmd/agent-eval`. Root recursive Go
 commands intentionally exclude it. Use the root `make agent-eval-*` façades:
 ordinary product work retains the provider/backend-free
-`make agent-eval-compat` compatibility boundary, evaluator/corpus changes use
+`make agent-eval-compat` compatibility boundary. Its existing filesystem-related
+selection includes the stable-read production inventory and its import/counting
+oracle because that inventory scans both modules, including product-only changes.
+The maintainer contract prevents either oracle from silently leaving compatibility;
+this does not select the complete evaluator suite. Evaluator/corpus changes use
 `make agent-eval-contract` while iterating, and evaluator-impacting or release
 work requires `make agent-eval-full`. The full facade includes the nested
 module's build, unit, deterministic contract, race, lint, vet, vulnerability,
