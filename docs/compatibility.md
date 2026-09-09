@@ -68,6 +68,37 @@ does not imply support for adjacent vendor builds: its owner-only activation is
 bound to exactly one observed identity and must be requalified explicitly after
 an upgrade.
 
+## Broker support and evidence
+
+This table describes development `main`. Entries under
+[`Unreleased`](../CHANGELOG.md#unreleased) do not describe an installed
+release; use that release's documentation and confirm it with `atl version`.
+
+`Available` means compiled contract and product-path support. It does not mean
+that a host composed the service or that discovery granted the current caller.
+Every execution authenticates and authorizes independently; Broker mode never
+falls back to direct backend access or the ordinary PAT store.
+
+| Operation or family | CLI and MCP exposure | Status and principal bounds | Primary synthetic oracle or owner |
+|---|---|---|---|
+| Exact Jira issue read, `jira.issue.read` v1 | CLI: `atl jira issue get KEY --fields summary,description,updated`, with any nonempty subset. MCP: no dedicated exact-issue tool; discovery only. | Available for one canonical key and the three named fields. No display/custom field, JQL, URL, or broader issue operation. | [Exact server/authority/backend chain](../internal/brokerserver/server_test.go) |
+| Exact Confluence page read, `confluence.page.read` v1 | CLI: `atl conf page get --id N --format csf`, `page meta --id N`, and numeric-id `page outline N`, `section N`, or `sections N`. MCP: `confluence_page_meta`, `confluence_page_outline`, `confluence_page_section`, `confluence_page_sections`. | Available for one numeric id and exact metadata or native storage. No URL selector, rendered view, search, or attachment bytes. | [Production MCP Broker path](../internal/mcpserver/broker_client_test.go) |
+| Discovery v2 and fixed-family discovery v3 | CLI: `atl broker discover --service jira` or `--service confluence`; add `--family atl.broker.execution.v2` for project pages. MCP: private zero-TTL service resources and the Jira family resource. | Available and advisory only: `allowed`, `access_request_required`, or `unavailable`. It selects no resource and grants no execution. | [Fresh MCP discovery process oracle](../internal/brokerserver/discovery_process_test.go) |
+| Jira project page, `jira.project.issue_page.read` v1 | CLI: `atl jira issue project-page --project KEY --fields summary,description --limit N --cursor OFFSET`. MCP: `jira_project_issue_page`. | Available for one separately authorized page of at most 15 issues. No caller JQL or automatic continuation; `selection_complete` is always false. | [Selected CLI/MCP process oracle](../internal/brokerserver/project_page_process_test.go) |
+| Guarded Jira comment preview, apply, and outcome | CLI: `jira issue comment preview KEY --from-file FILE`; `comment add KEY --from-file FILE --apply --expected-proposal-hash HASH --operation-ticket TICKET`; `comment outcome --operation-ticket TICKET`. MCP: none. | Available only with paired guarded-comment config and `broker serve --enable-jira-comments`. Apply binds unchanged native Jira-wiki bytes, proposal, ticket, and writer session; at most one comment POST. Outcome uses the separate observer session and journal only. | [Guarded-comment daemon/crash oracle](../internal/cli/broker_guarded_comment_process_unix_test.go) |
+| Qualified Confluence corpus handoff | CLI: `atl corpus handoff-qualified --store DIR`. MCP: none. | Available only for one clean, complete, Confluence-only sealed cache generation. Qualification neither refreshes nor deletes data and is not a later execution grant. | [Selected CLI handoff oracle](../internal/brokerserver/cache_corpus_cli_process_test.go) |
+| Local Broker host and journal initialization | CLI: `atl broker serve --config FILE [--enable-jira-comments]`; `atl broker journal initialize --config FILE`. MCP: not applicable. | Available as a bounded loopback TLS service. Initialization is local and create-only, with no authority/backend request. The flagless host remains read-only. | [Host lifecycle oracle](../internal/cli/broker_process_unix_test.go) |
+| Jira attachment metadata/body streaming | CLI and MCP: none in Broker mode. | Unavailable. Direct attachment commands and existing corpus capture do not imply a Broker attachment operation. Add this row's positive status only when its contract, runtime, consumers, and selected-process oracle are enabled together. | [Current closed registry](broker-contract.md#versioned-operation-registry) |
+| Further mutations | CLI and MCP: none in Broker mode. | Jira whole-issue update and all other adjacent Jira mutations are unavailable; comment append grants none of them. Confluence mutations are unavailable. Whole-issue update remains gated by #1490 and Confluence push dry-run by #1491. | [Current operation boundary](broker-contract.md#versioned-operation-registry) |
+
+The linked tests prove synthetic bounds and process-restart behavior, not live
+certification. They do not qualify an exact deployed backend version, actual
+upstream credential privileges, external PDP or revocation latency, destination
+egress, deployment backup/restore procedures, or a real mutation/recovery outcome.
+Those facts need separate deployment evidence and, for live operations, an
+explicitly authorized, version-recorded plan. Synthetic success remains labelled
+synthetic.
+
 ## Operating systems and distribution
 
 | Surface | Status | Evidence |

@@ -1,0 +1,228 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/isukharev/atl/docs/schemas/broker-execution-v3.schema.json",
+  "title": "ATL Broker bounded attachment execution contract v3",
+  "$defs": {
+    "digest": {"$ref": "broker-v1.schema.json#/$defs/digest"},
+    "id": {"$ref": "broker-v1.schema.json#/$defs/id"},
+    "arguments": {
+      "type": "object", "additionalProperties": false,
+      "required": ["issue_key", "attachment_id"],
+      "properties": {
+        "issue_key": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]*-[1-9][0-9]*$", "maxLength": 64},
+        "attachment_id": {"type": "string", "pattern": "^[1-9][0-9]*$", "maxLength": 64}
+      }
+    },
+    "expect": {
+      "type": "object", "additionalProperties": false,
+      "required": ["execution_id", "execution_epoch", "authority_revision"],
+      "properties": {
+        "execution_id": {"$ref": "#/$defs/id"}, "execution_epoch": {"$ref": "#/$defs/id"}, "authority_revision": {"$ref": "#/$defs/id"}
+      }
+    },
+    "request": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schema_version", "operation", "operation_version", "request_id", "features", "expect", "arguments"],
+      "properties": {
+        "schema_version": {"const": 3}, "operation": {"const": "jira.issue.attachment.download"}, "operation_version": {"const": 1},
+        "request_id": {"$ref": "#/$defs/id"},
+        "features": {"const": ["atomic_local_publish_v1", "attachment_id_v1", "step_snapshot_v1"]},
+        "expect": {"$ref": "#/$defs/expect"}, "arguments": {"$ref": "#/$defs/arguments"}
+      }
+    },
+    "admission_request": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schema_version", "context", "operation", "operation_version", "request_id", "features", "arguments", "arguments_sha256", "deadline_millis"],
+      "properties": {
+        "schema_version": {"const": 3}, "context": {"$ref": "broker-v1.schema.json#/$defs/verified_context"},
+        "operation": {"const": "jira.issue.attachment.download"}, "operation_version": {"const": 1}, "request_id": {"$ref": "#/$defs/id"},
+        "features": {"const": ["atomic_local_publish_v1", "attachment_id_v1", "step_snapshot_v1"]},
+        "arguments": {"$ref": "#/$defs/arguments"}, "arguments_sha256": {"$ref": "#/$defs/digest"}, "deadline_millis": {"type": "integer", "minimum": 1}
+      }
+    },
+    "admission_decision": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schema_version", "decision", "decision_sha256"],
+      "properties": {"schema_version": {"const": 3}, "decision": {"$ref": "broker-v1.schema.json#/$defs/decision_core"}, "decision_sha256": {"$ref": "#/$defs/digest"}}
+    },
+    "metadata_plan": {
+      "type": "object", "additionalProperties": false,
+      "required": ["selector_sha256", "metadata_fields", "limits"],
+      "properties": {
+        "selector_sha256": {"$ref": "#/$defs/digest"},
+        "metadata_fields": {"const": ["attachment.created", "attachment.filename", "attachment.id", "attachment.media_type", "attachment.parent_id", "attachment.size", "issue.id", "issue.key", "issue.project", "issue.updated"]},
+        "limits": {"type": "object", "additionalProperties": false, "required": ["max_requests", "max_response_bytes"], "properties": {"max_requests": {"const": 1}, "max_response_bytes": {"const": 1048576}}}
+      }
+    },
+    "snapshot": {
+      "type": "object", "additionalProperties": false,
+      "required": ["issue_id", "issue_key", "project", "updated", "attachment_id", "parent_id", "filename", "media_type", "created", "declared_size", "issue_evidence_sha256", "attachment_evidence_sha256", "projection_sha256"],
+      "properties": {
+        "issue_id": {"type": "string", "pattern": "^[1-9][0-9]*$", "maxLength": 64},
+        "issue_key": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]*-[1-9][0-9]*$", "maxLength": 64},
+        "project": {"type": "string", "minLength": 1, "maxLength": 64}, "updated": {"type": "string", "minLength": 1, "maxLength": 4096, "x-atl-max-utf8-bytes": 4096},
+        "attachment_id": {"type": "string", "pattern": "^[1-9][0-9]*$", "maxLength": 64}, "parent_id": {"type": "string", "pattern": "^[1-9][0-9]*$", "maxLength": 64},
+        "filename": {"type": "string", "minLength": 1, "maxLength": 255, "pattern": "^[^/\\\\]+$", "not": {"enum": [".", ".."]}, "x-atl-max-utf8-bytes": 255}, "media_type": {"type": "string", "pattern": "^[!-~]+$", "maxLength": 255},
+        "created": {"type": "string", "minLength": 1, "maxLength": 4096, "x-atl-max-utf8-bytes": 4096}, "declared_size": {"type": "integer", "minimum": 0, "maximum": 16777216},
+        "issue_evidence_sha256": {"$ref": "#/$defs/digest"}, "attachment_evidence_sha256": {"$ref": "#/$defs/digest"}, "projection_sha256": {"$ref": "#/$defs/digest"}
+      }
+    },
+    "effects": {
+      "const": [
+        {"kind": "read", "resource_kind": "jira_issue", "fields": ["id", "key", "project", "updated"]},
+        {"kind": "read", "resource_kind": "jira_attachment", "fields": ["body", "created", "filename", "id", "media_type", "parent_id", "size"]}
+      ]
+    },
+    "qualification_decision_initial": {"$ref": "#/$defs/qualification_decision_shape_initial"},
+    "qualification_decision_pre_open": {"$ref": "#/$defs/qualification_decision_shape_pre_open"},
+    "qualification_decision_release": {"$ref": "#/$defs/qualification_decision_shape_release"},
+    "qualification_decision_shape_initial": {
+      "type": "object", "additionalProperties": false, "required": ["schema_version", "phase", "decision", "binding", "decision_sha256"],
+      "properties": {"schema_version": {"const": 3}, "phase": {"const": "initial"}, "decision": {"$ref": "broker-v1.schema.json#/$defs/decision_core"}, "binding": {"type": "object", "additionalProperties": false, "required": ["plan_sha256"], "properties": {"plan_sha256": {"$ref": "#/$defs/digest"}}}, "decision_sha256": {"$ref": "#/$defs/digest"}}
+    },
+    "qualification_decision_shape_pre_open": {
+      "type": "object", "additionalProperties": false, "required": ["schema_version", "phase", "decision", "binding", "decision_sha256"],
+      "properties": {"schema_version": {"const": 3}, "phase": {"const": "pre_open"}, "decision": {"$ref": "broker-v1.schema.json#/$defs/decision_core"}, "binding": {"type": "object", "additionalProperties": false, "required": ["plan_sha256"], "properties": {"plan_sha256": {"$ref": "#/$defs/digest"}}}, "decision_sha256": {"$ref": "#/$defs/digest"}}
+    },
+    "qualification_decision_shape_release": {
+      "type": "object", "additionalProperties": false, "required": ["schema_version", "phase", "decision", "binding", "decision_sha256"],
+      "properties": {"schema_version": {"const": 3}, "phase": {"const": "release"}, "decision": {"$ref": "broker-v1.schema.json#/$defs/decision_core"}, "binding": {"type": "object", "additionalProperties": false, "required": ["plan_sha256"], "properties": {"plan_sha256": {"$ref": "#/$defs/digest"}}}, "decision_sha256": {"$ref": "#/$defs/digest"}}
+    },
+    "qualification_initial": {
+      "type": "object", "additionalProperties": false, "required": ["schema_version", "phase", "request"],
+      "properties": {"schema_version": {"const": 3}, "phase": {"const": "initial"}, "request": {"type": "object", "additionalProperties": false, "required": ["admission", "admission_decision", "plan"], "properties": {"admission": {"$ref": "#/$defs/admission_request"}, "admission_decision": {"$ref": "#/$defs/admission_decision"}, "plan": {"$ref": "#/$defs/metadata_plan"}}}}
+    },
+    "qualified_initial_payload": {
+      "type": "object", "additionalProperties": false, "required": ["qualification_request", "qualification_decision", "snapshot", "effects"],
+      "properties": {"qualification_request": {"$ref": "#/$defs/qualification_initial"}, "qualification_decision": {"$ref": "#/$defs/qualification_decision_initial"}, "snapshot": {"$ref": "#/$defs/snapshot"}, "effects": {"$ref": "#/$defs/effects"}}
+    },
+    "operation_initial": {
+      "type": "object", "additionalProperties": false, "required": ["schema_version", "phase", "request"],
+      "properties": {"schema_version": {"const": 3}, "phase": {"const": "initial"}, "request": {"$ref": "#/$defs/qualified_initial_payload"}}
+    },
+    "qualified_decision_binding": {
+      "type": "object", "additionalProperties": false,
+      "required": ["qualification_decision_sha256", "operation", "operation_version", "arguments_sha256", "resources_sha256", "effects_sha256"],
+      "properties": {"qualification_decision_sha256": {"$ref": "#/$defs/digest"}, "operation": {"const": "jira.issue.attachment.download"}, "operation_version": {"const": 1}, "arguments_sha256": {"$ref": "#/$defs/digest"}, "resources_sha256": {"$ref": "#/$defs/digest"}, "effects_sha256": {"$ref": "#/$defs/digest"}}
+    },
+    "operation_decision_initial": {"$ref": "#/$defs/operation_decision_shape_initial"},
+    "qualification_pre_open": {
+      "type": "object", "additionalProperties": false, "required": ["schema_version", "phase", "request"],
+      "properties": {"schema_version": {"const": 3}, "phase": {"const": "pre_open"}, "request": {"type": "object", "additionalProperties": false, "required": ["initial_operation", "initial_operation_decision", "plan"], "properties": {"initial_operation": {"$ref": "#/$defs/operation_initial"}, "initial_operation_decision": {"$ref": "#/$defs/operation_decision_initial"}, "plan": {"$ref": "#/$defs/metadata_plan"}}}}
+    },
+    "operation_body_dispatch": {
+      "type": "object", "additionalProperties": false, "required": ["schema_version", "phase", "request"],
+      "properties": {"schema_version": {"const": 3}, "phase": {"const": "body_dispatch"}, "request": {"type": "object", "additionalProperties": false, "required": ["qualification_request", "qualification_decision", "snapshot", "effects"], "properties": {"qualification_request": {"$ref": "#/$defs/qualification_pre_open"}, "qualification_decision": {"$ref": "#/$defs/qualification_decision_pre_open"}, "snapshot": {"$ref": "#/$defs/snapshot"}, "effects": {"$ref": "#/$defs/effects"}}}}
+    },
+    "operation_decision_body_dispatch": {"$ref": "#/$defs/operation_decision_shape_body_dispatch"},
+    "coordinate": {
+      "oneOf": [
+        {"const": {"kind": "data", "index": 0, "offset": 0}},
+        {"const": {"kind": "data", "index": 1, "offset": 1048576}},
+        {"const": {"kind": "data", "index": 2, "offset": 2097152}},
+        {"const": {"kind": "data", "index": 3, "offset": 3145728}},
+        {"const": {"kind": "data", "index": 4, "offset": 4194304}},
+        {"const": {"kind": "data", "index": 5, "offset": 5242880}},
+        {"const": {"kind": "data", "index": 6, "offset": 6291456}},
+        {"const": {"kind": "data", "index": 7, "offset": 7340032}},
+        {"const": {"kind": "data", "index": 8, "offset": 8388608}},
+        {"const": {"kind": "data", "index": 9, "offset": 9437184}},
+        {"const": {"kind": "data", "index": 10, "offset": 10485760}},
+        {"const": {"kind": "data", "index": 11, "offset": 11534336}},
+        {"const": {"kind": "data", "index": 12, "offset": 12582912}},
+        {"const": {"kind": "data", "index": 13, "offset": 13631488}},
+        {"const": {"kind": "data", "index": 14, "offset": 14680064}},
+        {"const": {"kind": "data", "index": 15, "offset": 15728640}},
+        {"const": {"kind": "terminal", "index": 0, "offset": 0}}
+      ]
+    },
+    "qualification_release": {
+      "type": "object", "additionalProperties": false, "required": ["schema_version", "phase", "request"],
+      "properties": {"schema_version": {"const": 3}, "phase": {"const": "release"}, "request": {"type": "object", "additionalProperties": false, "required": ["context", "anchor_sha256", "prior_release_sha256", "coordinate", "plan"], "properties": {"context": {"$ref": "broker-v1.schema.json#/$defs/verified_context"}, "anchor_sha256": {"$ref": "#/$defs/digest"}, "prior_release_sha256": {"$ref": "#/$defs/digest"}, "coordinate": {"$ref": "#/$defs/coordinate"}, "plan": {"$ref": "#/$defs/metadata_plan"}}}}
+    },
+    "terminal_count_total": {
+      "oneOf": [
+        {"properties": {"chunk_count": {"const": 0}, "total_bytes": {"const": 0}, "whole_sha256": {"const": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"}}},
+        {"properties": {"chunk_count": {"const": 1}, "total_bytes": {"minimum": 1, "maximum": 1048576}}},
+        {"properties": {"chunk_count": {"const": 2}, "total_bytes": {"minimum": 1048577, "maximum": 2097152}}},
+        {"properties": {"chunk_count": {"const": 3}, "total_bytes": {"minimum": 2097153, "maximum": 3145728}}},
+        {"properties": {"chunk_count": {"const": 4}, "total_bytes": {"minimum": 3145729, "maximum": 4194304}}},
+        {"properties": {"chunk_count": {"const": 5}, "total_bytes": {"minimum": 4194305, "maximum": 5242880}}},
+        {"properties": {"chunk_count": {"const": 6}, "total_bytes": {"minimum": 5242881, "maximum": 6291456}}},
+        {"properties": {"chunk_count": {"const": 7}, "total_bytes": {"minimum": 6291457, "maximum": 7340032}}},
+        {"properties": {"chunk_count": {"const": 8}, "total_bytes": {"minimum": 7340033, "maximum": 8388608}}},
+        {"properties": {"chunk_count": {"const": 9}, "total_bytes": {"minimum": 8388609, "maximum": 9437184}}},
+        {"properties": {"chunk_count": {"const": 10}, "total_bytes": {"minimum": 9437185, "maximum": 10485760}}},
+        {"properties": {"chunk_count": {"const": 11}, "total_bytes": {"minimum": 10485761, "maximum": 11534336}}},
+        {"properties": {"chunk_count": {"const": 12}, "total_bytes": {"minimum": 11534337, "maximum": 12582912}}},
+        {"properties": {"chunk_count": {"const": 13}, "total_bytes": {"minimum": 12582913, "maximum": 13631488}}},
+        {"properties": {"chunk_count": {"const": 14}, "total_bytes": {"minimum": 13631489, "maximum": 14680064}}},
+        {"properties": {"chunk_count": {"const": 15}, "total_bytes": {"minimum": 14680065, "maximum": 15728640}}},
+        {"properties": {"chunk_count": {"const": 16}, "total_bytes": {"minimum": 15728641, "maximum": 16777216}}}
+      ]
+    },
+    "terminal_facts": {
+      "type": "object", "additionalProperties": false, "required": ["chunk_count", "total_bytes", "whole_sha256", "eof_proven", "complete"],
+      "properties": {"chunk_count": {"type": "integer", "minimum": 0, "maximum": 16}, "total_bytes": {"type": "integer", "minimum": 0, "maximum": 16777216}, "whole_sha256": {"$ref": "#/$defs/digest"}, "eof_proven": {"const": true}, "complete": {"const": true}},
+      "allOf": [{"$ref": "#/$defs/terminal_count_total"}]
+    },
+    "release_facts": {
+      "oneOf": [
+        {"type": "object", "additionalProperties": false, "required": ["kind", "facts"], "properties": {"kind": {"const": "data"}, "facts": {"type": "object", "additionalProperties": false, "required": ["index", "offset", "decoded_bytes", "payload_sha256", "cumulative_bytes", "cumulative_sha256", "resource_sha256"], "properties": {"index": {"type": "integer", "minimum": 0, "maximum": 15}, "offset": {"type": "integer", "minimum": 0}, "decoded_bytes": {"type": "integer", "minimum": 1, "maximum": 1048576}, "payload_sha256": {"$ref": "#/$defs/digest"}, "cumulative_bytes": {"type": "integer", "minimum": 1, "maximum": 16777216}, "cumulative_sha256": {"$ref": "#/$defs/digest"}, "resource_sha256": {"$ref": "#/$defs/digest"}, "terminal": {"$ref": "#/$defs/terminal_facts"}}, "allOf": [{"if": {"properties": {"decoded_bytes": {"maximum": 1048575}}}, "then": {"required": ["terminal"]}}, {"if": {"properties": {"index": {"const": 15}}}, "then": {"required": ["terminal"]}}], "x-atl-field-equality": {"terminal.total_bytes": "cumulative_bytes", "terminal.whole_sha256": "cumulative_sha256"}}}},
+        {"type": "object", "additionalProperties": false, "required": ["kind", "facts"], "properties": {"kind": {"const": "terminal"}, "facts": {"allOf": [{"$ref": "#/$defs/terminal_facts"}, {"properties": {"chunk_count": {"const": 0}, "total_bytes": {"const": 0}}}]}}}
+      ]
+    },
+    "operation_release": {
+      "type": "object", "additionalProperties": false, "required": ["schema_version", "phase", "request"],
+      "properties": {"schema_version": {"const": 3}, "phase": {"const": "release"}, "request": {"type": "object", "additionalProperties": false, "required": ["qualification_request", "qualification_decision", "anchor_sha256", "prior_release_sha256", "snapshot_sha256", "manifest_core_sha256", "facts"], "properties": {"qualification_request": {"$ref": "#/$defs/qualification_release"}, "qualification_decision": {"$ref": "#/$defs/qualification_decision_release"}, "anchor_sha256": {"$ref": "#/$defs/digest"}, "prior_release_sha256": {"$ref": "#/$defs/digest"}, "snapshot_sha256": {"$ref": "#/$defs/digest"}, "manifest_core_sha256": {"$ref": "#/$defs/digest"}, "facts": {"$ref": "#/$defs/release_facts"}}}}
+    },
+    "release_decision_binding": {
+      "type": "object", "additionalProperties": false,
+      "required": ["qualification_decision_sha256", "operation", "operation_version", "anchor_sha256", "prior_release_sha256", "manifest_core_sha256", "release_facts_sha256"],
+      "properties": {"qualification_decision_sha256": {"$ref": "#/$defs/digest"}, "operation": {"const": "jira.issue.attachment.download"}, "operation_version": {"const": 1}, "anchor_sha256": {"$ref": "#/$defs/digest"}, "prior_release_sha256": {"$ref": "#/$defs/digest"}, "manifest_core_sha256": {"$ref": "#/$defs/digest"}, "release_facts_sha256": {"$ref": "#/$defs/digest"}}
+    },
+    "operation_decision_shape_initial": {
+      "type": "object", "additionalProperties": false, "required": ["schema_version", "phase", "decision", "binding", "decision_sha256"],
+      "properties": {"schema_version": {"const": 3}, "phase": {"const": "initial"}, "decision": {"$ref": "broker-v1.schema.json#/$defs/decision_core"}, "binding": {"$ref": "#/$defs/qualified_decision_binding"}, "decision_sha256": {"$ref": "#/$defs/digest"}}
+    },
+    "operation_decision_shape_body_dispatch": {
+      "type": "object", "additionalProperties": false, "required": ["schema_version", "phase", "decision", "binding", "decision_sha256"],
+      "properties": {"schema_version": {"const": 3}, "phase": {"const": "body_dispatch"}, "decision": {"$ref": "broker-v1.schema.json#/$defs/decision_core"}, "binding": {"$ref": "#/$defs/qualified_decision_binding"}, "decision_sha256": {"$ref": "#/$defs/digest"}}
+    },
+    "operation_decision_release": {
+      "type": "object", "additionalProperties": false, "required": ["schema_version", "phase", "decision", "binding", "decision_sha256"],
+      "properties": {"schema_version": {"const": 3}, "phase": {"const": "release"}, "decision": {"$ref": "broker-v1.schema.json#/$defs/decision_core"}, "binding": {"$ref": "#/$defs/release_decision_binding"}, "decision_sha256": {"$ref": "#/$defs/digest"}}
+    },
+    "anchor": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schema_version", "contract_family", "operation", "operation_version", "features", "context", "request_sha256", "arguments_sha256", "resources_sha256", "effects_sha256", "snapshot_sha256", "stream_id", "correlation_id", "overall_deadline_millis", "admission_decision_sha256", "initial_qualification_decision_sha256", "initial_operation_decision_sha256", "pre_open_qualification_decision_sha256", "body_dispatch_operation_decision_sha256"],
+      "properties": {"schema_version": {"const": 1}, "contract_family": {"const": "atl.broker.execution.v3"}, "operation": {"const": "jira.issue.attachment.download"}, "operation_version": {"const": 1}, "features": {"const": ["atomic_local_publish_v1", "attachment_id_v1", "step_snapshot_v1"]}, "context": {"$ref": "broker-v1.schema.json#/$defs/verified_context"}, "request_sha256": {"$ref": "#/$defs/digest"}, "arguments_sha256": {"$ref": "#/$defs/digest"}, "resources_sha256": {"$ref": "#/$defs/digest"}, "effects_sha256": {"$ref": "#/$defs/digest"}, "snapshot_sha256": {"$ref": "#/$defs/digest"}, "stream_id": {"$ref": "#/$defs/id"}, "correlation_id": {"$ref": "#/$defs/id"}, "overall_deadline_millis": {"type": "integer", "minimum": 1}, "admission_decision_sha256": {"$ref": "#/$defs/digest"}, "initial_qualification_decision_sha256": {"$ref": "#/$defs/digest"}, "initial_operation_decision_sha256": {"$ref": "#/$defs/digest"}, "pre_open_qualification_decision_sha256": {"$ref": "#/$defs/digest"}, "body_dispatch_operation_decision_sha256": {"$ref": "#/$defs/digest"}}
+    },
+    "manifest": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schema_version", "frame_version", "kind", "stream_id", "correlation_id", "arguments_sha256", "anchor_sha256", "snapshot", "consistency_profile", "max_data_frames", "max_decoded_frame_bytes", "max_native_body_bytes", "max_metadata_items", "max_manifest_line_bytes", "max_data_line_bytes", "max_terminal_line_bytes", "max_framed_bytes", "max_jira_attempts", "max_authentication_attempts", "max_decision_attempts", "max_total_host_outbound_attempts", "max_command_host_outbound_attempts", "max_jira_response_bytes", "max_authority_response_bytes", "max_total_host_response_bytes", "max_operation_millis", "max_decision_lease_millis", "manifest_core_sha256", "release_decision_sha256"],
+      "properties": {"schema_version": {"const": 3}, "frame_version": {"const": 1}, "kind": {"const": "manifest"}, "stream_id": {"$ref": "#/$defs/id"}, "correlation_id": {"$ref": "#/$defs/id"}, "arguments_sha256": {"$ref": "#/$defs/digest"}, "anchor_sha256": {"$ref": "#/$defs/digest"}, "snapshot": {"$ref": "#/$defs/snapshot"}, "consistency_profile": {"const": "step_snapshot_v1"}, "max_data_frames": {"const": 16}, "max_decoded_frame_bytes": {"const": 1048576}, "max_native_body_bytes": {"const": 16777216}, "max_metadata_items": {"const": 10000}, "max_manifest_line_bytes": {"const": 65536}, "max_data_line_bytes": {"const": 1441792}, "max_terminal_line_bytes": {"const": 16384}, "max_framed_bytes": {"const": 25165824}, "max_jira_attempts": {"const": 19}, "max_authentication_attempts": {"const": 17}, "max_decision_attempts": {"const": 37}, "max_total_host_outbound_attempts": {"const": 73}, "max_command_host_outbound_attempts": {"const": 76}, "max_jira_response_bytes": {"const": 35651584}, "max_authority_response_bytes": {"const": 7077888}, "max_total_host_response_bytes": {"const": 42729472}, "max_operation_millis": {"const": 60000}, "max_decision_lease_millis": {"const": 5000}, "manifest_core_sha256": {"$ref": "#/$defs/digest"}, "release_decision_sha256": {"$ref": "#/$defs/digest"}}
+    },
+    "data": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schema_version", "frame_version", "kind", "stream_id", "index", "offset", "decoded_bytes", "payload_base64", "payload_sha256", "cumulative_bytes", "cumulative_sha256", "resource_sha256", "prior_release_sha256", "release_decision_sha256"],
+      "properties": {"schema_version": {"const": 3}, "frame_version": {"const": 1}, "kind": {"const": "data"}, "stream_id": {"$ref": "#/$defs/id"}, "index": {"type": "integer", "minimum": 0, "maximum": 15}, "offset": {"type": "integer", "minimum": 0, "maximum": 16777215}, "decoded_bytes": {"type": "integer", "minimum": 1, "maximum": 1048576}, "payload_base64": {"type": "string", "maxLength": 1398104}, "payload_sha256": {"$ref": "#/$defs/digest"}, "cumulative_bytes": {"type": "integer", "minimum": 1, "maximum": 16777216}, "cumulative_sha256": {"$ref": "#/$defs/digest"}, "resource_sha256": {"$ref": "#/$defs/digest"}, "prior_release_sha256": {"$ref": "#/$defs/digest"}, "release_decision_sha256": {"$ref": "#/$defs/digest"}}
+    },
+    "terminal": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schema_version", "frame_version", "kind", "stream_id", "chunk_count", "total_bytes", "declared_size", "whole_sha256", "prior_release_sha256", "release_decision_sha256", "eof_proven", "complete"],
+      "properties": {"schema_version": {"const": 3}, "frame_version": {"const": 1}, "kind": {"const": "terminal"}, "stream_id": {"$ref": "#/$defs/id"}, "chunk_count": {"type": "integer", "minimum": 0, "maximum": 16}, "total_bytes": {"type": "integer", "minimum": 0, "maximum": 16777216}, "declared_size": {"type": "integer", "minimum": 0, "maximum": 16777216}, "whole_sha256": {"$ref": "#/$defs/digest"}, "prior_release_sha256": {"$ref": "#/$defs/digest"}, "release_decision_sha256": {"$ref": "#/$defs/digest"}, "eof_proven": {"const": true}, "complete": {"const": true}},
+      "allOf": [{"$ref": "#/$defs/terminal_count_total"}],
+      "x-atl-field-equality": {"declared_size": "total_bytes"}
+    },
+    "stream_line": {"oneOf": [{"$ref": "#/$defs/manifest"}, {"$ref": "#/$defs/data"}, {"$ref": "#/$defs/terminal"}]}
+  },
+  "oneOf": [
+    {"$ref": "#/$defs/request"}, {"$ref": "#/$defs/admission_request"}, {"$ref": "#/$defs/admission_decision"},
+    {"$ref": "#/$defs/qualification_initial"}, {"$ref": "#/$defs/qualification_pre_open"}, {"$ref": "#/$defs/qualification_release"},
+    {"$ref": "#/$defs/qualification_decision_initial"}, {"$ref": "#/$defs/qualification_decision_pre_open"}, {"$ref": "#/$defs/qualification_decision_release"},
+    {"$ref": "#/$defs/operation_initial"}, {"$ref": "#/$defs/operation_body_dispatch"}, {"$ref": "#/$defs/operation_release"},
+    {"$ref": "#/$defs/operation_decision_initial"}, {"$ref": "#/$defs/operation_decision_body_dispatch"}, {"$ref": "#/$defs/operation_decision_release"},
+    {"$ref": "#/$defs/anchor"}, {"$ref": "#/$defs/stream_line"}
+  ]
+}

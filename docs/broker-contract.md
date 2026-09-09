@@ -29,6 +29,37 @@ schema, registry or digest namespace. Its fixed `/v2/execute` route, CLI/MCP
 consumers and discovery-v3 sibling are described below; broader search,
 streaming and write families are not inferred from its availability.
 
+The separate, currently unavailable bounded-attachment family is defined by
+[`schemas/broker-execution-v3.schema.json`](schemas/broker-execution-v3.schema.json)
+and its [HTTP v3 schema](schemas/broker-execution-http-v3.schema.json).
+Execution-scoped negotiation uses
+[`schemas/broker-discovery-v4.schema.json`](schemas/broker-discovery-v4.schema.json)
+and its [HTTP v4 schema](schemas/broker-discovery-http-v4.schema.json). The
+registry row remains unavailable: these schemas establish a closed contract
+for future runtime work and do not make Broker attachment download selectable.
+The operation accepts only an issue key and numeric attachment id, publishes a
+bounded manifest/data/terminal NDJSON stream, and advertises the weak
+`step_snapshot_v1` consistency profile rather than atomic membership. Its
+categorical ceilings sum to 73 host outbound attempts for execution and 76 for
+one complete discovery-plus-execution command; these are limits, not evidence
+that the unavailable runtime exists. The attachment read effect includes
+`created` because that raw metadata is present in the released snapshot,
+alongside body, filename, identity, media type, parent and size evidence.
+The execution-v3 schema's `x-atl-max-utf8-bytes` and
+`x-atl-field-equality` members are informational annotations, not JSON Schema
+validation keywords. Independent consumers must implement the normative codec
+checks for UTF-8 byte lengths, digest and cross-field equality, canonical line
+bytes and authorization lineage in addition to structural schema validation.
+
+Each attachment release receipt binds every exact emitted NDJSON line,
+including its newline, in order under the same prior receipt and current
+release decision. First releases contain manifest plus data (plus terminal
+when also last), or manifest plus terminal for an empty body. Subsequent
+releases contain data, plus terminal when last. Thus a receipt has one to
+three line digests; the stream owner validates the applicable shape and only
+commits it after successful authorized publication. A nonempty terminal does
+not introduce a separate authorization call or omit a line from the receipt.
+
 ## Trust boundary
 
 The client and every value in a `request` envelope are untrusted. A request can
