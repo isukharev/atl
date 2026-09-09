@@ -23,6 +23,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   project at the final scoped-policy check. Issue-ID selector diagnostics make
   their guarded-comment-only coverage explicit; missing-ID targets remain
   nonmatching for allows and unresolved/fail-closed for applicable denies.
+- The uncomposed Broker authority adapter can request exact native proposal
+  clearance through its fixed v1 endpoint. Guarded runtime operations remain
+  gated; existing schema versions and direct-write behavior are unchanged.
 
 - Added `atl broker discover --service jira|confluence` and private zero-TTL
   MCP Broker discovery resources. Each read negotiates discovery v2 and

@@ -71,11 +71,20 @@ fixed authority routes and the existing exact decision codecs. Cache source
 resolution uses the separate `POST /v2/authorize/cache` route with a 64 KiB
 request and response cap. Every authority call is single-attempt,
 redirect-free, bounded to five seconds and never positively cached; the other
-four retain their 128 KiB caps. Proposal authorization remains unsupported.
+four retain their 128 KiB caps.
 Cache qualification establishes one five-second connection/context deadline
 before request-body receipt and shares it across workload authentication,
 authority resolution, failures, and response publication; it does not receive
 a new lease per phase or proceed when connection deadlines are unavailable.
+
+The authority adapter also implements `POST /v1/authorize/proposal` with the
+existing strict v1 request and clearance codecs: one attempt, at most 2 MiB of
+encoded request, at most 128 KiB for success or failure, and a caller-clipped
+five-second deadline. The app binds the decoded clearance to the exact operation
+decision, proposal, native candidate, version evidence, context and current lease
+on receipt and again before dispatch. Qualification or operation permission is
+not proposal clearance. This adapter capability does not enable a guarded
+server, client or registry operation.
 
 The handler caps parsed request headers at 16 KiB, the workload bearer at
 8 KiB, and each execute or cache-qualification body at 64 KiB before strict
