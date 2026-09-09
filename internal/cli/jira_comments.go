@@ -15,10 +15,11 @@ import (
 
 // jiraCommentCmd builds `jira issue comment {preview,add,list,delete}`.
 func jiraCommentCmd() *cobra.Command {
-	c := &cobra.Command{Use: "comment", Short: "Preview/list/add/delete issue comments"}
+	c := &cobra.Command{Use: "comment", Short: "Preview/list/add/delete comments and observe Broker outcomes"}
 
 	preview := jiraCommentMutationCmd(false)
 	add := jiraCommentMutationCmd(true)
+	outcome := jiraCommentOutcomeCmd()
 
 	list := &cobra.Command{
 		Use:   "list <KEY>",
@@ -65,12 +66,12 @@ func jiraCommentCmd() *cobra.Command {
 		},
 	}
 
-	c.AddCommand(preview, add, list, del)
+	c.AddCommand(preview, add, list, del, outcome)
 	return c
 }
 
 func jiraCommentMutationCmd(applyCapable bool) *cobra.Command {
-	var fromFile, fromMD string
+	var fromFile, fromMD, operationTicket string
 	guardedWrite := guardedWriteFlags{profile: guardedWriteProposal}
 	use, short := "preview <KEY>", "Preview a bounded Jira-wiki comment"
 	if applyCapable {
@@ -91,9 +92,20 @@ func jiraCommentMutationCmd(applyCapable bool) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			svc, err := jiraService(cmd)
+			svc, brokerMode, err := jiraCommentServiceForInvocation(cmd, operationTicket, cmd.Flags().Changed("operation-ticket"), applyCapable && guardedWrite.apply)
 			if err != nil {
 				return err
+			}
+			if brokerMode {
+				result, mutationErr := svc.AddBrokerCommentGuarded(cmd.Context(), args[0], app.JiraCommentAddOpts{
+					Body: body, Apply: applyCapable && guardedWrite.apply,
+					ExpectedProposalHash: guardedWrite.expectedProposalHash, SatisfactionPolicy: "append_always",
+				}, operationTicket)
+				if result == nil {
+					return mutationErr
+				}
+				emitErr := emit(cmd, result, func() string { return app.JiraBrokerCommentText(result) })
+				return brokerCommentResultErr(mutationErr, emitErr, result.WriteAttempted)
 			}
 			result, mutationErr := svc.AddCommentGuarded(cmd.Context(), args[0], app.JiraCommentAddOpts{
 				Body: body, Apply: applyCapable && guardedWrite.apply,
@@ -110,6 +122,7 @@ func jiraCommentMutationCmd(applyCapable bool) *cobra.Command {
 	cmd.Flags().StringVar(&fromMD, "from-md", "", "bounded markdown comment file or - for stdin (converted to wiki; unsupported constructs are refused)")
 	if applyCapable {
 		guardedWrite.register(cmd)
+		cmd.Flags().StringVar(&operationTicket, "operation-ticket", "", "opaque Broker operation ticket returned by the matching preview")
 	}
 	return cmd
 }
@@ -141,6 +154,9 @@ func validateJiraGuardedCommentInvocation(cmd *cobra.Command, applyRequested boo
 		}
 	}
 	if !applyRequested {
+		if ticket := cmd.Flags().Lookup("operation-ticket"); ticket != nil && ticket.Changed {
+			return usageErr("--operation-ticket requires --apply")
+		}
 		return nil
 	}
 	if strings.TrimSpace(expected) == "" {

@@ -2,6 +2,7 @@ package compose
 
 import (
 	"encoding/pem"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -174,5 +175,31 @@ func TestMalformedBrokerConfigDoctorDoesNotReadPATStore(t *testing.T) {
 				t.Fatalf("deps=%+v", deps)
 			}
 		})
+	}
+}
+
+func TestBrokerJiraOutcomeCompositionRequiresIndependentObserverSession(t *testing.T) {
+	base := &config.Config{ConnectionMode: config.ConnectionModeBroker, Broker: &config.BrokerClientConfig{
+		BaseURL: "https://broker.example.test", BrokerID: "broker-1", Audience: "atl-broker",
+		JiraSessionFile: "/missing/writer-session.json",
+	}}
+	service, err := NewBrokerJiraObservationService(base, "test")
+	if service != nil || !errors.Is(err, domain.ErrConfig) {
+		t.Fatalf("writer fallback service=%+v err=%v", service, err)
+	}
+
+	withObserver := config.Config{ConnectionMode: config.ConnectionModeBroker}
+	broker := *base.Broker
+	broker.JiraSessionFile = ""
+	broker.JiraObservationSessionFile = "/missing/observer-session.json"
+	withObserver.Broker = &broker
+	service, err = NewBrokerJiraObservationService(&withObserver, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result, err := service.ObserveBrokerCommentOperation(t.Context(), "ticket-1"); result != nil {
+		t.Fatalf("result=%+v err=%v", result, err)
+	} else if reason, _ := brokercontract.Reason(err); reason != domain.BrokerReasonUnsupported {
+		t.Fatalf("reason=%s err=%v", reason, err)
 	}
 }

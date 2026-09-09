@@ -44,3 +44,38 @@ func TestBrokerConfigurationFailsClosed(t *testing.T) {
 		}
 	}
 }
+
+func TestBrokerObservationSessionIsIndependentOrdinaryConfiguration(t *testing.T) {
+	directory := t.TempDir()
+	t.Setenv("ATL_CONFIG_DIR", directory)
+	configBody := []byte(`{"connection_mode":"broker","broker":{"base_url":"https://broker.example.test","broker_id":"broker-1","audience":"atl-broker","jira_session_file":"/private/runtime/writer.json","jira_observation_session_file":"/private/runtime/observer.json"},"jira_list_views":{}}`)
+	if err := os.WriteFile(filepath.Join(directory, "config.json"), configBody, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Broker.JiraSessionFile != "/private/runtime/writer.json" || loaded.Broker.JiraObservationSessionFile != "/private/runtime/observer.json" {
+		t.Fatalf("broker=%+v", loaded.Broker)
+	}
+	projection := BrokerProjection(loaded)
+	if !projection.JiraSessionConfigured || !projection.JiraObservationSessionConfigured {
+		t.Fatalf("projection=%+v", projection)
+	}
+}
+
+func TestBrokerObservationOnlyConfigurationIsValidButWhitespaceIsRejected(t *testing.T) {
+	valid := &BrokerClientConfig{
+		BaseURL: "https://broker.example.test", BrokerID: "broker-1", Audience: "atl-broker",
+		JiraObservationSessionFile: "/private/runtime/observer.json",
+	}
+	if err := ValidateBrokerClientConfig(ConnectionModeBroker, valid); err != nil {
+		t.Fatalf("valid observation-only config: %v", err)
+	}
+	changed := *valid
+	changed.JiraObservationSessionFile += " "
+	if err := ValidateBrokerClientConfig(ConnectionModeBroker, &changed); err == nil {
+		t.Fatal("whitespace observation session accepted")
+	}
+}

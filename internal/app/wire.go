@@ -88,6 +88,8 @@ type JiraService struct {
 	agile                             domain.Agile
 	structure                         domain.StructureReader
 	projectPages                      domain.BrokerJiraProjectPageReader
+	brokerComments                    domain.BrokerJiraCommentClient
+	brokerOutcomes                    domain.BrokerOperationOutcomeClient
 	baseURL                           string
 	cfg                               *config.Config
 	confluenceBaseURL                 string
@@ -110,6 +112,8 @@ type JiraDependencies struct {
 	Agile                      domain.Agile
 	Structure                  domain.StructureReader
 	ProjectPages               domain.BrokerJiraProjectPageReader
+	BrokerComments             domain.BrokerJiraCommentClient
+	BrokerOutcomes             domain.BrokerOperationOutcomeClient
 	BaseURL                    string
 	Config                     *config.Config
 	ConfluenceBaseURL          string
@@ -122,6 +126,7 @@ type JiraDependencies struct {
 func NewJiraService(deps JiraDependencies) *JiraService {
 	service := &JiraService{
 		tr: deps.Tracker, agile: deps.Agile, structure: deps.Structure, projectPages: deps.ProjectPages,
+		brokerComments: deps.BrokerComments, brokerOutcomes: deps.BrokerOutcomes,
 		baseURL: deps.BaseURL, cfg: deps.Config, confluenceBaseURL: deps.ConfluenceBaseURL,
 		graphConfluenceFactory:   deps.ConfluenceGraphFactory,
 		inverseConfluenceBaseURL: deps.ConfluenceBaseURL,

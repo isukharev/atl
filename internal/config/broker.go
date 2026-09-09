@@ -19,19 +19,21 @@ const (
 // owner-private runtime snapshots and CAFile is trust material scoped only to
 // the Broker origin.
 type BrokerClientConfig struct {
-	BaseURL               string `json:"base_url"`
-	BrokerID              string `json:"broker_id"`
-	Audience              string `json:"audience"`
-	CAFile                string `json:"ca_file,omitempty"`
-	JiraSessionFile       string `json:"jira_session_file,omitempty"`
-	ConfluenceSessionFile string `json:"confluence_session_file,omitempty"`
+	BaseURL                    string `json:"base_url"`
+	BrokerID                   string `json:"broker_id"`
+	Audience                   string `json:"audience"`
+	CAFile                     string `json:"ca_file,omitempty"`
+	JiraSessionFile            string `json:"jira_session_file,omitempty"`
+	JiraObservationSessionFile string `json:"jira_observation_session_file,omitempty"`
+	ConfluenceSessionFile      string `json:"confluence_session_file,omitempty"`
 }
 
 type BrokerClientProjection struct {
-	Configured                  bool `json:"configured"`
-	CAConfigured                bool `json:"ca_configured"`
-	JiraSessionConfigured       bool `json:"jira_session_configured"`
-	ConfluenceSessionConfigured bool `json:"confluence_session_configured"`
+	Configured                       bool `json:"configured"`
+	CAConfigured                     bool `json:"ca_configured"`
+	JiraSessionConfigured            bool `json:"jira_session_configured"`
+	JiraObservationSessionConfigured bool `json:"jira_observation_session_configured"`
+	ConfluenceSessionConfigured      bool `json:"confluence_session_configured"`
 }
 
 func BrokerProjection(c *Config) BrokerClientProjection {
@@ -40,8 +42,9 @@ func BrokerProjection(c *Config) BrokerClientProjection {
 	}
 	return BrokerClientProjection{
 		Configured: true, CAConfigured: c.Broker.CAFile != "",
-		JiraSessionConfigured:       c.Broker.JiraSessionFile != "",
-		ConfluenceSessionConfigured: c.Broker.ConfluenceSessionFile != "",
+		JiraSessionConfigured:            c.Broker.JiraSessionFile != "",
+		JiraObservationSessionConfigured: c.Broker.JiraObservationSessionFile != "",
+		ConfluenceSessionConfigured:      c.Broker.ConfluenceSessionFile != "",
 	}
 }
 
@@ -71,10 +74,10 @@ func ValidateBrokerClientConfig(mode string, broker *BrokerClientConfig) error {
 	if !validBrokerConfigIdentifier(broker.BrokerID, 128) || !validBrokerConfigIdentifier(broker.Audience, 128) {
 		return fmt.Errorf("broker_id and audience must be printable identifiers")
 	}
-	if strings.TrimSpace(broker.CAFile) != broker.CAFile || strings.TrimSpace(broker.JiraSessionFile) != broker.JiraSessionFile || strings.TrimSpace(broker.ConfluenceSessionFile) != broker.ConfluenceSessionFile {
+	if strings.TrimSpace(broker.CAFile) != broker.CAFile || strings.TrimSpace(broker.JiraSessionFile) != broker.JiraSessionFile || strings.TrimSpace(broker.JiraObservationSessionFile) != broker.JiraObservationSessionFile || strings.TrimSpace(broker.ConfluenceSessionFile) != broker.ConfluenceSessionFile {
 		return fmt.Errorf("file references must not contain surrounding whitespace")
 	}
-	if mode == ConnectionModeBroker && broker.JiraSessionFile == "" && broker.ConfluenceSessionFile == "" {
+	if mode == ConnectionModeBroker && broker.JiraSessionFile == "" && broker.JiraObservationSessionFile == "" && broker.ConfluenceSessionFile == "" {
 		return fmt.Errorf("at least one service session file is required in broker mode")
 	}
 	return nil

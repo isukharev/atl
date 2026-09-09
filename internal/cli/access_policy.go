@@ -268,6 +268,7 @@ R remote-read json,text,id jira issue children
 M remote-write-with-local preview-apply comment jira-issue-arg apply,expected-proposal-hash pre-config jira-guarded-comment json,text jira issue comment add
 M remote-write remote-direct delete jira-issue-arg - json jira issue comment delete
 R remote-read json,text,id jira issue comment list
+R remote-read-fixed json,text jira issue comment outcome
 R remote-read-with-local json,text jira issue comment preview
 M guarded-create-apply preview-apply create? jira-project-flag apply,expected-proposal-hash pre-config jira-guarded-create json,id jira issue create
 R guarded-create-preview json jira issue create preview
