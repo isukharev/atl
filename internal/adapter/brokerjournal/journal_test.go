@@ -322,6 +322,54 @@ func TestDurableClockHighWaterSurvivesRestart(t *testing.T) {
 	}
 }
 
+func TestReopenedJournalObservesExpiredWriterConcurrently(t *testing.T) {
+	f := newFixture(t, Limits{})
+	record := admitted(t, f.journal)
+	f.clock.Store(record.Reservation.ExecutionExpiresMillis)
+	reopened := reopen(t, f, Limits{})
+	want, err := reopened.Lookup(context.Background(), record.Reservation.Owner, record.OperationID)
+	must(t, err)
+	if want.Phase != domain.BrokerOperationNotApplied {
+		t.Fatalf("recovered phase=%s", want.Phase)
+	}
+
+	const readers = 16
+	results := make(chan domain.BrokerJournalRecord, readers)
+	errorsSeen := make(chan error, readers)
+	var group sync.WaitGroup
+	for range readers {
+		group.Add(1)
+		go func() {
+			defer group.Done()
+			got, lookupErr := reopened.Lookup(context.Background(), record.Reservation.Owner, record.OperationID)
+			results <- got
+			errorsSeen <- lookupErr
+		}()
+	}
+	group.Wait()
+	close(results)
+	close(errorsSeen)
+	for lookupErr := range errorsSeen {
+		if lookupErr != nil {
+			t.Fatalf("concurrent lookup: %v", lookupErr)
+		}
+	}
+	for got := range results {
+		if got != want {
+			t.Fatalf("concurrent lookup changed record: %+v / %+v", got, want)
+		}
+	}
+	expired, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := reopened.Lookup(expired, record.Reservation.Owner, record.OperationID); !errors.Is(err, errDenied) {
+		t.Fatalf("expired lookup context=%v", err)
+	}
+	after, err := reopened.Lookup(context.Background(), record.Reservation.Owner, record.OperationID)
+	if err != nil || after != want {
+		t.Fatalf("observations mutated record: %+v err=%v", after, err)
+	}
+}
+
 func TestPrivateMetadataAndSeparateArtifact(t *testing.T) {
 	f := newFixture(t, Limits{})
 	r := admitted(t, f.journal)

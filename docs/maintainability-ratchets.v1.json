@@ -116,7 +116,7 @@
   "package_totals": [
     {"owner":"adapter-confluence","path":"internal/adapter/confluence/","max_lines":5249,"rationale":"Include the narrow Broker page reader and its explicit long-running-host idle-connection shutdown seam."},
     {"owner":"adapter-jira","path":"internal/adapter/jira/","max_lines":6417,"rationale":"Include the narrow Broker issue reader and its explicit long-running-host idle-connection shutdown seam."},
-    {"owner":"app","path":"internal/app/","max_lines":53506,"rationale":"Include bounded Jira snapshot v2 checkpoint inspection alongside current context-bound advisory Broker discovery without qualification or business reads."},
+    {"owner":"app","path":"internal/app/","max_lines":53809,"rationale":"Include bounded Jira checkpoint inspection, context-bound advisory discovery and current-authority lease-bounded durable operation observation with shared immutable-binding validation."},
     {"owner":"cli","path":"internal/cli/","max_lines":13654,"rationale":"Include the Jira snapshot v2 text progress projection alongside the explicit read-only Broker discovery command."},
     {"owner":"compose","path":"internal/compose/","max_lines":1157,"rationale":"Include lazy per-service discovery client construction without PAT resolution or direct fallback."},
     {"owner":"contentpolicy","path":"internal/contentpolicy/","max_lines":1281,"rationale":"Keep policy parsing, resolved and deny-only evaluation, source-denial envelopes, freeze, static scope requirements, and hierarchy hazards at the reviewed public-surface total."},
