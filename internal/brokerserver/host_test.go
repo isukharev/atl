@@ -178,6 +178,9 @@ func hostBoundaryRoutes() []hostBoundaryRoute {
 		{name: "execution v2", method: http.MethodPost, path: brokertransport.ExecutePathV2, version: 2, decode: brokertransport.DecodeExecutionFailureV2},
 		{name: "discovery v3 negotiation", method: http.MethodPost, path: brokertransport.DiscoveryNegotiatePathV3, version: 3, decode: brokertransport.DecodeDiscoveryFailureV3},
 		{name: "discovery v3", method: http.MethodPost, path: brokertransport.DiscoveryPathV3, version: 3, decode: brokertransport.DecodeDiscoveryFailureV3},
+		{name: "execution v3", method: http.MethodPost, path: brokertransport.ExecutePathV3, version: 3, decode: brokertransport.DecodeExecutionFailureV3},
+		{name: "discovery v4 negotiation", method: http.MethodPost, path: brokertransport.DiscoveryNegotiatePathV4, version: 4, decode: brokertransport.DecodeDiscoveryFailureV4},
+		{name: "discovery v4", method: http.MethodPost, path: brokertransport.DiscoveryPathV4, version: 4, decode: brokertransport.DecodeDiscoveryFailureV4},
 	}
 }
 

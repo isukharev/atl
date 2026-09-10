@@ -108,6 +108,13 @@ authorization.go:fail:for:1
 authorization.go:issueTargets:range:1
 authorization.go:put:for:1
 authorization.go:removeCanonical:range:1
+broker_attachment.go:brokerJiraAttachmentFailure:range:1
+broker_attachment.go:decodeBrokerJiraAttachment:range:1
+broker_attachment.go:validBrokerJiraAttachmentContentURI:range:1
+broker_attachment.go:validBrokerJiraAttachmentDecimal:range:1
+broker_attachment.go:validBrokerJiraAttachmentItem:range:1
+broker_attachment.go:validBrokerJiraAttachmentItem:range:2
+broker_attachment.go:validBrokerJiraAttachmentText:range:1
 broker_read.go:ReadBrokerIssue:range:1
 broker_read.go:ReadBrokerIssue:range:2
 broker_read.go:ReadBrokerIssue:range:3

@@ -70,8 +70,7 @@ const (
 
 var attachmentFeaturesV3 = []string{"atomic_local_publish_v1", "attachment_id_v1", "step_snapshot_v1"}
 
-// RegistryV3 is deliberately unavailable until the complete selected-binary
-// stream oracle passes. Compiled schema support is not runtime availability.
+// RegistryV3 defines the operation-specific bounded attachment runtime.
 func RegistryV3() []domain.BrokerAttachmentOperationDefinitionV3 {
 	definition := domain.BrokerOperationDefinition{
 		ID:                   domain.BrokerOperationJiraAttachmentDownload,
@@ -87,7 +86,7 @@ func RegistryV3() []domain.BrokerAttachmentOperationDefinitionV3 {
 			"issue.id", "issue.key", "issue.project", "issue.updated",
 		},
 		RequiredFeatures: append([]string(nil), attachmentFeaturesV3...),
-		Available:        false,
+		Available:        true,
 		Streaming:        true,
 		Limits: domain.BrokerLimits{
 			MaxRequestBytes:               MaxAttachmentRequestBytesV3,

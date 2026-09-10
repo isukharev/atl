@@ -30,7 +30,6 @@ import (
 	"github.com/isukharev/atl/internal/brokercontract"
 	"github.com/isukharev/atl/internal/brokertransport"
 	"github.com/isukharev/atl/internal/domain"
-	"github.com/isukharev/atl/internal/httpx"
 )
 
 const (
@@ -251,15 +250,6 @@ func newProjectPageProcessFixture(t *testing.T, options projectPageProcessOption
 	projectPageProcessWriteFile(t, filepath.Join(configRoot, "config.json"), configBody)
 	f.environment = []string{"PATH=" + os.Getenv("PATH"), "ATL_CONFIG_DIR=" + configRoot, "ATL_NO_UPDATE=1", "ATL_READ_ONLY=1"}
 	return f
-}
-
-func projectPageProcessTLSOptions(t *testing.T, server *httptest.Server) httpx.TLSOptions {
-	t.Helper()
-	options, _, err := httpx.QualifiedTLSOptionsBytes(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.Certificate().Raw}))
-	if err != nil {
-		t.Fatal(err)
-	}
-	return options
 }
 
 func projectPageProcessWriteFile(t *testing.T, path string, body []byte) {

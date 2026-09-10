@@ -44,8 +44,9 @@ type Authority struct {
 }
 
 var (
-	_ brokertransport.Authenticator = (*Authority)(nil)
-	_ domain.BrokerAuthorizer       = (*Authority)(nil)
+	_ brokertransport.Authenticator             = (*Authority)(nil)
+	_ brokertransport.AttachmentAuthenticatorV3 = (*Authority)(nil)
+	_ domain.BrokerAuthorizer                   = (*Authority)(nil)
 )
 
 func New(config Config) (*Authority, error) {
@@ -68,6 +69,16 @@ func (a *Authority) CloseIdleConnections() {
 }
 
 func (a *Authority) Authenticate(ctx context.Context, credential []byte, challenge brokertransport.AuthenticationChallenge) (brokertransport.Authentication, error) {
+	return a.authenticate(ctx, credential, challenge, a.post)
+}
+
+// AuthenticateAttachmentV3 performs authentication-v1 while charging the
+// attachment authority budget carried by ctx.
+func (a *Authority) AuthenticateAttachmentV3(ctx context.Context, credential []byte, challenge brokertransport.AuthenticationChallenge) (brokertransport.Authentication, error) {
+	return a.authenticate(ctx, credential, challenge, a.postAttachmentV3)
+}
+
+func (a *Authority) authenticate(ctx context.Context, credential []byte, challenge brokertransport.AuthenticationChallenge, post func(context.Context, string, []byte, int64) ([]byte, error)) (brokertransport.Authentication, error) {
 	if a == nil || a.client == nil || a.now == nil {
 		return brokertransport.Authentication{}, authorityError(domain.ErrConfig)
 	}
@@ -81,7 +92,7 @@ func (a *Authority) Authenticate(ctx context.Context, credential []byte, challen
 	if err != nil {
 		return brokertransport.Authentication{}, err
 	}
-	responseBody, err := a.post(ctx, authenticatePath, body, brokertransport.MaxAuthorityEnvelopeBytes)
+	responseBody, err := post(ctx, authenticatePath, body, brokertransport.MaxAuthorityEnvelopeBytes)
 	if err != nil {
 		return brokertransport.Authentication{}, err
 	}
@@ -147,12 +158,24 @@ func (a *Authority) AuthorizeOperation(ctx context.Context, request domain.Broke
 }
 
 func (a *Authority) post(ctx context.Context, path string, body []byte, maximum int64) ([]byte, error) {
-	if a == nil || a.client == nil || len(body) == 0 || maximum <= 0 {
-		return nil, authorityError(domain.ErrConfig)
-	}
 	budget, err := domain.NewReadBudget(1, maximum)
 	if err != nil {
 		return nil, authorityError(err)
+	}
+	return a.postWithBudget(ctx, path, body, maximum, budget)
+}
+
+func (a *Authority) postAttachmentV3(ctx context.Context, path string, body []byte, maximum int64) ([]byte, error) {
+	budget, err := domain.NewChildReadBudget(domain.ReadBudgetFromContext(ctx), 1, maximum)
+	if err != nil {
+		return nil, authorityError(err)
+	}
+	return a.postWithBudget(ctx, path, body, maximum, budget)
+}
+
+func (a *Authority) postWithBudget(ctx context.Context, path string, body []byte, maximum int64, budget *domain.ReadBudget) ([]byte, error) {
+	if a == nil || a.client == nil || len(body) == 0 || maximum <= 0 || budget == nil {
+		return nil, authorityError(domain.ErrConfig)
 	}
 	bounded, cancel := context.WithTimeout(ctx, authorityCallTimeout)
 	defer cancel()

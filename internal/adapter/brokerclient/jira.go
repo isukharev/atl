@@ -96,8 +96,11 @@ func (*Jira) GetUser(context.Context, string) (*domain.User, error) { return nil
 func (*Jira) ListAttachments(context.Context, string) ([]domain.Attachment, error) {
 	return nil, unsupported()
 }
-func (*Jira) DownloadAttachment(context.Context, string, string) (io.ReadCloser, string, error) {
-	return nil, "", unsupported()
+func (j *Jira) DownloadAttachment(ctx context.Context, key, attachmentID string) (io.ReadCloser, string, error) {
+	if j == nil || j.client == nil {
+		return nil, "", clientError(domain.ErrConfig)
+	}
+	return j.client.downloadJiraAttachment(ctx, key, attachmentID)
 }
 func (*Jira) StreamAttachment(context.Context, string) (io.ReadCloser, error) {
 	return nil, unsupported()

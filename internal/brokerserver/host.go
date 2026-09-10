@@ -297,6 +297,18 @@ func (h *Host) writeHostFailure(writer http.ResponseWriter, request *http.Reques
 				server.writeFailureBody(writer, reason, body, credential, "")
 			}
 			return
+		case brokertransport.ExecutePathV3:
+			body, err := brokertransport.EncodeExecutionFailureV3(reason)
+			if err == nil {
+				server.writeFailureBody(writer, reason, body, credential, "")
+			}
+			return
+		case brokertransport.DiscoveryNegotiatePathV4, brokertransport.DiscoveryPathV4:
+			body, err := brokertransport.EncodeDiscoveryFailureV4(reason)
+			if err == nil {
+				server.writeFailureBody(writer, reason, body, credential, "")
+			}
+			return
 		case brokertransport.DiscoveryNegotiatePathV3, brokertransport.DiscoveryPathV3:
 			body, err := brokertransport.EncodeDiscoveryFailureV3(reason)
 			if err == nil {
@@ -321,6 +333,10 @@ func (h *Host) auditedData(next http.Handler) http.Handler {
 				route = "data_cache_qualification"
 			case brokertransport.ExecutePathV2:
 				route = "data_execute_v2"
+			case brokertransport.ExecutePathV3:
+				route = "data_execute_v3"
+			case brokertransport.DiscoveryNegotiatePathV4, brokertransport.DiscoveryPathV4:
+				route = "data_discovery_v4"
 			case brokertransport.DiscoveryNegotiatePathV3, brokertransport.DiscoveryPathV3:
 				route = "data_discovery_v3"
 			}

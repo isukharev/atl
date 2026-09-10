@@ -1,6 +1,7 @@
 package brokercontract
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
@@ -9,6 +10,18 @@ import (
 
 	"github.com/isukharev/atl/internal/domain"
 )
+
+func TestAttachmentV3ExactLineHashIncludesDelimiterBeyondJSONCap(t *testing.T) {
+	line := bytes.Repeat([]byte{'x'}, int(MaxAttachmentDataLineBytesV3))
+	line = append(line, '\n')
+	want := sha256.Sum256(line)
+	if got, err := AttachmentExactLineSHA256V3(line); err != nil || got != hex.EncodeToString(want[:]) {
+		t.Fatalf("maximum emitted line hash=%q err=%v", got, err)
+	}
+	if _, err := AttachmentExactLineSHA256V3(append(line, 'x')); !errors.Is(err, domain.ErrUsage) {
+		t.Fatalf("oversized emitted line err=%v", err)
+	}
+}
 
 func TestAttachmentV3FirstAndLastReleaseBindsAllThreeLines(t *testing.T) {
 	fixture := newAttachmentV3Fixture(t)

@@ -85,7 +85,8 @@ HTTPS; HTTP requires opt-in. `doctor --service --remote` runs bounded metadata
 probes. JSON: stdout; diagnostics: stderr.
 
 [Broker](docs/reference/cli/configuration.md#broker-client-mode): exact reads,
-[project pages](docs/reference/cli/jira-issues.md#atl-jira-issue-project-page), private sessions.
+[project pages](docs/reference/cli/jira-issues.md#atl-jira-issue-project-page),
+[attachments](docs/reference/cli/jira-issues.md#atl-jira-issue-attachment-listgetupload), private sessions.
 Access: `atl broker discover --service jira|confluence`.
 Reuse: [`corpus handoff-qualified`](docs/reference/cli/local-artifacts.md#atl-corpus-handoff-qualified).
 Guarded [Broker comments](docs/safe-writes.md#jira-reviewed-comment) require explicit opt-in and a journal.

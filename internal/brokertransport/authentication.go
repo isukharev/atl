@@ -39,6 +39,12 @@ type Authenticator interface {
 	Authenticate(context.Context, []byte, AuthenticationChallenge) (Authentication, error)
 }
 
+// AttachmentAuthenticatorV3 reuses authentication-v1 while allowing the
+// attachment host to retain one authority budget across setup and releases.
+type AttachmentAuthenticatorV3 interface {
+	AuthenticateAttachmentV3(context.Context, []byte, AuthenticationChallenge) (Authentication, error)
+}
+
 type AuthenticationRequest struct {
 	SchemaVersion    int
 	Nonce            string

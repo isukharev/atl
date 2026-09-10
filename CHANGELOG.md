@@ -11,6 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added bounded Broker attachment downloads through the existing CLI
+  `jira issue attachment get KEY --id ID --into DIR`: one canonical numeric ID,
+  at most 16 MiB and a 60-second operation ceiling. Fresh discovery-v4 and
+  execution-v3 authorize separately qualified source reads and each released
+  portion. The client verifies the complete manifest/data/terminal stream and
+  unchanged session before accepting EOF; failures preserve an existing local
+  file. No filename selectors, direct/PAT fallback, range/resume, MCP body
+  tool, upload or cache capture is introduced. `step_snapshot_v1` is not atomic
+  membership or revocation of bytes already released.
 - Added the explicitly selected guarded Jira comment Broker runtime. A paired
   `jira_comment` host block and `broker serve --enable-jira-comments` open an
   existing bounded journal and pinned local policy for CLI-only preview/apply/

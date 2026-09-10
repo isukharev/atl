@@ -42,18 +42,18 @@ type attachmentTestTB interface {
 	Fatalf(format string, args ...any)
 }
 
-func TestAttachmentV3RegistryIsUnavailableBoundedAndSeparate(t *testing.T) {
+func TestAttachmentV3RegistryIsAvailableBoundedAndSeparate(t *testing.T) {
 	definitions := RegistryV3()
-	if RegistrySHA256V3() != "437d6b5a3fe5b10a7f771b1cc2d8d15930cba7c902b1e19264c9e28fd5d21cd7" ||
+	if RegistrySHA256V3() != "cd0958b86413618d5cfc28b98943943d27d06cca05c9ab9880b60024a2240253" ||
 		ExecutionSchemaSHA256V3() != "5da402d39bb41fe7c9dece70f01413f5ac378b67208715f6f7efdf30ee04c626" ||
 		DiscoverySchemaSHA256V4() != "12a706d61423bcd74898d80ef87529c855f0ea14e387addb7f3f108333c1caf9" {
 		t.Fatalf("execution-v3 contract bytes changed: %s/%s/%s", RegistrySHA256V3(), ExecutionSchemaSHA256V3(), DiscoverySchemaSHA256V4())
 	}
-	if len(definitions) != 1 || len(AvailableDefinitionsV3()) != 0 || !validDigest(RegistrySHA256V3()) || !validDigest(ExecutionSchemaSHA256V3()) {
+	if len(definitions) != 1 || len(AvailableDefinitionsV3()) != 1 || !validDigest(RegistrySHA256V3()) || !validDigest(ExecutionSchemaSHA256V3()) {
 		t.Fatalf("definitions=%+v available=%d", definitions, len(AvailableDefinitionsV3()))
 	}
 	definition := definitions[0]
-	if definition.Definition.Available || !definition.Definition.Streaming || definition.Definition.ID != domain.BrokerOperationJiraAttachmentDownload || definition.MaxMetadataItems != 10_000 ||
+	if !definition.Definition.Available || !definition.Definition.Streaming || definition.Definition.ID != domain.BrokerOperationJiraAttachmentDownload || definition.MaxMetadataItems != 10_000 ||
 		definition.Definition.Limits.MaxResources != 2 || definition.Definition.Limits.MaxFields != 0 || definition.Definition.Limits.MaxStreamChunks != 16 ||
 		definition.MaxJiraAttempts != 19 || definition.MaxAuthenticationAttempts != 17 || definition.MaxDecisionAttempts != 37 || definition.MaxTotalHostOutboundAttempts != 73 ||
 		definition.MaxCommandHostOutboundAttempts != 76 ||
@@ -188,6 +188,74 @@ func TestAttachmentV3CurrentSetupAndHistoricalReleaseRoundTrip(t *testing.T) {
 		body := mustAttachmentEncode(t, value, EncodeAttachmentOperationAuthorizationRequestV3)
 		if len(body) > 64<<10 {
 			t.Fatalf("setup envelope=%d", len(body))
+		}
+	}
+}
+
+func TestAttachmentV3AuthorityWireAndDigestVectors(t *testing.T) {
+	fixture := newAttachmentV3Fixture(t)
+	releaseQ := attachmentReleaseQualificationFixture(t, fixture, 10_000)
+	releaseQD := attachmentQualificationDecisionFixture(t, releaseQ, 10_000)
+	releaseO := attachmentReleaseOperationFixture(t, fixture, releaseQ, releaseQD)
+	releaseOD := attachmentOperationDecisionFixture(t, releaseO, 10_000)
+
+	qualificationVectors := []struct {
+		name               string
+		request            domain.BrokerAttachmentQualificationRequestV3
+		decision           domain.BrokerAttachmentQualificationDecisionV3
+		requestWireSHA256  string
+		requestSHA256      string
+		decisionWireSHA256 string
+		decisionSHA256     string
+	}{
+		{"initial", fixture.initialQ, fixture.initialQD, "4eceb1ce20d042a1b244bfac1e35e0a403d9ca066569206002d0d4490bc5a80f", "f5e5de3bf98a82fa78ab3e59f8442e9e3ae2b4d4dd8b16218c65c5b501bac673", "c7277fc99dc63d6c9f4ff48fb74d0d3e1e02065581412e89de41329cd9af2c9f", "0b2b116f446a9ba4810827612f599579fd060f79fe429a6ff89b9d08adcf7a73"},
+		{"pre_open", fixture.preOpenQ, fixture.preOpenQD, "8f6e6bbc55389df1a75db59b28051f4f4732e4c188dc80724e8a26c6e9ff3562", "cbadad7afe3b8eac36e75b3fb9c7a3162798e9d859280a440129dbd7a0da9521", "cd817d342e193714a3624521c226631d397e40f8eb1336cd9b54c032d611dbdc", "8d06c21a583d2752c1325f13b01e6eadb3241f3c68e01eb5eafaa16bc04d32ed"},
+		{"release", releaseQ, releaseQD, "1742dc5d05c254983b900f1733e071343d80c776db93a56ff7c0b2aa448239df", "f7ee9efb1238ad16f490f79be77961a776513f67cb761d682be9cde8d3c4883a", "717b55d54419b54f7feaadd0935a2b04766b661ff178f9fb0bf128e137e99b4e", "e451a2132b467a48105800980ec4161f2296a1ace0d5a0d8fdf8972e83509724"},
+	}
+	for _, vector := range qualificationVectors {
+		requestWire := mustAttachmentEncode(t, vector.request, EncodeAttachmentQualificationRequestV3)
+		requestWireSHA := sha256.Sum256(requestWire)
+		requestSHA, err := AttachmentQualificationRequestSHA256V3(vector.request)
+		if err != nil {
+			t.Fatalf("%s request digest: %v", vector.name, err)
+		}
+		decisionWire := mustAttachmentEncode(t, vector.decision, EncodeAttachmentQualificationDecisionV3)
+		decisionWireSHA := sha256.Sum256(decisionWire)
+		if got := hex.EncodeToString(requestWireSHA[:]); got != vector.requestWireSHA256 || requestSHA != vector.requestSHA256 {
+			t.Errorf("qualification %s request wire=%s digest=%s", vector.name, got, requestSHA)
+		}
+		if got := hex.EncodeToString(decisionWireSHA[:]); got != vector.decisionWireSHA256 || vector.decision.DecisionSHA256 != vector.decisionSHA256 {
+			t.Errorf("qualification %s decision wire=%s digest=%s", vector.name, got, vector.decision.DecisionSHA256)
+		}
+	}
+
+	operationVectors := []struct {
+		name               string
+		request            domain.BrokerAttachmentOperationAuthorizationRequestV3
+		decision           domain.BrokerAttachmentOperationDecisionV3
+		requestWireSHA256  string
+		requestSHA256      string
+		decisionWireSHA256 string
+		decisionSHA256     string
+	}{
+		{"initial", fixture.initialO, fixture.initialOD, "82741c0a6177a05b697af8bc501d5028a16c41f410efef284c9dbdd2b7759a81", "178cae327b058de6f5a7c1e6bc1002946bf55d7b42b157c110172c62bcfa0cd0", "8e572d6d9de85e2b516a5e27782094ef7588b045d288988afc3c70b09712151d", "df72a4f8bdd6be9ac6e5e68d9b14c5dd7a55182532e95518b205e671afdea400"},
+		{"body_dispatch", fixture.bodyO, fixture.bodyOD, "88f95fb9ab395b42bd3b6d1b8f675668a6817a576edfeeb5838de1a9da3e99ab", "f61e062cd1ded4448c1dff65aedf41544990061a3c9c3834419c0c0c3956114e", "3b5280aa2c9d480ae413fb48fbd4f0a788c56ee03cff0b2ac4fae3c92448959c", "966134238d107b9e8b71520adfd7b8801d1e2fcd4e05affd117e6c56d793481c"},
+		{"release", releaseO, releaseOD, "878f13ccfcde970b0dfee6b9b789c1eaed387adb464478820ab588c349d8db71", "467aec7a33a2f1bf105389b54c5f9b1b9891f2dd4490cc8e6ad43047cf108726", "5d120defcbaa697183325d436d5e47d3dae9a441463fa956143f9835e1168bab", "e023828fb1079db7738c32a97567ad2f64a0f358ee09187deefb6759ccba277f"},
+	}
+	for _, vector := range operationVectors {
+		requestWire := mustAttachmentEncode(t, vector.request, EncodeAttachmentOperationAuthorizationRequestV3)
+		requestWireSHA := sha256.Sum256(requestWire)
+		requestSHA, err := AttachmentOperationAuthorizationRequestSHA256V3(vector.request)
+		if err != nil {
+			t.Fatalf("%s request digest: %v", vector.name, err)
+		}
+		decisionWire := mustAttachmentEncode(t, vector.decision, EncodeAttachmentOperationDecisionV3)
+		decisionWireSHA := sha256.Sum256(decisionWire)
+		if got := hex.EncodeToString(requestWireSHA[:]); got != vector.requestWireSHA256 || requestSHA != vector.requestSHA256 {
+			t.Errorf("operation %s request wire=%s digest=%s", vector.name, got, requestSHA)
+		}
+		if got := hex.EncodeToString(decisionWireSHA[:]); got != vector.decisionWireSHA256 || vector.decision.DecisionSHA256 != vector.decisionSHA256 {
+			t.Errorf("operation %s decision wire=%s digest=%s", vector.name, got, vector.decision.DecisionSHA256)
 		}
 	}
 }

@@ -1,8 +1,8 @@
 # Broker semantic contract
 
 This document defines ATL's Broker semantic contracts and authenticated HTTP
-v1 and the bounded project-page execution-v2 family. Explicit Broker client
-mode routes supported Jira and Confluence reads through the local host; direct
+v1, bounded project-page execution-v2, and attachment-stream execution-v3.
+Explicit Broker client mode routes supported Jira and Confluence reads through the local host; direct
 mode remains the default. Execution-scoped discovery and qualified corpus handoff use separate
 authenticated routes. An explicitly configured runtime also supports guarded
 Jira comment preview/apply and durable same-ticket outcome observation. Broker
@@ -29,20 +29,22 @@ schema, registry or digest namespace. Its fixed `/v2/execute` route, CLI/MCP
 consumers and discovery-v3 sibling are described below; broader search,
 streaming and write families are not inferred from its availability.
 
-The separate, currently unavailable bounded-attachment family is defined by
+The separate bounded-attachment family is defined by
 [`schemas/broker-execution-v3.schema.json`](schemas/broker-execution-v3.schema.json)
 and its [HTTP v3 schema](schemas/broker-execution-http-v3.schema.json).
 Execution-scoped negotiation uses
 [`schemas/broker-discovery-v4.schema.json`](schemas/broker-discovery-v4.schema.json)
-and its [HTTP v4 schema](schemas/broker-discovery-http-v4.schema.json). The
-registry row remains unavailable: these schemas establish a closed contract
-for future runtime work and do not make Broker attachment download selectable.
-The operation accepts only an issue key and numeric attachment id, publishes a
-bounded manifest/data/terminal NDJSON stream, and advertises the weak
+and its [HTTP v4 schema](schemas/broker-discovery-http-v4.schema.json). Its
+available registry row is `jira.issue.attachment.download` version 1; a Jira
+host composes it through the ordinary read-only runtime. Actual access still
+requires a current authority decision. The CLI consumer is
+`jira issue attachment get KEY --id ID --into DIR`, with no MCP body tool.
+The operation accepts only an issue key and canonical numeric attachment id,
+publishes a bounded manifest/data/terminal NDJSON stream, and advertises the weak
 `step_snapshot_v1` consistency profile rather than atomic membership. Its
 categorical ceilings sum to 73 host outbound attempts for execution and 76 for
-one complete discovery-plus-execution command; these are limits, not evidence
-that the unavailable runtime exists. The attachment read effect includes
+one complete discovery-plus-execution command; these are ceilings, not latency
+or live-provider qualification claims. The attachment read effect includes
 `created` because that raw metadata is present in the released snapshot,
 alongside body, filename, identity, media type, parent and size evidence.
 The execution-v3 schema's `x-atl-max-utf8-bytes` and
@@ -59,6 +61,39 @@ releases contain data, plus terminal when last. Thus a receipt has one to
 three line digests; the stream owner validates the applicable shape and only
 commits it after successful authorized publication. A nonempty terminal does
 not introduce a separate authorization call or omit a line from the receipt.
+Individual line ceilings count canonical JSON bytes before the delimiter.
+Exact emitted-line hashes and aggregate framed-response accounting include
+the additional single newline per line.
+
+The native body ceiling is 16 MiB: zero to sixteen data frames, each at most
+1 MiB decoded. Canonical JSON line ceilings are 64 KiB manifest, 1,441,792 bytes
+data and 16 KiB terminal; the whole framed response is at most 24 MiB.
+The 60-second operation begins before request-body receipt and authentication.
+Each authentication/decision has its own clipped, at-most-five-second lease;
+transport header or inactivity limits can fail earlier. There are no retries,
+redirects, ranges, resumptions or protocol/direct-backend fallback.
+
+Authority-v3 uses three closed endpoints: attachment admission, qualification
+and operation under `/v3/authorize/attachment/`. Qualification phases are
+`initial|pre_open|release`; operation phases are `initial|body_dispatch|release`.
+One current dispatch decision starts one body GET. Every release has fresh
+authentication, qualification, metadata comparison and an operation decision
+bound to current release facts and the historical anchor. Old setup decisions
+are not renewed merely by embedding them. A separate body budget prevents a
+held response from blocking control-budget accounting; the ordinary shared
+host scheduler remains four in flight and eight starts per second.
+
+The server scans bounded native windows, withheld boundary bytes and exact
+encoded lines for known credential representations before publication. It
+commits receipt state only after an authorized flush. A failure after headers
+cannot append a second failure envelope or a fabricated terminal record.
+HTTP 200 alone is not completion: a stream audit is successful only after
+terminal publication and source closure; an interrupted 200 is `partial`.
+The client holds one session and rechecks it before manifest return, data yield
+and terminal EOF. It verifies canonical bytes, release continuity, native
+counts/hashes and absence of trailing data before accepting EOF. The CLI then
+atomically publishes the temporary file. This local publication guarantee is
+not atomic remote membership; later denial cannot revoke already released bytes.
 
 ## Trust boundary
 
@@ -87,8 +122,9 @@ A Broker authorization never replaces the final adapter clearance.
 The server core has exact typed routes: `POST /v1/execute` for exact reads and,
 when explicitly composed, guarded Jira comment preview/apply and operation
 outcome; `POST /v2/cache/qualify` for the separate cache family; and
-`POST /v2/execute` for one project page, alongside
-authenticated `GET /v1/protocol` for schema, registry,
+`POST /v2/execute` for one project page and `POST /v3/execute` for one attachment,
+alongside fixed-family `POST /v4/discovery/negotiate` and `POST /v4/discovery`
+for the attachment client and authenticated `GET /v1/protocol` for schema, registry,
 profile metadata, and the configured Broker id and workload audience. A client
 uses `/v1/protocol` only for its frozen `exact_reads_v1` descriptor: it lists
 the two exact reads, not guarded writes, even though its registry digest binds
@@ -138,8 +174,8 @@ wrapper. Failures use the closed HTTP schema, for example:
 {"schema_version":1,"status":"rejected","reason":"denied","recovery":"request_access","retry_safe":false,"complete":true}
 ```
 
-The app result carries the final decision's monotonic release deadline. The
-handler encodes and checks the complete response, refuses a canceled request,
+For buffered read results, the app carries the final decision's monotonic
+release deadline. The handler encodes and checks the complete response, refuses a canceled request,
 and applies the earlier of the request deadline and final release deadline as
 the response write deadline. It rechecks cancellation and expiry before
 headers. A write that fails after headers is incomplete and never receives a
@@ -269,7 +305,7 @@ response, two physical requests and 64 MiB plus 64 KiB total. Each phase
 context expires with the decision that authorized its request, so a queued GET
 cannot be dispatched after that lease. The service buffers the complete result
 and checks identity, scope, version, projection, request binding and the current
-final decision again before returning it to a future transport. Expiry or
+final decision again before returning it to the transport. Expiry or
 observed drift discards the result without publishing resource content.
 
 Exact and project-page reads additionally anchor every decision's
@@ -292,8 +328,8 @@ The guarded Jira comment result schema is also closed. Preview returns
 `not_applied` or `outcome_unknown`. Applied and recovered results
 require a complete reconciled readback. An unknown result can record whether a
 complete but conflicting readback was observed; it remains incomplete and
-never licenses a retry. These shapes are compatibility contracts for the later
-journal slice, not an executable Broker route in this change.
+never licenses a retry. These shapes are compatibility contracts for the explicit
+guarded runtime and its journal; they do not enable unrelated mutations.
 
 ## Authorization phases
 
@@ -892,6 +928,11 @@ that requires atomic membership or a stable complete selection must return
 `unsupported_consistency`.
 
 ## Dependent implementation slices
+
+Use the [assembled conformance runbook](maintainers/broker-conformance.md) for
+the supported-scope matrix, hermetic evidence owners and separately approved
+live-plan requirements. Source availability, exact-head admission and deployed
+backend qualification are distinct claims.
 
 The guarded-comment runtime establishes synthetic assembled behavior, not live
 provider readiness. A deployment must still provide an authority that supports

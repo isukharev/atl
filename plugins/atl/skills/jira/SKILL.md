@@ -69,6 +69,13 @@ or `jira_project_issue_page` for one project-qualified page. Only summary and
 description are selectable. Each cursor starts fresh discovery and authorization;
 `coordinate_exhausted` is not stable absence and `selection_complete` is always
 false. Never turn `unsupported` into direct REST, arbitrary JQL or a PAT request.
+For one known attachment in Broker mode, use CLI
+`jira issue attachment get KEY --id ID --into DIR` with a canonical numeric ID,
+not a filename. It caps the body at 16 MiB and the operation at 60 seconds;
+earlier transport/authorization failure is possible. Accept only the completed
+JSON result: incomplete streams preserve the prior file and are not resumable.
+Do not use a mirror, MCP body tool or direct/PAT fallback for this operation.
+Its step snapshot does not prove atomic current membership.
 Broker guarded comments are separate CLI-only operations. Preview the final
 native body to obtain both proposal hash and opaque ticket, then apply that
 unchanged body once with the same writer session. If apply is ambiguous, query

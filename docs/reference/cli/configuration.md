@@ -366,6 +366,15 @@ Each later cursor is newly authorized and never proves a stable complete
 project. Selected session credentials and guards are rechecked before execution
 and after buffering. See the [command reference](jira-issues.md#atl-jira-issue-project-page).
 
+Broker `jira issue attachment get KEY --id ID --into DIR` uses the configured
+Jira session and the separate execution-v3/discovery-v4 family. Only canonical
+numeric attachment IDs are accepted; no PAT or filename-selector fallback is
+available. The command internally negotiates this family, not through the
+ordinary `broker discover` CLI or an MCP discovery resource. A download is
+bounded to 16 MiB and 60 seconds and publishes locally only after a complete
+verified stream. Session replacement during the held invocation refuses the
+result. See the [attachment reference](jira-issues.md#atl-jira-issue-attachment-listgetupload).
+
 ## `atl doctor`
 
 Run one privacy-safe setup diagnostic:
