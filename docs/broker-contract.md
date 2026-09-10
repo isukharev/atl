@@ -59,6 +59,9 @@ releases contain data, plus terminal when last. Thus a receipt has one to
 three line digests; the stream owner validates the applicable shape and only
 commits it after successful authorized publication. A nonempty terminal does
 not introduce a separate authorization call or omit a line from the receipt.
+Individual line ceilings count canonical JSON bytes before the delimiter.
+Exact emitted-line hashes and aggregate framed-response accounting include
+the additional single newline per line.
 
 ## Trust boundary
 

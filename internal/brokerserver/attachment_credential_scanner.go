@@ -107,7 +107,8 @@ func (s *AttachmentCredentialScanner) CheckSerializedLine(line []byte) error {
 	if s.closed || len(s.patterns) == 0 {
 		return attachmentCredentialScannerCheckError()
 	}
-	if int64(len(line)) > brokercontract.MaxAttachmentDataLineBytesV3 {
+	// The codec caps JSON bytes; publication adds one NDJSON delimiter.
+	if int64(len(line)) > brokercontract.MaxAttachmentDataLineBytesV3+1 {
 		return attachmentCredentialScannerUsageError()
 	}
 	return s.check(line)

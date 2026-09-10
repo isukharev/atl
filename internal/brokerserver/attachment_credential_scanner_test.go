@@ -133,10 +133,10 @@ func TestAttachmentCredentialScannerEnforcesDerivedAndInspectionBounds(t *testin
 	if err := scanner.CheckNativeWindow(bytes.Repeat([]byte{'z'}, nativeMaximum+1)); !errors.Is(err, domain.ErrUsage) {
 		t.Fatalf("native overflow err=%v", err)
 	}
-	if err := scanner.CheckSerializedLine(bytes.Repeat([]byte{'z'}, int(brokercontract.MaxAttachmentDataLineBytesV3))); err != nil {
+	if err := scanner.CheckSerializedLine(append(bytes.Repeat([]byte{'z'}, int(brokercontract.MaxAttachmentDataLineBytesV3)), '\n')); err != nil {
 		t.Fatalf("exact line cap: %v", err)
 	}
-	if err := scanner.CheckSerializedLine(bytes.Repeat([]byte{'z'}, int(brokercontract.MaxAttachmentDataLineBytesV3)+1)); !errors.Is(err, domain.ErrUsage) {
+	if err := scanner.CheckSerializedLine(bytes.Repeat([]byte{'z'}, int(brokercontract.MaxAttachmentDataLineBytesV3)+2)); !errors.Is(err, domain.ErrUsage) {
 		t.Fatalf("line overflow err=%v", err)
 	}
 	if err := scanner.CheckNativeWindow(nil); err != nil {

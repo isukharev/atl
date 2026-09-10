@@ -434,7 +434,8 @@ func AttachmentReleaseReceiptSHA256V3(priorReleaseSHA256, releaseDecisionSHA256 
 }
 
 func AttachmentExactLineSHA256V3(line []byte) (string, error) {
-	if len(line) == 0 || int64(len(line)) > MaxAttachmentDataLineBytesV3 {
+	// Codec line caps count canonical JSON; an exact emitted line adds one LF.
+	if len(line) == 0 || int64(len(line)) > MaxAttachmentDataLineBytesV3+1 {
 		return "", reject(domain.BrokerReasonMalformed)
 	}
 	digest := sha256.Sum256(line)
