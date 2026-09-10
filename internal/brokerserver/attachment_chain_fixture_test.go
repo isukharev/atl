@@ -46,6 +46,7 @@ type attachmentChainFixture struct {
 	backendServer        *httptest.Server
 	authorityServer      *httptest.Server
 	backendPrefix        string
+	jiraReader           *jiraadapter.Jira
 	request              domain.BrokerAttachmentRequestV3
 }
 
@@ -71,6 +72,7 @@ func newAttachmentChainFixtureWithPrefix(t *testing.T, payload []byte, prefix st
 		t.Fatal(err)
 	}
 	t.Cleanup(reader.CloseIdleConnections)
+	f.jiraReader = reader
 	origin, err := reader.BrokerOriginSHA256()
 	if err != nil {
 		t.Fatal(err)

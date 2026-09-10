@@ -126,10 +126,14 @@ func (h *Handler) executeAttachment(writer http.ResponseWriter, request *http.Re
 	fail := func(err error) {
 		h.failAttachment(writer, brokerFailureReason(err, domain.BrokerReasonAuthorizationUnavailable), credential, correlation, publisher.started)
 	}
-	var tail []byte
-	defer func() { clear(tail) }()
+	var tail, candidateBytes []byte
+	defer func() {
+		clear(tail)
+		clear(candidateBytes)
+	}()
 	for {
 		candidate, err := state.ReadCandidate(tail)
+		candidateBytes = candidate.Bytes
 		clear(tail)
 		tail = nil
 		if err != nil {
@@ -137,19 +141,16 @@ func (h *Handler) executeAttachment(writer http.ResponseWriter, request *http.Re
 			return
 		}
 		if err := scanner.CheckNativeWindow(candidate.Bytes); err != nil {
-			clear(candidate.Bytes)
 			fail(err)
 			return
 		}
 		nonce, err := h.nonce()
 		if err != nil {
-			clear(candidate.Bytes)
 			fail(domain.ErrCheckFailed)
 			return
 		}
 		fresh, err := h.authenticateAttachment(request, credential, nonce, budgets)
 		if err != nil {
-			clear(candidate.Bytes)
 			fail(err)
 			return
 		}
@@ -158,24 +159,20 @@ func (h *Handler) executeAttachment(writer http.ResponseWriter, request *http.Re
 			CandidateID: candidate.ID, Payload: candidate.Bytes[:payloadBytes], RetainedTail: candidate.Bytes[payloadBytes:],
 		})
 		if err != nil {
-			clear(candidate.Bytes)
 			fail(err)
 			return
 		}
 		hashes, err := publisher.publish(release.Lines, release.FlushNotAfter)
 		if err != nil {
-			clear(candidate.Bytes)
 			fail(err)
 			return
 		}
 		complete, err := state.CommitRelease(release.CandidateID, hashes)
 		if err != nil {
-			clear(candidate.Bytes)
 			fail(err)
 			return
 		}
 		if complete {
-			clear(candidate.Bytes)
 			if err := state.Close(); err != nil {
 				fail(err)
 				return
@@ -184,7 +181,8 @@ func (h *Handler) executeAttachment(writer http.ResponseWriter, request *http.Re
 			return
 		}
 		tail = bytes.Clone(candidate.Bytes[payloadBytes:])
-		clear(candidate.Bytes)
+		clear(candidateBytes)
+		candidateBytes = nil
 	}
 }
 
