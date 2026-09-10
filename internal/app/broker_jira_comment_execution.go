@@ -51,7 +51,7 @@ func (e *brokerJiraCommentExecution) currentMillis() int64 {
 	if elapsed < 0 {
 		elapsed = 0
 	}
-	e.lastMillis = max(e.lastMillis, e.startedAt.UnixMilli()+elapsed.Milliseconds())
+	e.lastMillis = max(e.lastMillis, e.startedAt.Add(elapsed).UnixMilli())
 	return e.lastMillis
 }
 

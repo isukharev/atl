@@ -112,6 +112,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Broker read, guarded-comment and outcome-observation clocks preserve
+  fractional elapsed time at millisecond lease boundaries. Release deadlines
+  retain their exact wire bounds without changing lease lengths or retry rules.
 - Budgeted HTTP streams now synchronize concurrent reads and closes, preserving
   byte accounting and cancellation while releasing the response budget safely.
 - `jira issue update` now previews by default and requires an exact reviewed
