@@ -2,7 +2,6 @@ package brokerserver
 
 import (
 	"bytes"
-	"crypto/rand"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -83,7 +82,14 @@ func newAttachmentChainFixture(t *testing.T, payload []byte) *attachmentChainFix
 		t.Fatal(err)
 	}
 	t.Cleanup(guard.Close)
-	f.handler = &Handler{config: Config{Audience: "atl-broker", BrokerID: "broker-1"}, authenticator: authority, attachmentAuthenticator: authority, attachments: service, guard: guard, random: rand.Reader, now: time.Now}
+	reads, err := app.NewBrokerReadService(authority, app.BrokerJiraIssueReader{Backend: binding, Reader: reader}, app.BrokerConfluencePageReader{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.handler, err = New(Config{Audience: "atl-broker", BrokerID: "broker-1", MaxConcurrent: 1}, Dependencies{Authenticator: authority, Reads: reads, Attachments: service, Guard: guard})
+	if err != nil {
+		t.Fatal(err)
+	}
 	definition, ok := brokercontract.DefinitionV3(domain.BrokerOperationJiraAttachmentDownload, brokercontract.AttachmentOperationVersionV3)
 	if !ok {
 		t.Fatal("attachment definition missing")
@@ -171,6 +177,14 @@ func (f *attachmentChainFixture) serveAuthority(writer http.ResponseWriter, requ
 		f.bump("authentication")
 		encoded, err = brokertransport.EncodeAuthenticationResponseV1(brokertransport.AuthenticationResponse{SchemaVersion: 1, Nonce: value.Nonce, CredentialSHA256: value.CredentialSHA256, IssuerSHA256: f.issuer,
 			IssuedAtMillis: now.UnixMilli(), ExpiresAtMillis: now.Add(4 * time.Second).UnixMilli(), Context: f.verified})
+	case brokertransport.DiscoveryPathV4:
+		value, decodeErr := brokercontract.DecodeFamilyDiscoveryAuthorizationRequestV4(body)
+		if decodeErr != nil {
+			f.reject(writer)
+			return
+		}
+		f.bump("discovery")
+		encoded, err = brokercontract.EncodeFamilyDiscoveryProjectionV4(attachmentChainDiscovery(value, now))
 	case brokertransport.AuthorizeAttachmentAdmissionPathV3:
 		value, decodeErr := brokercontract.DecodeAttachmentAdmissionRequestV3(body)
 		if decodeErr != nil {
