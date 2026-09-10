@@ -305,7 +305,7 @@ response, two physical requests and 64 MiB plus 64 KiB total. Each phase
 context expires with the decision that authorized its request, so a queued GET
 cannot be dispatched after that lease. The service buffers the complete result
 and checks identity, scope, version, projection, request binding and the current
-final decision again before returning it to a future transport. Expiry or
+final decision again before returning it to the transport. Expiry or
 observed drift discards the result without publishing resource content.
 
 Exact and project-page reads additionally anchor every decision's
@@ -328,8 +328,8 @@ The guarded Jira comment result schema is also closed. Preview returns
 `not_applied` or `outcome_unknown`. Applied and recovered results
 require a complete reconciled readback. An unknown result can record whether a
 complete but conflicting readback was observed; it remains incomplete and
-never licenses a retry. These shapes are compatibility contracts for the later
-journal slice, not an executable Broker route in this change.
+never licenses a retry. These shapes are compatibility contracts for the explicit
+guarded runtime and its journal; they do not enable unrelated mutations.
 
 ## Authorization phases
 
@@ -928,6 +928,11 @@ that requires atomic membership or a stable complete selection must return
 `unsupported_consistency`.
 
 ## Dependent implementation slices
+
+Use the [assembled conformance runbook](maintainers/broker-conformance.md) for
+the supported-scope matrix, hermetic evidence owners and separately approved
+live-plan requirements. Source availability, exact-head admission and deployed
+backend qualification are distinct claims.
 
 The guarded-comment runtime establishes synthetic assembled behavior, not live
 provider readiness. A deployment must still provide an authority that supports

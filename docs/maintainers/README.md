@@ -13,6 +13,7 @@ agents do not have to reconstruct it from old issues, transcripts, or CI logs.
 | Carry an issue and PR through review, CI, and merge | [Landing a change](landing-a-change.md) |
 | Resume after compaction, interruption, or a new session | [Session recovery](session-recovery.md) |
 | Exercise a configured backend safely | [Live validation](live-validation.md) |
+| Reconcile Broker scope and assembled conformance evidence | [Broker conformance](broker-conformance.md) |
 | Bootstrap an owner-local Jira or Confluence evaluation dataset | [Private benchmark onboarding](private-benchmark-onboarding.md) |
 
 Other canonical maintainer references:

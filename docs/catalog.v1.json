@@ -43,6 +43,7 @@
     {"path":"docs/maintainers/agent-eval-neutral-conformance.md","lane":"maintainers","topic":"neutral-agent-evaluation-conformance","landing_page":"docs/maintainers/README.md","language":"en"},
     {"path":"docs/maintainers/agent-eval-support.md","lane":"maintainers","topic":"agent-eval-support-policy","landing_page":"docs/maintainers/README.md","language":"en"},
     {"path":"docs/maintainers/agent-evaluator-substrates.md","lane":"maintainers","topic":"agent-evaluator-substrate-decision","landing_page":"docs/maintainers/README.md","language":"en"},
+    {"path":"docs/maintainers/broker-conformance.md","lane":"maintainers","topic":"broker-conformance-evidence","landing_page":"docs/maintainers/README.md","language":"en"},
     {"path":"docs/maintainers/development.md","lane":"maintainers","topic":"maintainer-development-verification","landing_page":"docs/maintainers/README.md","language":"en"},
     {"path":"docs/maintainers/landing-a-change.md","lane":"maintainers","topic":"maintainer-change-landing","landing_page":"docs/maintainers/README.md","language":"en"},
     {"path":"docs/maintainers/live-validation.md","lane":"maintainers","topic":"maintainer-live-validation","landing_page":"docs/maintainers/README.md","language":"en"},
