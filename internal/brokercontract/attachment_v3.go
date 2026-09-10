@@ -187,11 +187,11 @@ func AttachmentMetadataPlanSHA256V3(value domain.BrokerAttachmentMetadataPlanV3)
 }
 
 func EncodeAttachmentQualificationRequestV3(value domain.BrokerAttachmentQualificationRequestV3) ([]byte, error) {
-	wire, err := attachmentQualificationRequestToWireV3(value)
+	checked, err := buildAttachmentQualificationCheckedV3(value)
 	if err != nil {
 		return nil, err
 	}
-	return marshalAttachmentV3(wire, MaxAttachmentAuthorityEnvelopeBytesV3)
+	return marshalAttachmentV3(checked.wire, MaxAttachmentAuthorityEnvelopeBytesV3)
 }
 
 func DecodeAttachmentQualificationRequestV3(data []byte) (domain.BrokerAttachmentQualificationRequestV3, error) {
@@ -200,18 +200,21 @@ func DecodeAttachmentQualificationRequestV3(data []byte) (domain.BrokerAttachmen
 		return domain.BrokerAttachmentQualificationRequestV3{}, reject(domain.BrokerReasonMalformed)
 	}
 	value, err := attachmentQualificationRequestFromWireV3(envelope)
-	if err != nil || validateAttachmentQualificationRequestV3(value) != nil {
+	if err != nil {
+		return domain.BrokerAttachmentQualificationRequestV3{}, reject(domain.BrokerReasonMalformed)
+	}
+	if _, err = buildAttachmentQualificationCheckedV3(value); err != nil {
 		return domain.BrokerAttachmentQualificationRequestV3{}, reject(domain.BrokerReasonMalformed)
 	}
 	return value, nil
 }
 
 func AttachmentQualificationRequestSHA256V3(value domain.BrokerAttachmentQualificationRequestV3) (string, error) {
-	wire, err := attachmentQualificationRequestToWireV3(value)
+	checked, err := buildAttachmentQualificationCheckedV3(value)
 	if err != nil {
 		return "", err
 	}
-	return digestExecutionV3("qualification-request/"+string(value.Phase), wire)
+	return checked.requestSHA256, nil
 }
 
 func EncodeAttachmentQualificationDecisionV3(value domain.BrokerAttachmentQualificationDecisionV3) ([]byte, error) {
@@ -241,37 +244,20 @@ func DecodeAttachmentQualificationDecisionV3(data []byte) (domain.BrokerAttachme
 }
 
 func ValidateAttachmentQualificationDecisionV3(value domain.BrokerAttachmentQualificationDecisionV3, request domain.BrokerAttachmentQualificationRequestV3, nowMillis, operationDeadlineMillis int64) error {
-	if validateAttachmentQualificationRequestV3(request) != nil {
+	checked, err := buildAttachmentQualificationCheckedV3(request)
+	if err != nil {
 		return reject(domain.BrokerReasonMalformed)
 	}
-	requestDigest, err := AttachmentQualificationRequestSHA256V3(request)
-	plan, context, lineageOK := attachmentQualificationPlanContextV3(request, nowMillis)
-	planDigest, planErr := AttachmentMetadataPlanSHA256V3(plan)
-	if !lineageOK {
-		plan, context = attachmentQualificationPlanAndContextV3(request)
-		planDigest, planErr = AttachmentMetadataPlanSHA256V3(plan)
-	}
-	if err != nil || planErr != nil || !verifyAttachmentQualificationDecisionDigestV3(value) || value.Phase != request.Phase || value.PlanSHA256 != planDigest {
-		return reject(domain.BrokerReasonMalformed)
-	}
-	if !decisionCoreMatches(value.BrokerDecisionCore, context, requestDigest) {
-		return reject(domain.BrokerReasonStaleAuthority)
-	}
-	if !lineageOK {
-		return attachmentQualificationLineageErrorV3(request, nowMillis)
-	}
-	if value.Status != domain.BrokerDecisionAllowed {
-		return reject(value.Reason)
-	}
-	return validateDecisionTime(value.BrokerDecisionCore, context, nowMillis, operationDeadlineMillis)
+	_, err = checkAttachmentQualificationDecisionV3(value, checked, nowMillis, operationDeadlineMillis)
+	return err
 }
 
 func EncodeAttachmentOperationAuthorizationRequestV3(value domain.BrokerAttachmentOperationAuthorizationRequestV3) ([]byte, error) {
-	wire, err := attachmentOperationRequestToWireV3(value)
+	checked, err := buildAttachmentOperationCheckedV3(value)
 	if err != nil {
 		return nil, err
 	}
-	return marshalAttachmentV3(wire, MaxAttachmentAuthorityEnvelopeBytesV3)
+	return marshalAttachmentV3(checked.wire, MaxAttachmentAuthorityEnvelopeBytesV3)
 }
 
 func DecodeAttachmentOperationAuthorizationRequestV3(data []byte) (domain.BrokerAttachmentOperationAuthorizationRequestV3, error) {
@@ -280,18 +266,21 @@ func DecodeAttachmentOperationAuthorizationRequestV3(data []byte) (domain.Broker
 		return domain.BrokerAttachmentOperationAuthorizationRequestV3{}, reject(domain.BrokerReasonMalformed)
 	}
 	value, err := attachmentOperationRequestFromWireV3(envelope)
-	if err != nil || validateAttachmentOperationRequestV3(value) != nil {
+	if err != nil {
+		return domain.BrokerAttachmentOperationAuthorizationRequestV3{}, reject(domain.BrokerReasonMalformed)
+	}
+	if _, err = buildAttachmentOperationCheckedV3(value); err != nil {
 		return domain.BrokerAttachmentOperationAuthorizationRequestV3{}, reject(domain.BrokerReasonMalformed)
 	}
 	return value, nil
 }
 
 func AttachmentOperationAuthorizationRequestSHA256V3(value domain.BrokerAttachmentOperationAuthorizationRequestV3) (string, error) {
-	wire, err := attachmentOperationRequestToWireV3(value)
+	checked, err := buildAttachmentOperationCheckedV3(value)
 	if err != nil {
 		return "", err
 	}
-	return digestExecutionV3("operation-request/"+string(value.Phase), wire)
+	return checked.requestSHA256, nil
 }
 
 func EncodeAttachmentOperationDecisionV3(value domain.BrokerAttachmentOperationDecisionV3) ([]byte, error) {
@@ -321,25 +310,12 @@ func DecodeAttachmentOperationDecisionV3(data []byte) (domain.BrokerAttachmentOp
 }
 
 func ValidateAttachmentOperationDecisionV3(value domain.BrokerAttachmentOperationDecisionV3, request domain.BrokerAttachmentOperationAuthorizationRequestV3, nowMillis, operationDeadlineMillis int64) error {
-	requestDigest, err := AttachmentOperationAuthorizationRequestSHA256V3(request)
-	binding, context, bindingErr := attachmentOperationDecisionBindingV3(request)
-	if err != nil || bindingErr != nil || !verifyAttachmentOperationDecisionDigestV3(value) || !attachmentOperationDecisionMatchesBindingV3(value, binding) {
+	checked, err := buildAttachmentOperationCheckedV3(request)
+	if err != nil {
 		return reject(domain.BrokerReasonMalformed)
 	}
-	if !decisionCoreMatches(value.BrokerDecisionCore, context, requestDigest) {
-		return reject(domain.BrokerReasonStaleAuthority)
-	}
-	if request.Qualified != nil {
-		if err := ValidateAttachmentQualificationDecisionV3(request.Qualified.QualificationDecision, request.Qualified.QualificationRequest, nowMillis, attachmentQualificationDeadlineV3(request.Qualified.QualificationRequest)); err != nil {
-			return err
-		}
-	} else if err := ValidateAttachmentQualificationDecisionV3(request.Release.QualificationDecision, request.Release.QualificationRequest, nowMillis, operationDeadlineMillis); err != nil {
-		return err
-	}
-	if value.Status != domain.BrokerDecisionAllowed {
-		return reject(value.Reason)
-	}
-	return validateDecisionTime(value.BrokerDecisionCore, context, nowMillis, operationDeadlineMillis)
+	_, err = checkAttachmentOperationDecisionV3(value, checked, nowMillis, operationDeadlineMillis)
+	return err
 }
 
 func AttachmentStreamAnchorSHA256V3(value domain.BrokerAttachmentStreamAnchorV3) (string, error) {
