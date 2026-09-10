@@ -218,6 +218,7 @@ func TestSelectedAttachmentCLIAtomicFailureCandidateConformance(t *testing.T) {
 		name          string
 		prepare       func(*attachmentChainFixture)
 		rotateSession bool
+		payloadSize   int
 	}{
 		{name: "first release denied", prepare: func(f *attachmentChainFixture) { f.denyRelease = 1 }},
 		{name: "second release denied", prepare: func(f *attachmentChainFixture) { f.denyRelease = 2 }},
@@ -225,6 +226,7 @@ func TestSelectedAttachmentCLIAtomicFailureCandidateConformance(t *testing.T) {
 		{name: "credential at frame boundary", prepare: func(f *attachmentChainFixture) { copy(f.payload[(1<<20)-4:], attachmentChainBackend) }},
 		{name: "short source", prepare: func(f *attachmentChainFixture) { f.sourceMode = "short" }},
 		{name: "extra source", prepare: func(f *attachmentChainFixture) { f.sourceMode = "extra" }},
+		{name: "extra byte after maximum source", payloadSize: 16 << 20, prepare: func(f *attachmentChainFixture) { f.sourceMode = "extra" }},
 		{name: "source redirect", prepare: func(f *attachmentChainFixture) { f.sourceMode = "redirect" }},
 		{name: "source failure", prepare: func(f *attachmentChainFixture) { f.sourceMode = "failure" }},
 		{name: "first release authentication revoked", prepare: func(f *attachmentChainFixture) { f.revokeAuthentication = 4 }},
@@ -233,7 +235,11 @@ func TestSelectedAttachmentCLIAtomicFailureCandidateConformance(t *testing.T) {
 		{name: "session replaced before first release", rotateSession: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			fixture := newAttachmentCLIProcessFixture(t, bytes.Repeat([]byte{'x'}, 1<<20+128))
+			size := test.payloadSize
+			if size == 0 {
+				size = 1<<20 + 128
+			}
+			fixture := newAttachmentCLIProcessFixture(t, bytes.Repeat([]byte{'x'}, size))
 			if test.prepare != nil {
 				test.prepare(fixture.chain)
 			}
@@ -276,6 +282,9 @@ func TestSelectedAttachmentCLIAtomicFailureCandidateConformance(t *testing.T) {
 			fixture.chain.mu.Lock()
 			if fixture.chain.violations != 0 || fixture.chain.counts["body"] != 1 || fixture.chain.counts["redirect"] != 0 {
 				t.Errorf("fixture violations=%d counts=%v", fixture.chain.violations, fixture.chain.counts)
+			}
+			if test.payloadSize == 16<<20 && fixture.chain.counts["operation_release"] != 15 {
+				t.Errorf("maximum overflow did not reach the final source boundary: counts=%v", fixture.chain.counts)
 			}
 			fixture.chain.mu.Unlock()
 			if len(fixture.chain.handler.permits) != 0 || len(fixture.chain.handler.attachmentPermits) != 0 {
