@@ -39,23 +39,27 @@ type Dependencies struct {
 	Reads         *app.BrokerReadService
 	Cache         *app.BrokerCacheQualificationService
 	ProjectPages  *app.BrokerProjectPageService
+	Attachments   *app.BrokerJiraAttachmentStreamService
 	Comments      *app.BrokerJiraCommentService
 	Outcomes      *app.BrokerOperationObservationService
 	Guard         *CredentialGuard
 }
 
 type Handler struct {
-	config        Config
-	authenticator brokertransport.Authenticator
-	reads         *app.BrokerReadService
-	cache         *app.BrokerCacheQualificationService
-	projectPages  *app.BrokerProjectPageService
-	comments      *app.BrokerJiraCommentService
-	outcomes      *app.BrokerOperationObservationService
-	guard         *CredentialGuard
-	permits       chan struct{}
-	random        io.Reader
-	now           func() time.Time
+	config                  Config
+	authenticator           brokertransport.Authenticator
+	reads                   *app.BrokerReadService
+	cache                   *app.BrokerCacheQualificationService
+	projectPages            *app.BrokerProjectPageService
+	attachments             *app.BrokerJiraAttachmentStreamService
+	attachmentAuthenticator brokertransport.AttachmentAuthenticatorV3
+	attachmentPermits       chan struct{}
+	comments                *app.BrokerJiraCommentService
+	outcomes                *app.BrokerOperationObservationService
+	guard                   *CredentialGuard
+	permits                 chan struct{}
+	random                  io.Reader
+	now                     func() time.Time
 }
 
 func New(config Config, dependencies Dependencies) (*Handler, error) {
@@ -63,7 +67,11 @@ func New(config Config, dependencies Dependencies) (*Handler, error) {
 	if identityErr != nil || config.MaxConcurrent <= 0 || config.MaxConcurrent > 64 || dependencies.Authenticator == nil || dependencies.Reads == nil || dependencies.Guard == nil {
 		return nil, fmt.Errorf("%w: invalid Broker server configuration", domain.ErrUsage)
 	}
-	return &Handler{config: config, authenticator: dependencies.Authenticator, reads: dependencies.Reads, cache: dependencies.Cache, projectPages: dependencies.ProjectPages, comments: dependencies.Comments, outcomes: dependencies.Outcomes, guard: dependencies.Guard, permits: make(chan struct{}, config.MaxConcurrent), random: rand.Reader, now: time.Now}, nil
+	attachmentAuthenticator, supportsAttachments := dependencies.Authenticator.(brokertransport.AttachmentAuthenticatorV3)
+	if dependencies.Attachments != nil && !supportsAttachments {
+		return nil, fmt.Errorf("%w: attachment authentication is not configured", domain.ErrUsage)
+	}
+	return &Handler{config: config, authenticator: dependencies.Authenticator, reads: dependencies.Reads, cache: dependencies.Cache, projectPages: dependencies.ProjectPages, attachments: dependencies.Attachments, attachmentAuthenticator: attachmentAuthenticator, attachmentPermits: make(chan struct{}, 1), comments: dependencies.Comments, outcomes: dependencies.Outcomes, guard: dependencies.Guard, permits: make(chan struct{}, config.MaxConcurrent), random: rand.Reader, now: time.Now}, nil
 }
 
 func (h *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
@@ -74,6 +82,12 @@ func (h *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	}
 	if request != nil && request.URL != nil {
 		switch request.URL.Path {
+		case brokertransport.ExecutePathV3:
+			h.serveAttachment(writer, request, started)
+			return
+		case brokertransport.DiscoveryNegotiatePathV4, brokertransport.DiscoveryPathV4:
+			h.serveAttachmentDiscovery(writer, request, started)
+			return
 		case brokertransport.ExecutePathV2:
 			h.serveProjectPage(writer, request, started)
 			return
@@ -248,7 +262,7 @@ func (h *Handler) routeValid(request *http.Request) bool {
 		return false
 	}
 	switch request.URL.Path {
-	case ExecutePath, brokertransport.DiscoveryNegotiatePathV2, brokertransport.DiscoveryPathV2, brokertransport.CacheQualificationPathV2, brokertransport.ExecutePathV2, brokertransport.DiscoveryNegotiatePathV3, brokertransport.DiscoveryPathV3:
+	case ExecutePath, brokertransport.DiscoveryNegotiatePathV2, brokertransport.DiscoveryPathV2, brokertransport.CacheQualificationPathV2, brokertransport.ExecutePathV2, brokertransport.DiscoveryNegotiatePathV3, brokertransport.DiscoveryPathV3, brokertransport.ExecutePathV3, brokertransport.DiscoveryNegotiatePathV4, brokertransport.DiscoveryPathV4:
 		return request.Method == http.MethodPost && len(request.Header.Values("Content-Type")) == 1 && request.Header.Get("Content-Type") == "application/json"
 	case ProtocolPath:
 		return request.Method == http.MethodGet && request.ContentLength == 0 && len(request.TransferEncoding) == 0 && len(request.Header.Values("Content-Type")) == 0

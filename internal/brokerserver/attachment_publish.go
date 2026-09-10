@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/isukharev/atl/internal/brokercontract"
+	"github.com/isukharev/atl/internal/brokertransport"
 	"github.com/isukharev/atl/internal/domain"
 )
 
@@ -95,7 +96,7 @@ func (p *attachmentPublisher) publish(lines [][]byte, deadline time.Time) ([]str
 	if !p.started {
 		header := p.writer.Header()
 		header.Set("Cache-Control", "no-store")
-		header.Set("Content-Type", "application/x-ndjson")
+		header.Set("Content-Type", brokertransport.ExecutionStreamMediaTypeV3)
 		header.Set("X-Content-Type-Options", "nosniff")
 		header.Set("X-ATL-Correlation-ID", p.correlation)
 		header.Del("Content-Length")
