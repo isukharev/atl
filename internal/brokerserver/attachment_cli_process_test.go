@@ -26,12 +26,14 @@ import (
 )
 
 type attachmentCLIProcessFixture struct {
-	chain       *attachmentChainFixture
-	environment []string
-	sessionPath string
-	audit       bytes.Buffer
-	directCalls atomic.Int32
-	stop        func()
+	chain             *attachmentChainFixture
+	environment       []string
+	sessionPath       string
+	audit             bytes.Buffer
+	directCalls       atomic.Int32
+	stop              func()
+	brokerURL         string
+	brokerCertificate []byte
 }
 
 func newAttachmentCLIProcessFixture(t *testing.T, payload []byte) *attachmentCLIProcessFixture {
@@ -92,6 +94,7 @@ func newAttachmentCLIProcessFixture(t *testing.T, payload []byte) *attachmentCLI
 
 func configureAttachmentCLIProcessFixture(t *testing.T, f *attachmentCLIProcessFixture, baseURL string, certificateDER []byte) {
 	t.Helper()
+	f.brokerURL, f.brokerCertificate = baseURL, bytes.Clone(certificateDER)
 	direct := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		f.directCalls.Add(1)
 		w.WriteHeader(http.StatusForbidden)
@@ -124,9 +127,14 @@ func configureAttachmentCLIProcessFixture(t *testing.T, f *attachmentCLIProcessF
 
 func runAttachmentSelectedCLI(t *testing.T, binary string, environment []string, destination string) (string, string, error) {
 	t.Helper()
+	return runAttachmentSelectedCLISelector(t, binary, environment, destination, "PROJ-1", "7")
+}
+
+func runAttachmentSelectedCLISelector(t *testing.T, binary string, environment []string, destination, issue, attachment string) (string, string, error) {
+	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), 75*time.Second)
 	defer cancel()
-	command := exec.CommandContext(ctx, binary, "jira", "issue", "attachment", "get", "PROJ-1", "--id", "7", "--into", destination)
+	command := exec.CommandContext(ctx, binary, "jira", "issue", "attachment", "get", issue, "--id", attachment, "--into", destination)
 	command.Env = environment
 	command.WaitDelay = 2 * time.Second
 	var stdout, stderr selectedCacheCLIOutput

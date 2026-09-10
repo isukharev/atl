@@ -170,8 +170,14 @@ func (f *attachmentChainFixture) serveJira(writer http.ResponseWriter, request *
 			writer.WriteHeader(http.StatusTemporaryRedirect)
 		case "failure":
 			writer.WriteHeader(http.StatusServiceUnavailable)
-		case "blocked":
+		case "blocked", "partial blocked":
 			writer.WriteHeader(http.StatusOK)
+			if f.sourceMode == "partial blocked" {
+				if _, err := writer.Write(f.payload[:(1<<20)+(128<<10)]); err != nil {
+					f.reject(writer)
+					return
+				}
+			}
 			if err := http.NewResponseController(writer).Flush(); err != nil {
 				f.reject(writer)
 				return
