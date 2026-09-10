@@ -92,7 +92,8 @@ atl jira issue search --jql 'order by updated DESC' --limit 5
 в stderr.
 
 [Broker](docs/reference/cli/configuration.md#broker-client-mode): read-only операции,
-приватные session-файлы и [страницы проектов](docs/reference/cli/jira-issues.md#atl-jira-issue-project-page).
+приватные session-файлы, [страницы проектов](docs/reference/cli/jira-issues.md#atl-jira-issue-project-page)
+и [вложения](docs/reference/cli/jira-issues.md#atl-jira-issue-attachment-listgetupload).
 Каждая страница авторизуется заново; полнота проекта не гарантируется.
 Доступ: `atl broker discover --service jira|confluence`.
 Кэш: [`corpus handoff-qualified`](docs/reference/cli/local-artifacts.md#atl-corpus-handoff-qualified).

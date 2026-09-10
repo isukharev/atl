@@ -40,6 +40,23 @@ Do not infer stable project absence from coordinate exhaustion. Unsupported
 operations have no direct REST or PAT fallback. MCP `jira_project_issue_page`
 uses the same projection with its explicit encoded-output bound.
 
+## Broker attachment downloads
+
+For one known issue and numeric attachment ID, use the ordinary read-only CLI:
+
+```bash
+export ATL_READ_ONLY=1
+atl jira issue attachment get PROJ-1 --id 42 --into ./attachments
+```
+
+Broker mode rejects filename selectors and leading-zero IDs before discovery.
+The command negotiates its execution-v3 family internally; there is no
+`broker discover --family atl.broker.execution.v3` or MCP body tool.
+The 16 MiB native-body and 60-second operation ceilings cannot be widened by
+the caller. Fresh release authorization and session/stream checks precede
+complete local publication. A failed stream leaves an existing file unchanged;
+do not infer resumability, switch to a PAT, or use direct Jira as a fallback.
+
 ## Broker guarded comments
 
 When Broker discovery reports the guarded comment profile, preview the exact
@@ -177,7 +194,7 @@ not display/short URLs, and no page body or backlink query is made.
 | `jira issue plan apply` | Execute only after the global qualification/policy/hash barrier | repeat preview flags, `--confirm APPLY`, reviewed `--expected-proposal-hash`; optional `--continue-on-error` after the barrier |
 | `jira issue link-epic <KEY>` | Set the configured or auto-resolved Epic Link | `--epic EPIC-KEY`; optional global `render.jira.epic_field` selector |
 | `jira issue attachment list <KEY>` | List attachments | `-o id` |
-| `jira issue attachment get <KEY>` | Download an attachment | `--id ID-or-filename`, `--into DIR` |
+| `jira issue attachment get <KEY>` | Download one attachment; Broker mode is bounded and numeric-ID-only | `--id ID-or-filename` in direct mode, canonical numeric `--id ID` in Broker mode; `--into DIR` |
 | `jira issue attachment upload <KEY>` | Upload an attachment | `--file PATH` |
 | `jira issue images <KEY>` | Download image attachments | `--into DIR` |
 | `jira pull` | Export `.wiki` + `.md` + `.json` per issue | `--jql`, `--into`, aggregate `--limit` (0 all, negative invalid), `--fields`, `--assets`, `--render-profile`, `--render-include`, `--render-exclude` |

@@ -1473,6 +1473,15 @@ caller passed; `name` is the filename Jira reported for the matched attachment:
 }
 ```
 
+Broker mode retains this success shape but accepts only a canonical numeric
+`--id`. It emits no manifest, data frames or terminal record on stdout: those
+belong to the internal execution-v3 stream. The success object follows complete
+stream verification and atomic local publication. A failed or incomplete
+stream emits no success object, preserves an existing destination, and does
+not imply a resumable download. The 16 MiB/60-second bounds and
+`step_snapshot_v1` limitations are defined in the
+[command reference](../cli/jira-issues.md#atl-jira-issue-attachment-listgetupload).
+
 `atl jira issue attachment upload <KEY> --file <PATH>` uploads one local file
 and returns the uploaded attachment metadata:
 

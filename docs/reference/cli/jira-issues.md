@@ -930,7 +930,7 @@ backend errors. See [Jira output contracts](../output/jira.md#guarded-jira-csv-p
 
 ## `atl jira issue attachment {list,get,upload}`
 
-List, download, or upload issue attachments. `get` accepts either the attachment
+List, download, or upload issue attachments. In direct mode, `get` accepts either the attachment
 id or the filename in `--id`; server-provided filenames are reduced to a safe
 basename before writing to the target directory.
 
@@ -941,12 +941,27 @@ atl jira issue attachment get PROJ-1 --id spec.xlsx
 atl jira issue attachment upload PROJ-1 --file ./spec.xlsx
 ```
 
+Broker mode supports only `get` in this group, with one canonical issue key
+and a positive numeric attachment ID (no filename or leading zero). The same
+`--into` flag selects the local destination. A fresh fixed-family discovery-v4
+exchange precedes one execution-v3 stream; unsupported access never falls back
+to a PAT or direct Jira. There is no range, resume, stdout body or MCP body tool.
+
+The native body is capped at 16 MiB and the logical operation at 60 seconds;
+transport or authorization timeouts can terminate it earlier. Each released
+portion needs fresh authorization and matching metadata. The client checks
+the held session before accepting the manifest, each data portion and terminal
+EOF. It publishes the temporary file atomically only after complete stream
+verification; denial, drift, session replacement, truncation or malformed data
+leaves an existing destination file unchanged. `step_snapshot_v1` does not prove
+atomic current membership or revoke bytes already received.
+
 Flags:
 
 | flag | description |
 |---|---|
 | `PROJ-1` | issue key (positional, required) |
-| `--id` | attachment id or filename (`get`, required) |
+| `--id` | attachment id or filename in direct mode; canonical numeric ID only in Broker mode (`get`, required) |
 | `--into` | output directory (`get`, default `.`) |
 | `--file` | local file path (`upload`, required) |
 
