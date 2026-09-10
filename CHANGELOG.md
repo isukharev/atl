@@ -103,6 +103,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Budgeted HTTP streams now synchronize concurrent reads and closes, preserving
+  byte accounting and cancellation while releasing the response budget safely.
 - `jira issue update` now previews by default and requires an exact reviewed
   proposal hash before applying summary, whole-description, or qualified custom
   field changes. The independent read-only preview, immutable-id prewrite

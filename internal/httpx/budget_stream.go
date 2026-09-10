@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/isukharev/atl/internal/domain"
@@ -11,7 +12,11 @@ import (
 
 func newDownloadStream(ctx context.Context, rc io.ReadCloser, cancel context.CancelFunc) io.ReadCloser {
 	if budget := domain.ReadBudgetFromContext(ctx); budget != nil {
-		return newReadBudgetStream(ctx, rc, downloadIdleTimeout, cancel, budget)
+		waitCtx, waitCancel := context.WithCancel(ctx)
+		return newReadBudgetStream(waitCtx, rc, downloadIdleTimeout, func() {
+			waitCancel()
+			cancel()
+		}, budget)
 	}
 	return newIdleReader(rc, downloadIdleTimeout, cancel)
 }
@@ -31,11 +36,14 @@ type readBudgetStream struct {
 	remaining int64
 	consumed  int64
 	terminal  error
+	readMu    sync.Mutex
+	closed    atomic.Bool
 
-	finish     func(int64)
-	finishOnce sync.Once
-	closeOnce  sync.Once
-	closeErr   error
+	finish        func(int64)
+	finishOnce    sync.Once
+	bodyCloseOnce sync.Once
+	closeOnce     sync.Once
+	closeErr      error
 }
 
 func newReadBudgetStream(ctx context.Context, rc io.ReadCloser, idle time.Duration, cancel context.CancelFunc, budget *domain.ReadBudget) io.ReadCloser {
@@ -54,6 +62,14 @@ func (r *readBudgetStream) begin() error {
 		r.terminal = err
 		return err
 	}
+	if r.closed.Load() {
+		finish(0)
+		r.terminal = r.ctx.Err()
+		if r.terminal == nil {
+			r.terminal = context.Canceled
+		}
+		return r.terminal
+	}
 	r.remaining = remaining
 	r.finish = finish
 	r.reader = newIdleReader(r.rc, r.idle, r.cancel)
@@ -63,6 +79,14 @@ func (r *readBudgetStream) begin() error {
 func (r *readBudgetStream) Read(buffer []byte) (int, error) {
 	if len(buffer) == 0 {
 		return 0, nil
+	}
+	if r.closed.Load() {
+		return 0, r.closedError()
+	}
+	r.readMu.Lock()
+	defer r.readMu.Unlock()
+	if r.closed.Load() {
+		return 0, r.closedError()
 	}
 	if err := r.begin(); err != nil {
 		return 0, err
@@ -98,9 +122,24 @@ func (r *readBudgetStream) Read(buffer []byte) (int, error) {
 }
 
 func (r *readBudgetStream) Close() error {
-	r.finishUsage()
-	r.closeUnderlying()
+	r.closeOnce.Do(func() {
+		r.closed.Store(true)
+		// Cancellation cannot wait for readMu: it is what wakes a Read blocked
+		// on the response-budget gate or the underlying HTTP body.
+		r.cancel()
+		r.readMu.Lock()
+		defer r.readMu.Unlock()
+		r.finishUsage()
+		r.closeUnderlying()
+	})
 	return r.closeErr
+}
+
+func (r *readBudgetStream) closedError() error {
+	if err := r.ctx.Err(); err != nil {
+		return err
+	}
+	return context.Canceled
 }
 
 func (r *readBudgetStream) finishUsage() {
@@ -111,7 +150,7 @@ func (r *readBudgetStream) finishUsage() {
 }
 
 func (r *readBudgetStream) closeUnderlying() {
-	r.closeOnce.Do(func() {
+	r.bodyCloseOnce.Do(func() {
 		if r.reader != nil {
 			r.closeErr = r.reader.Close()
 			return
