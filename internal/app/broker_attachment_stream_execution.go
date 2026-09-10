@@ -532,12 +532,14 @@ func (o *BrokerJiraAttachmentStreamOperation) currentMillis() int64 {
 	if elapsed < 0 {
 		elapsed = 0
 	}
-	o.lastMillis = max(o.lastMillis, o.startedAt.UnixMilli()+elapsed.Milliseconds())
+	// Project elapsed time before rounding so a fractional carry cannot make
+	// a valid fresh lease appear longer than its five-second maximum.
+	o.lastMillis = max(o.lastMillis, o.startedAt.Add(elapsed).UnixMilli())
 	return o.lastMillis
 }
 
 func (o *BrokerJiraAttachmentStreamOperation) timeForMillis(value int64) time.Time {
-	return o.startedAt.Add(time.Duration(value-o.startedAt.UnixMilli()) * time.Millisecond)
+	return o.startedAt.Add(time.UnixMilli(value).Sub(o.startedAt))
 }
 
 func (o *BrokerJiraAttachmentStreamOperation) decisionError(deadlineMillis int64) error {

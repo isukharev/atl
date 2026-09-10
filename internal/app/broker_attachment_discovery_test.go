@@ -43,9 +43,11 @@ func TestBrokerAttachmentDiscoveryV4IsCurrentBoundedAndAdvisory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The service's own first clock sample anchors the lease, without granting
-	// another lease after the call.
-	if projection.RequestID != request.RequestID || !projection.Complete || !deadline.Equal(started.Add(2*time.Second)) {
+	// The wire bound is in milliseconds; the unrounded service start also caps
+	// the local lease. Neither a fractional carry nor the call grants more time.
+	localLease := started.Add(2 * time.Second)
+	wantMillis := min(localLease.UnixMilli(), projection.ExpiresAtMillis)
+	if projection.RequestID != request.RequestID || !projection.Complete || deadline.UnixMilli() != wantMillis || deadline.After(localLease) {
 		t.Fatalf("projection=%+v deadline=%v", projection, deadline)
 	}
 	if budget.Usage().Attempts != 1 || fixture.jira.qualifyCalls.Load() != 0 || fixture.jira.prepareCalls.Load() != 0 || fixture.jira.openCalls.Load() != 0 {

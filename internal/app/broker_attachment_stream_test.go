@@ -40,8 +40,7 @@ func (c *attachmentAppClock) Now() time.Time {
 	defer c.mu.Unlock()
 	// Real context deadlines keep advancing during instrumented tests. Explicit
 	// Advance calls still adjust the logical offset for rollback/expiry cases.
-	// Keep every sample on the fixture's original millisecond contract scale.
-	return c.now.Add(time.Since(c.started)).Truncate(time.Millisecond)
+	return c.now.Add(time.Since(c.started))
 }
 
 func (c *attachmentAppClock) Advance(value time.Duration) {

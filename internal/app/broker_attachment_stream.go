@@ -440,7 +440,7 @@ func brokerAttachmentOperationDeadline(ctx context.Context, startedAt time.Time,
 	if deadlineMillis <= startedAt.UnixMilli() {
 		return time.Time{}, 0, context.DeadlineExceeded
 	}
-	deadline := startedAt.Add(time.Duration(deadlineMillis-startedAt.UnixMilli()) * time.Millisecond)
+	deadline := startedAt.Add(time.UnixMilli(deadlineMillis).Sub(startedAt))
 	return deadline, deadlineMillis, nil
 }
 
