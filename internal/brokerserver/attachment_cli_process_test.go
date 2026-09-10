@@ -37,11 +37,6 @@ type attachmentCLIProcessFixture struct {
 func newAttachmentCLIProcessFixture(t *testing.T, payload []byte) *attachmentCLIProcessFixture {
 	t.Helper()
 	f := &attachmentCLIProcessFixture{chain: newAttachmentChainFixture(t, payload)}
-	direct := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		f.directCalls.Add(1)
-		w.WriteHeader(http.StatusForbidden)
-	}))
-	t.Cleanup(direct.Close)
 	certificate := testHostCertificate(t)
 	data, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -91,6 +86,17 @@ func newAttachmentCLIProcessFixture(t *testing.T, payload []byte) *attachmentCLI
 	}
 	t.Cleanup(f.stop)
 	waitReady(t, host)
+	configureAttachmentCLIProcessFixture(t, f, "https://"+data.Addr().String(), certificate.Certificate[0])
+	return f
+}
+
+func configureAttachmentCLIProcessFixture(t *testing.T, f *attachmentCLIProcessFixture, baseURL string, certificateDER []byte) {
+	t.Helper()
+	direct := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		f.directCalls.Add(1)
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	t.Cleanup(direct.Close)
 	root := t.TempDir()
 	if err := os.Chmod(root, 0o700); err != nil {
 		t.Fatal(err)
@@ -105,16 +111,15 @@ func newAttachmentCLIProcessFixture(t *testing.T, payload []byte) *attachmentCLI
 	}
 	projectPageProcessWriteFile(t, f.sessionPath, session)
 	caPath := filepath.Join(root, "broker.ca")
-	projectPageProcessWriteFile(t, caPath, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certificate.Certificate[0]}))
+	projectPageProcessWriteFile(t, caPath, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certificateDER}))
 	config, err := json.Marshal(map[string]any{"connection_mode": "broker", "jira_url": direct.URL, "jira_list_views": map[string]any{}, "broker": map[string]any{
-		"base_url": "https://" + data.Addr().String(), "broker_id": "broker-1", "audience": "atl-broker", "ca_file": caPath, "jira_session_file": f.sessionPath,
+		"base_url": baseURL, "broker_id": "broker-1", "audience": "atl-broker", "ca_file": caPath, "jira_session_file": f.sessionPath,
 	}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	projectPageProcessWriteFile(t, filepath.Join(root, "config.json"), config)
 	f.environment = []string{"PATH=" + os.Getenv("PATH"), "ATL_CONFIG_DIR=" + root, "ATL_NO_UPDATE=1", "ATL_READ_ONLY=1"}
-	return f
 }
 
 func runAttachmentSelectedCLI(t *testing.T, binary string, environment []string, destination string) (string, string, error) {
@@ -139,10 +144,15 @@ func TestSelectedAttachmentCLIAndHostCandidateConformance(t *testing.T) {
 		t.Fatal("the candidate oracle requires the real enabled registry revision")
 	}
 	binary := buildSelectedATLBinary(t, "")
+	checkAttachmentCLIPositiveConformance(t, binary, newAttachmentCLIProcessFixture)
+}
+
+func checkAttachmentCLIPositiveConformance(t *testing.T, binary string, newFixture func(*testing.T, []byte) *attachmentCLIProcessFixture) {
+	t.Helper()
 	for _, size := range []int{0, 23, 1<<20 + 17, 16 << 20} {
 		t.Run(fmt.Sprintf("bytes_%d", size), func(t *testing.T) {
 			payload := bytes.Repeat([]byte{'x'}, size)
-			fixture := newAttachmentCLIProcessFixture(t, payload)
+			fixture := newFixture(t, payload)
 			destination := filepath.Join(t.TempDir(), "download")
 			stdout, stderr, err := runAttachmentSelectedCLI(t, binary, fixture.environment, destination)
 			fixture.stop()
@@ -162,7 +172,11 @@ func TestSelectedAttachmentCLIAndHostCandidateConformance(t *testing.T) {
 			releases := max(1, (size+(1<<20)-1)/(1<<20))
 			fixture.chain.mu.Lock()
 			counts := fixture.chain.counts
-			if counts["authentication"] != 3+releases || counts["discovery"] != 1 || counts["operation_release"] != releases || counts["metadata"] != 2+releases || counts["body"] != 1 || fixture.chain.violations != 0 || len(fixture.chain.nonces) != counts["authentication"] {
+			total := 0
+			for _, count := range counts {
+				total += count
+			}
+			if total != 12+4*releases || counts["authentication"] != 3+releases || counts["discovery"] != 1 || counts["operation_release"] != releases || counts["metadata"] != 2+releases || counts["body"] != 1 || fixture.chain.violations != 0 || len(fixture.chain.nonces) != counts["authentication"] {
 				t.Errorf("CLI chain counts=%v nonces=%d violations=%d", counts, len(fixture.chain.nonces), fixture.chain.violations)
 			}
 			fixture.chain.mu.Unlock()

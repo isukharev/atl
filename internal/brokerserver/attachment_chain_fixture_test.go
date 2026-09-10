@@ -43,21 +43,30 @@ type attachmentChainFixture struct {
 	expireAuthentication int
 	releaseHook          func(int)
 	handler              *Handler
+	backendServer        *httptest.Server
+	authorityServer      *httptest.Server
+	backendPrefix        string
 	request              domain.BrokerAttachmentRequestV3
 }
 
 func newAttachmentChainFixture(t *testing.T, payload []byte) *attachmentChainFixture {
 	t.Helper()
-	f := &attachmentChainFixture{counts: make(map[string]int), nonces: make(map[string]bool), issuer: strings.Repeat("a", 64), payload: bytes.Clone(payload)}
+	return newAttachmentChainFixtureWithPrefix(t, payload, "/jira")
+}
+
+func newAttachmentChainFixtureWithPrefix(t *testing.T, payload []byte, prefix string) *attachmentChainFixture {
+	t.Helper()
+	f := &attachmentChainFixture{counts: make(map[string]int), nonces: make(map[string]bool), issuer: strings.Repeat("a", 64), payload: bytes.Clone(payload), backendPrefix: prefix}
 	backend := httptest.NewTLSServer(http.HandlerFunc(f.serveJira))
 	t.Cleanup(backend.Close)
 	authorityServer := httptest.NewTLSServer(http.HandlerFunc(f.serveAuthority))
 	t.Cleanup(authorityServer.Close)
+	f.backendServer, f.authorityServer = backend, authorityServer
 	scheduler, err := httpx.NewScheduler(4, 8)
 	if err != nil {
 		t.Fatal(err)
 	}
-	reader, err := jiraadapter.NewWithSchedulerTLS(backend.URL+"/jira", attachmentChainBackend, "test", scheduler, projectPageProcessTLSOptions(t, backend))
+	reader, err := jiraadapter.NewWithSchedulerTLS(backend.URL+prefix, attachmentChainBackend, "test", scheduler, projectPageProcessTLSOptions(t, backend))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,8 +136,13 @@ func (f *attachmentChainFixture) serveJira(writer http.ResponseWriter, request *
 		f.reject(writer)
 		return
 	}
-	switch request.URL.RequestURI() {
-	case "/jira/rest/api/2/issue/PROJ-1?fields=attachment%2Cproject%2Cupdated":
+	uri := request.URL.RequestURI()
+	if !strings.HasPrefix(uri, f.backendPrefix) {
+		f.reject(writer)
+		return
+	}
+	switch strings.TrimPrefix(uri, f.backendPrefix) {
+	case "/rest/api/2/issue/PROJ-1?fields=attachment%2Cproject%2Cupdated":
 		index := f.bump("metadata")
 		updated := "2026-09-09T00:00:00Z"
 		if index == f.metadataDrift {
@@ -140,7 +154,7 @@ func (f *attachmentChainFixture) serveJira(writer http.ResponseWriter, request *
 			"attachment": []any{map[string]any{"id": "7", "filename": "example.bin", "mimeType": "application/octet-stream", "size": len(f.payload),
 				"created": "2026-09-08T00:00:00Z", "content": "/secure/attachment/7/example.bin", "author": map[string]any{"name": "fixture"}}},
 		}})
-	case "/jira/secure/attachment/7/example.bin":
+	case "/secure/attachment/7/example.bin":
 		f.bump("body")
 		writer.Header().Set("Content-Type", "application/octet-stream")
 		switch f.sourceMode {
@@ -152,7 +166,7 @@ func (f *attachmentChainFixture) serveJira(writer http.ResponseWriter, request *
 			_, _ = writer.Write(f.payload)
 			_, _ = writer.Write([]byte{'x'})
 		case "redirect":
-			writer.Header().Set("Location", "/jira/redirect-trap")
+			writer.Header().Set("Location", f.backendPrefix+"/redirect-trap")
 			writer.WriteHeader(http.StatusTemporaryRedirect)
 		case "failure":
 			writer.WriteHeader(http.StatusServiceUnavailable)
@@ -168,7 +182,7 @@ func (f *attachmentChainFixture) serveJira(writer http.ResponseWriter, request *
 		default:
 			f.reject(writer)
 		}
-	case "/jira/redirect-trap":
+	case "/redirect-trap":
 		f.bump("redirect")
 		writer.WriteHeader(http.StatusForbidden)
 	default:
