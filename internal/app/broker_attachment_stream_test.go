@@ -15,14 +15,33 @@ import (
 )
 
 type attachmentAppClock struct {
-	mu  sync.Mutex
-	now time.Time
+	mu      sync.Mutex
+	now     time.Time
+	started time.Time
+}
+
+func TestAttachmentAppClockIncludesElapsedWallTime(t *testing.T) {
+	fixture := newAttachmentAppFixture(t, nil, 0, 0)
+	before := fixture.clock.Now()
+	timer := time.NewTimer(10 * time.Millisecond)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+	case <-t.Context().Done():
+		t.Fatal("test context ended before the clock observation")
+	}
+	if !fixture.clock.Now().After(before) {
+		t.Fatal("fixture clock stayed frozen while real context time elapsed")
+	}
 }
 
 func (c *attachmentAppClock) Now() time.Time {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.now
+	// Real context deadlines keep advancing during instrumented tests. Explicit
+	// Advance calls still adjust the logical offset for rollback/expiry cases.
+	// Keep every sample on the fixture's original millisecond contract scale.
+	return c.now.Add(time.Since(c.started)).Truncate(time.Millisecond)
 }
 
 func (c *attachmentAppClock) Advance(value time.Duration) {
@@ -59,13 +78,17 @@ func (a *attachmentAppAuthorizer) DiscoverFamilyV4(ctx context.Context, request 
 	if lifetime == 0 {
 		lifetime = 5 * time.Second
 	}
+	expires := min(now.Add(lifetime).UnixMilli(), request.Request.NotAfterMillis)
+	if deadline, ok := ctx.Deadline(); ok {
+		expires = min(expires, deadline.UnixMilli())
+	}
 	contextSHA256, _ := brokercontract.VerifiedContextSHA256(request.Context)
 	projection := domain.BrokerFamilyDiscoveryProjectionV4{
 		SchemaVersion: domain.BrokerDiscoverySchemaVersionV4, RequestID: request.Request.RequestID, RequestSHA256: request.RequestSHA256, ContextSHA256: contextSHA256,
 		ExecutionID: request.Context.ExecutionID, ExecutionEpoch: request.Context.ExecutionEpoch, Audience: request.Context.Audience, BrokerID: request.Context.BrokerID,
 		AuthorityRevision: request.Context.AuthorityRevision, ContractFamily: request.Request.ContractFamily, Service: request.Request.Service,
 		RegistrySHA256: brokercontract.RegistrySHA256V3(), ContractSchemaSHA256: brokercontract.ExecutionSchemaSHA256V3(), DiscoverySchemaSHA256: brokercontract.DiscoverySchemaSHA256V4(),
-		IssuedAtMillis: now.UnixMilli(), ExpiresAtMillis: now.Add(lifetime).UnixMilli(), Operations: []domain.BrokerFamilyDiscoveryOperationV4{}, Complete: true,
+		IssuedAtMillis: now.UnixMilli(), ExpiresAtMillis: expires, Operations: []domain.BrokerFamilyDiscoveryOperationV4{}, Complete: true,
 	}
 	value := brokercontract.RegistryV3()[0]
 	definition := value.Definition
@@ -91,7 +114,7 @@ func (a *attachmentAppAuthorizer) AdmitAttachment(ctx context.Context, request d
 		return domain.BrokerAttachmentAdmissionDecisionV3{}, err
 	}
 	requestSHA256, _ := brokercontract.AttachmentAdmissionRequestSHA256V3(request)
-	core := attachmentAppDecisionCore(request.Context, requestSHA256, "admission", issued)
+	core := attachmentAppDecisionCore(ctx, request.Context, requestSHA256, "admission", issued)
 	return attachmentAppRoundtrip(domain.BrokerAttachmentAdmissionDecisionV3{BrokerDecisionCore: core}, brokercontract.EncodeAttachmentAdmissionDecisionV3, brokercontract.DecodeAttachmentAdmissionDecisionV3), nil
 }
 
@@ -103,7 +126,7 @@ func (a *attachmentAppAuthorizer) AuthorizeAttachmentQualification(ctx context.C
 	requestSHA256, _ := brokercontract.AttachmentQualificationRequestSHA256V3(request)
 	plan, verified := attachmentAppQualificationPlanContext(request)
 	planSHA256, _ := brokercontract.AttachmentMetadataPlanSHA256V3(plan)
-	value := domain.BrokerAttachmentQualificationDecisionV3{Phase: request.Phase, BrokerDecisionCore: attachmentAppDecisionCore(verified, requestSHA256, "qualification-"+string(request.Phase), issued), PlanSHA256: planSHA256}
+	value := domain.BrokerAttachmentQualificationDecisionV3{Phase: request.Phase, BrokerDecisionCore: attachmentAppDecisionCore(ctx, verified, requestSHA256, "qualification-"+string(request.Phase), issued), PlanSHA256: planSHA256}
 	return attachmentAppRoundtrip(value, brokercontract.EncodeAttachmentQualificationDecisionV3, brokercontract.DecodeAttachmentQualificationDecisionV3), nil
 }
 
@@ -115,7 +138,7 @@ func (a *attachmentAppAuthorizer) AuthorizeAttachmentOperation(ctx context.Conte
 	requestSHA256, _ := brokercontract.AttachmentOperationAuthorizationRequestSHA256V3(request)
 	verified := attachmentAppOperationContext(request)
 	value := domain.BrokerAttachmentOperationDecisionV3{
-		Phase: request.Phase, BrokerDecisionCore: attachmentAppDecisionCore(verified, requestSHA256, "operation-"+string(request.Phase), issued),
+		Phase: request.Phase, BrokerDecisionCore: attachmentAppDecisionCore(ctx, verified, requestSHA256, "operation-"+string(request.Phase), issued),
 		QualificationDecisionSHA256: attachmentAppOperationQualificationDecision(request), Operation: domain.BrokerOperationJiraAttachmentDownload, OperationVersion: 1,
 	}
 	if request.Release != nil {
@@ -349,7 +372,8 @@ type attachmentAppFixture struct {
 
 func newAttachmentAppFixture(t *testing.T, body []byte, declared int64, tail int) *attachmentAppFixture {
 	t.Helper()
-	now := time.Now().UTC().Truncate(time.Millisecond)
+	started := time.Now()
+	now := started.UTC().Truncate(time.Millisecond)
 	backend := domain.BrokerBackendBinding{Service: "jira", OriginSHA256: stringsOf('1', 64), WorkloadBackendID: "jira-primary"}
 	verified := domain.BrokerVerifiedContext{
 		PrincipalID: "principal-1", WorkloadID: "workload-1", ExecutionID: "execution-1", ExecutionEpoch: "epoch-1", Audience: "atl-broker", BrokerID: "broker-1", AuthorityRevision: "revision-1",
@@ -360,7 +384,7 @@ func newAttachmentAppFixture(t *testing.T, body []byte, declared int64, tail int
 	if err != nil {
 		t.Fatal(err)
 	}
-	clock := &attachmentAppClock{now: now}
+	clock := &attachmentAppClock{now: now, started: started}
 	fixture := &attachmentAppFixture{clock: clock, verified: verified, request: request, backend: backend}
 	fixture.authorizer = &attachmentAppAuthorizer{clock: clock, order: &fixture.order}
 	fixture.jira = &attachmentAppJira{snapshot: snapshot, body: bytes.Clone(body), order: &fixture.order, origin: backend.OriginSHA256}
@@ -387,7 +411,8 @@ func (f *attachmentAppFixture) start(t *testing.T, tail int) *BrokerJiraAttachme
 	t.Helper()
 	operation, err := f.service.Start(f.ctx, BrokerAttachmentStreamStart{Request: f.request, Verified: f.verified, InitialAuthenticationDeadline: f.clock.Now().Add(5 * time.Second), StreamID: "stream-1", CorrelationID: "correlation-1", ScannerTailBytes: tail, Budgets: f.budgets})
 	if err != nil {
-		t.Fatal(err)
+		reason, _ := brokercontract.Reason(err)
+		t.Fatalf("start failed: %v reason=%s phases=%v", err, reason, f.order)
 	}
 	return operation
 }
@@ -420,7 +445,8 @@ func runAttachmentAppStream(t *testing.T, fixture *attachmentAppFixture, tailByt
 		selection := BrokerAttachmentReleaseSelection{CandidateID: candidate.ID, Payload: candidate.Bytes[:payloadBytes], RetainedTail: candidate.Bytes[payloadBytes:]}
 		authorized, err := operation.AuthorizeRelease(fixture.fresh(t), selection)
 		if err != nil {
-			t.Fatal(err)
+			reason, _ := brokercontract.Reason(err)
+			t.Fatalf("release %d failed: %v reason=%s phases=%v", releases, err, reason, fixture.order)
 		}
 		beforeCandidate := bytes.Clone(candidate.Bytes)
 		beforeLines := cloneAttachmentLines(authorized.Lines)
@@ -518,9 +544,13 @@ func attachmentAppCharge(ctx context.Context, responseBytes int64) error {
 	return nil
 }
 
-func attachmentAppDecisionCore(verified domain.BrokerVerifiedContext, requestSHA256, id string, now time.Time) domain.BrokerDecisionCore {
+func attachmentAppDecisionCore(ctx context.Context, verified domain.BrokerVerifiedContext, requestSHA256, id string, now time.Time) domain.BrokerDecisionCore {
 	contextSHA256, _ := brokercontract.VerifiedContextSHA256(verified)
-	return domain.BrokerDecisionCore{Status: domain.BrokerDecisionAllowed, DecisionID: id, AuthorityRevision: verified.AuthorityRevision, ContextSHA256: contextSHA256, RequestSHA256: requestSHA256, IssuedAtMillis: now.UnixMilli(), ExpiresAtMillis: now.Add(5 * time.Second).UnixMilli()}
+	expires := now.Add(5 * time.Second).UnixMilli()
+	if deadline, ok := ctx.Deadline(); ok {
+		expires = min(expires, deadline.UnixMilli())
+	}
+	return domain.BrokerDecisionCore{Status: domain.BrokerDecisionAllowed, DecisionID: id, AuthorityRevision: verified.AuthorityRevision, ContextSHA256: contextSHA256, RequestSHA256: requestSHA256, IssuedAtMillis: now.UnixMilli(), ExpiresAtMillis: expires}
 }
 
 func attachmentAppQualificationPlanContext(value domain.BrokerAttachmentQualificationRequestV3) (domain.BrokerAttachmentMetadataPlanV3, domain.BrokerVerifiedContext) {

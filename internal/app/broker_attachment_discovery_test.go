@@ -31,12 +31,21 @@ func TestBrokerAttachmentDiscoveryV4IsCurrentBoundedAndAdvisory(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := domain.WithReadBudget(fixture.ctx, budget)
-	started := fixture.clock.Now()
+	var started time.Time
+	fixture.service.now = func() time.Time {
+		now := fixture.clock.Now()
+		if started.IsZero() {
+			started = now
+		}
+		return now
+	}
 	projection, deadline, err := fixture.service.DiscoverExecutionV3(ctx, request, fixture.verified)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if projection.RequestID != request.RequestID || !projection.Complete || deadline != started.Add(2*time.Second) {
+	// The service's own first clock sample anchors the lease, without granting
+	// another lease after the call.
+	if projection.RequestID != request.RequestID || !projection.Complete || !deadline.Equal(started.Add(2*time.Second)) {
 		t.Fatalf("projection=%+v deadline=%v", projection, deadline)
 	}
 	if budget.Usage().Attempts != 1 || fixture.jira.qualifyCalls.Load() != 0 || fixture.jira.prepareCalls.Load() != 0 || fixture.jira.openCalls.Load() != 0 {
