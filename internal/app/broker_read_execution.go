@@ -39,7 +39,7 @@ func (e *brokerReadExecution) currentMillis() int64 {
 	if elapsed < 0 {
 		elapsed = 0
 	}
-	current := e.startedAt.UnixMilli() + elapsed.Milliseconds()
+	current := e.startedAt.Add(elapsed).UnixMilli()
 	if current > e.lastMillis {
 		e.lastMillis = current
 	}
@@ -51,7 +51,7 @@ func (e *brokerReadExecution) contextError() error {
 }
 
 func (e *brokerReadExecution) releaseDeadline(expiresAtMillis int64) time.Time {
-	return e.startedAt.Add(time.Duration(expiresAtMillis-e.startedAt.UnixMilli()) * time.Millisecond)
+	return e.startedAt.Add(time.UnixMilli(expiresAtMillis).Sub(e.startedAt))
 }
 
 // decisionDeadline retains the signed wall expiry without allowing clock skew

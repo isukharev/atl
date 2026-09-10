@@ -196,7 +196,7 @@ func (s *BrokerOperationObservationService) Observe(ctx context.Context, request
 	if releaseCheckMillis >= releaseMillis {
 		return BrokerOperationObservationResult{}, brokerOperationObservationError(context.DeadlineExceeded)
 	}
-	releaseDeadline := startedAt.Add(time.Duration(releaseMillis-startedAt.UnixMilli()) * time.Millisecond)
+	releaseDeadline := startedAt.Add(time.UnixMilli(releaseMillis).Sub(startedAt))
 	return BrokerOperationObservationResult{Outcome: outcome, ReleaseDeadline: releaseDeadline}, nil
 }
 
@@ -281,7 +281,7 @@ func (c *brokerOperationObservationClock) currentMillis() int64 {
 	if elapsed < 0 {
 		elapsed = 0
 	}
-	c.lastMillis = max(c.lastMillis, c.startedAt.UnixMilli()+elapsed.Milliseconds())
+	c.lastMillis = max(c.lastMillis, c.startedAt.Add(elapsed).UnixMilli())
 	return c.lastMillis
 }
 
