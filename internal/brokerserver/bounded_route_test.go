@@ -312,7 +312,7 @@ func TestBoundedRouteParentCancellationInterruptsBodyAndAuthentication(t *testin
 		authenticator := &boundedRouteBlockingAuthenticator{started: make(chan struct{}), canceled: make(chan struct{})}
 		fixture.base.handler.authenticator = authenticator
 		cancelReady := make(chan context.CancelFunc, 1)
-		server, _ := boundedRouteTLSServer(t, fixture.base.handler, func(ctx context.Context) context.Context {
+		server, states := boundedRouteTLSServer(t, fixture.base.handler, func(ctx context.Context) context.Context {
 			bounded, cancel := context.WithCancel(ctx)
 			cancelReady <- cancel
 			return bounded
@@ -348,6 +348,9 @@ func TestBoundedRouteParentCancellationInterruptsBodyAndAuthentication(t *testin
 		case <-time.After(2 * time.Second):
 			t.Fatal("canceled authentication did not release the client")
 		}
+		// Client completion may precede deferred handler cleanup. Connection
+		// closure is the existing server-side witness that the handler returned.
+		boundedRouteWaitForState(t, states, http.StateClosed, 2*time.Second)
 		if authenticator.calls.Load() != 1 || len(fixture.base.handler.permits) != 0 {
 			t.Fatalf("auth=%d permits=%d", authenticator.calls.Load(), len(fixture.base.handler.permits))
 		}
