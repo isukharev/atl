@@ -16,7 +16,7 @@ import (
 	"github.com/isukharev/atl/internal/domain"
 )
 
-func TestAttachmentFamilyDiscoveryV4IsEmptyUntilAvailability(t *testing.T) {
+func TestAttachmentFamilyDiscoveryV4RequiresTheExactAvailableRow(t *testing.T) {
 	request, authorization, projection := attachmentDiscoveryV4Fixture(t)
 	requestWire := mustAttachmentEncode(t, request, EncodeFamilyDiscoveryRequestV4)
 	decodedRequest, requestErr := DecodeFamilyDiscoveryRequestV4(requestWire)
@@ -27,8 +27,8 @@ func TestAttachmentFamilyDiscoveryV4IsEmptyUntilAvailability(t *testing.T) {
 	if requestErr != nil || authorizationErr != nil || projectionErr != nil || !reflect.DeepEqual(request, decodedRequest) || !reflect.DeepEqual(authorization, decodedAuthorization) || !reflect.DeepEqual(projection, decodedProjection) {
 		t.Fatalf("round trip errors=%v/%v/%v", requestErr, authorizationErr, projectionErr)
 	}
-	if projection.Operations == nil || len(projection.Operations) != 0 || len(RegistryV3()) != 1 || len(AvailableDefinitionsV3()) != 0 {
-		t.Fatal("unavailable operation leaked into discovery")
+	if len(projection.Operations) != 1 || len(RegistryV3()) != 1 || len(AvailableDefinitionsV3()) != 1 {
+		t.Fatal("available operation missing from discovery")
 	}
 	now := time.UnixMilli(3_000)
 	if err := ValidateFamilyDiscoveryProjectionV4ForRequest(projection, request, now); err != nil {
@@ -38,9 +38,9 @@ func TestAttachmentFamilyDiscoveryV4IsEmptyUntilAvailability(t *testing.T) {
 		t.Fatal(err)
 	}
 	changed := projection
-	changed.Operations = []domain.BrokerFamilyDiscoveryOperationV4{attachmentDiscoveryOperationV4(RegistryV3()[0])}
+	changed.Operations = []domain.BrokerFamilyDiscoveryOperationV4{}
 	if _, err := EncodeFamilyDiscoveryProjectionV4(changed); !errors.Is(err, domain.ErrUsage) {
-		t.Fatalf("unavailable row was advertised: %v", err)
+		t.Fatalf("complete discovery omitted the available row: %v", err)
 	}
 	changed = projection
 	changed.ExpiresAtMillis = request.NotAfterMillis + 1
@@ -73,7 +73,7 @@ func TestAttachmentFamilyDiscoveryV4RejectsNullDuplicateUnknownAndWrongFamily(t 
 	}
 }
 
-func TestPublishedAttachmentDiscoveryV4SchemaMatchesAndValidatesUnavailableProjection(t *testing.T) {
+func TestPublishedAttachmentDiscoveryV4SchemaMatchesAndValidatesDeclaredProjection(t *testing.T) {
 	published, err := os.ReadFile("../../docs/schemas/broker-discovery-v4.schema.json")
 	if err != nil || !bytes.Equal(published, DiscoverySchemaV4()) {
 		t.Fatalf("published schema mismatch err=%v", err)
@@ -98,12 +98,12 @@ func TestPublishedAttachmentDiscoveryV4SchemaMatchesAndValidatesUnavailableProje
 			t.Fatalf("schema rejected vector %d: %s", index, vector)
 		}
 	}
-	availableShape := familyDiscoveryProjectionToWireV4(projection)
-	availableShape.Operations = []familyDiscoveryOperationWireV4{familyDiscoveryProjectionToWireV4(domain.BrokerFamilyDiscoveryProjectionV4{Operations: []domain.BrokerFamilyDiscoveryOperationV4{attachmentDiscoveryOperationV4(RegistryV3()[0])}}).Operations[0]}
-	vector, _ := json.Marshal(availableShape)
+	emptyShape := familyDiscoveryProjectionToWireV4(projection)
+	emptyShape.Operations = []familyDiscoveryOperationWireV4{}
+	vector, _ := json.Marshal(emptyShape)
 	var value any
 	if json.Unmarshal(vector, &value) != nil || resolved.Validate(value) != nil {
-		t.Fatal("published schema cannot describe the future exact row")
+		t.Fatal("structural schema unexpectedly imposed current registry membership")
 	}
 }
 
@@ -115,6 +115,7 @@ func attachmentDiscoveryV4Fixture(t attachmentTestTB) (domain.BrokerFamilyDiscov
 	requestDigest, _ := FamilyDiscoveryRequestSHA256V4(request)
 	authorization := domain.BrokerFamilyDiscoveryAuthorizationRequestV4{SchemaVersion: 4, Request: request, Context: context, RequestSHA256: requestDigest}
 	projection := domain.BrokerFamilyDiscoveryProjectionV4{SchemaVersion: 4, RequestID: request.RequestID, RequestSHA256: requestDigest, ContextSHA256: contextDigest, ExecutionID: context.ExecutionID, ExecutionEpoch: context.ExecutionEpoch, Audience: context.Audience, BrokerID: context.BrokerID, AuthorityRevision: context.AuthorityRevision, ContractFamily: request.ContractFamily, Service: request.Service, RegistrySHA256: RegistrySHA256V3(), ContractSchemaSHA256: ExecutionSchemaSHA256V3(), DiscoverySchemaSHA256: DiscoverySchemaSHA256V4(), IssuedAtMillis: 2_000, ExpiresAtMillis: 7_000, Operations: []domain.BrokerFamilyDiscoveryOperationV4{}, Complete: true}
+	projection.Operations = []domain.BrokerFamilyDiscoveryOperationV4{attachmentDiscoveryOperationV4(RegistryV3()[0])}
 	return request, authorization, projection
 }
 

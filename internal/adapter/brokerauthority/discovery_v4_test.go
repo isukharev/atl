@@ -129,5 +129,17 @@ func authorityFamilyDiscoveryV4Fixture(t testing.TB, now time.Time) (domain.Brok
 	}
 	authorization := domain.BrokerFamilyDiscoveryAuthorizationRequestV4{SchemaVersion: 4, Request: request, Context: contextValue, RequestSHA256: requestDigest}
 	projection := domain.BrokerFamilyDiscoveryProjectionV4{SchemaVersion: 4, RequestID: request.RequestID, RequestSHA256: requestDigest, ContextSHA256: contextDigest, ExecutionID: contextValue.ExecutionID, ExecutionEpoch: contextValue.ExecutionEpoch, Audience: contextValue.Audience, BrokerID: contextValue.BrokerID, AuthorityRevision: contextValue.AuthorityRevision, ContractFamily: request.ContractFamily, Service: request.Service, RegistrySHA256: brokercontract.RegistrySHA256V3(), ContractSchemaSHA256: brokercontract.ExecutionSchemaSHA256V3(), DiscoverySchemaSHA256: brokercontract.DiscoverySchemaSHA256V4(), IssuedAtMillis: now.UnixMilli(), ExpiresAtMillis: request.NotAfterMillis, Operations: []domain.BrokerFamilyDiscoveryOperationV4{}, Complete: true}
+	value := brokercontract.RegistryV3()[0]
+	definition := value.Definition
+	projection.Operations = []domain.BrokerFamilyDiscoveryOperationV4{{
+		ID: definition.ID, Version: definition.Version, Supported: true, Access: domain.BrokerDiscoveryAccessAllowed,
+		Features: definition.RequiredFeatures, Limits: definition.Limits, Effects: definition.Effects,
+		MaxMetadataItems: value.MaxMetadataItems, MaxJiraAttempts: value.MaxJiraAttempts, MaxAuthenticationAttempts: value.MaxAuthenticationAttempts,
+		MaxDecisionAttempts: value.MaxDecisionAttempts, MaxTotalHostOutboundAttempts: value.MaxTotalHostOutboundAttempts,
+		MaxCommandHostOutboundAttempts: value.MaxCommandHostOutboundAttempts, MaxJiraResponseBytes: value.MaxJiraResponseBytes,
+		MaxAuthorityResponseBytes: value.MaxAuthorityResponseBytes, MaxTotalHostResponseBytes: value.MaxTotalHostResponseBytes,
+		MaxManifestLineBytes: value.MaxManifestLineBytes, MaxDataLineBytes: value.MaxDataLineBytes,
+		MaxTerminalLineBytes: value.MaxTerminalLineBytes, MaxFramedResponseBytes: value.MaxFramedResponseBytes,
+	}}
 	return authorization, projection
 }

@@ -67,6 +67,18 @@ func (a *attachmentAppAuthorizer) DiscoverFamilyV4(ctx context.Context, request 
 		RegistrySHA256: brokercontract.RegistrySHA256V3(), ContractSchemaSHA256: brokercontract.ExecutionSchemaSHA256V3(), DiscoverySchemaSHA256: brokercontract.DiscoverySchemaSHA256V4(),
 		IssuedAtMillis: now.UnixMilli(), ExpiresAtMillis: now.Add(lifetime).UnixMilli(), Operations: []domain.BrokerFamilyDiscoveryOperationV4{}, Complete: true,
 	}
+	value := brokercontract.RegistryV3()[0]
+	definition := value.Definition
+	projection.Operations = []domain.BrokerFamilyDiscoveryOperationV4{{
+		ID: definition.ID, Version: definition.Version, Supported: true, Access: domain.BrokerDiscoveryAccessAllowed,
+		Features: definition.RequiredFeatures, Limits: definition.Limits, Effects: definition.Effects,
+		MaxMetadataItems: value.MaxMetadataItems, MaxJiraAttempts: value.MaxJiraAttempts, MaxAuthenticationAttempts: value.MaxAuthenticationAttempts,
+		MaxDecisionAttempts: value.MaxDecisionAttempts, MaxTotalHostOutboundAttempts: value.MaxTotalHostOutboundAttempts,
+		MaxCommandHostOutboundAttempts: value.MaxCommandHostOutboundAttempts, MaxJiraResponseBytes: value.MaxJiraResponseBytes,
+		MaxAuthorityResponseBytes: value.MaxAuthorityResponseBytes, MaxTotalHostResponseBytes: value.MaxTotalHostResponseBytes,
+		MaxManifestLineBytes: value.MaxManifestLineBytes, MaxDataLineBytes: value.MaxDataLineBytes,
+		MaxTerminalLineBytes: value.MaxTerminalLineBytes, MaxFramedResponseBytes: value.MaxFramedResponseBytes,
+	}}
 	if a.mutateDiscovery != nil {
 		a.mutateDiscovery(&projection)
 	}

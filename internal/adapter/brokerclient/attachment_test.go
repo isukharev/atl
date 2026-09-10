@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -67,7 +68,7 @@ func (b *heldAttachmentBody) Close() error {
 	return nil
 }
 
-func TestJiraAttachmentClientRejectsInvalidAndUnavailableBeforeIO(t *testing.T) {
+func TestJiraAttachmentClientRejectsInvalidSelectorsBeforeIO(t *testing.T) {
 	loader := &countingSessionLoader{value: testSession()}
 	client, err := New(Config{BaseURL: "https://127.0.0.1:1", BrokerID: "broker-1", Audience: "atl-broker", Session: loader})
 	if err != nil {
@@ -83,15 +84,36 @@ func TestJiraAttachmentClientRejectsInvalidAndUnavailableBeforeIO(t *testing.T) 
 			t.Fatalf("selector=%q body=%v name=%q err=%v", selector, body, name, callErr)
 		}
 	}
-	body, name, err := jira.DownloadAttachment(t.Context(), "PROJ-1", "200")
-	if body != nil || name != "" || !errors.Is(err, domain.ErrUsage) {
-		t.Fatalf("unavailable body=%v name=%q err=%v", body, name, err)
-	}
-	if reason, _ := brokercontract.Reason(err); reason != domain.BrokerReasonUnsupported {
-		t.Fatalf("reason=%s err=%v", reason, err)
-	}
 	if loader.calls.Load() != 0 {
 		t.Fatalf("session loads=%d", loader.calls.Load())
+	}
+}
+
+func TestJiraAttachmentClientRequiresDiscoveryBeforeExecute(t *testing.T) {
+	for _, status := range []int{http.StatusNotFound, http.StatusServiceUnavailable, http.StatusOK} {
+		t.Run(fmt.Sprintf("status_%d", status), func(t *testing.T) {
+			var discoveryCalls, otherCalls atomic.Int32
+			server := httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				if request.Method != http.MethodPost || request.URL.Path != brokertransport.DiscoveryNegotiatePathV4 {
+					otherCalls.Add(1)
+				} else {
+					discoveryCalls.Add(1)
+				}
+				writer.WriteHeader(status)
+				_, _ = writer.Write([]byte(`{}`))
+			}))
+			t.Cleanup(server.Close)
+			loader := &countingSessionLoader{value: testSession()}
+			client := newTestClient(t, server, loader, "broker-1")
+			jira, err := NewJira(client)
+			if err != nil {
+				t.Fatal(err)
+			}
+			body, name, err := jira.DownloadAttachment(t.Context(), "PROJ-1", "7")
+			if err == nil || body != nil || name != "" || discoveryCalls.Load() != 1 || otherCalls.Load() != 0 || loader.calls.Load() != 1 {
+				t.Fatalf("body=%v name=%q err=%v discovery=%d other=%d sessions=%d", body, name, err, discoveryCalls.Load(), otherCalls.Load(), loader.calls.Load())
+			}
+		})
 	}
 }
 

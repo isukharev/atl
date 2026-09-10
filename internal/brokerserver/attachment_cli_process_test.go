@@ -193,17 +193,42 @@ func TestSelectedAttachmentCLIAtomicFailureCandidateConformance(t *testing.T) {
 	}
 	binary := buildSelectedATLBinary(t, "")
 	for _, test := range []struct {
-		name    string
-		prepare func(*attachmentChainFixture)
+		name          string
+		prepare       func(*attachmentChainFixture)
+		rotateSession bool
 	}{
 		{name: "first release denied", prepare: func(f *attachmentChainFixture) { f.denyRelease = 1 }},
 		{name: "second release denied", prepare: func(f *attachmentChainFixture) { f.denyRelease = 2 }},
 		{name: "metadata drift", prepare: func(f *attachmentChainFixture) { f.metadataDrift = 3 }},
 		{name: "credential at frame boundary", prepare: func(f *attachmentChainFixture) { copy(f.payload[(1<<20)-4:], attachmentChainBackend) }},
+		{name: "short source", prepare: func(f *attachmentChainFixture) { f.sourceMode = "short" }},
+		{name: "extra source", prepare: func(f *attachmentChainFixture) { f.sourceMode = "extra" }},
+		{name: "source redirect", prepare: func(f *attachmentChainFixture) { f.sourceMode = "redirect" }},
+		{name: "source failure", prepare: func(f *attachmentChainFixture) { f.sourceMode = "failure" }},
+		{name: "first release authentication revoked", prepare: func(f *attachmentChainFixture) { f.revokeAuthentication = 4 }},
+		{name: "second release authentication revoked", prepare: func(f *attachmentChainFixture) { f.revokeAuthentication = 5 }},
+		{name: "second release authentication expired", prepare: func(f *attachmentChainFixture) { f.expireAuthentication = 5 }},
+		{name: "session replaced before first release", rotateSession: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			fixture := newAttachmentCLIProcessFixture(t, bytes.Repeat([]byte{'x'}, 1<<20+128))
-			test.prepare(fixture.chain)
+			if test.prepare != nil {
+				test.prepare(fixture.chain)
+			}
+			if test.rotateSession {
+				fixture.chain.releaseHook = func(index int) {
+					if index == 1 {
+						body, marshalErr := json.Marshal(map[string]any{"schema_version": 1, "credential": "synthetic-replacement-workload", "execution_id": "execution-1", "execution_epoch": "epoch-1", "authority_revision": "revision-1"})
+						if marshalErr != nil {
+							t.Errorf("encode replacement session: %v", marshalErr)
+							return
+						}
+						if writeErr := os.WriteFile(fixture.sessionPath, body, 0o600); writeErr != nil {
+							t.Errorf("replace session: %v", writeErr)
+						}
+					}
+				}
+			}
 			destination := t.TempDir()
 			prior := []byte("prior-owned-content")
 			target := filepath.Join(destination, "example.bin")
@@ -227,10 +252,32 @@ func TestSelectedAttachmentCLIAtomicFailureCandidateConformance(t *testing.T) {
 				t.Fatal("failed stream fell back to direct Jira")
 			}
 			fixture.chain.mu.Lock()
-			if fixture.chain.violations != 0 {
-				t.Errorf("fixture violations=%d", fixture.chain.violations)
+			if fixture.chain.violations != 0 || fixture.chain.counts["body"] != 1 || fixture.chain.counts["redirect"] != 0 {
+				t.Errorf("fixture violations=%d counts=%v", fixture.chain.violations, fixture.chain.counts)
 			}
 			fixture.chain.mu.Unlock()
+			if len(fixture.chain.handler.permits) != 0 || len(fixture.chain.handler.attachmentPermits) != 0 {
+				t.Error("failed stream retained a request permit")
+			}
+			decoder := json.NewDecoder(bytes.NewReader(fixture.audit.Bytes()))
+			streamEvents := 0
+			for {
+				var event AuditEvent
+				if decodeErr := decoder.Decode(&event); decodeErr == io.EOF {
+					break
+				} else if decodeErr != nil || !validAuditEvent(event) {
+					t.Fatalf("audit decode=%v", decodeErr)
+				}
+				if event.Route == "data_execute_v3" {
+					streamEvents++
+					if !test.rotateSession && event.Outcome == "success" {
+						t.Error("failed server stream was audited as success")
+					}
+				}
+			}
+			if streamEvents != 1 {
+				t.Errorf("stream audits=%d", streamEvents)
+			}
 		})
 	}
 }

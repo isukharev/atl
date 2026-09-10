@@ -28,8 +28,8 @@ func attachmentRouteRequest(t *testing.T, body []byte) *http.Request {
 func attachmentRouteBody(t *testing.T) []byte {
 	t.Helper()
 	definition, ok := brokercontract.DefinitionV3(domain.BrokerOperationJiraAttachmentDownload, brokercontract.AttachmentOperationVersionV3)
-	if !ok || definition.Definition.Available {
-		t.Fatal("this unavailable-route oracle requires the unenabled definition")
+	if !ok {
+		t.Fatal("attachment definition is missing")
 	}
 	body, err := brokercontract.EncodeAttachmentRequestV3(domain.BrokerAttachmentRequestV3{
 		SchemaVersion: 3, Operation: definition.Definition.ID, OperationVersion: definition.Definition.Version,
@@ -43,13 +43,13 @@ func attachmentRouteBody(t *testing.T) []byte {
 	return body
 }
 
-func TestAttachmentRouteKeepsUnavailableAndInvalidRequestsBeforeUpstreamIO(t *testing.T) {
+func TestAttachmentRouteRejectsMissingServiceAndInvalidRequestsBeforeUpstreamIO(t *testing.T) {
 	for _, test := range []struct {
 		name   string
 		mutate func(*http.Request)
 		reason domain.BrokerReason
 	}{
-		{name: "unavailable", reason: domain.BrokerReasonUnsupported},
+		{name: "missing configured service", reason: domain.BrokerReasonUnsupported},
 		{name: "query expansion", reason: domain.BrokerReasonMalformed, mutate: func(r *http.Request) { r.URL.RawQuery = "debug=1" }},
 		{name: "encoded request", reason: domain.BrokerReasonMalformed, mutate: func(r *http.Request) { r.Header.Set("Content-Encoding", "gzip") }},
 		{name: "missing credential", reason: domain.BrokerReasonCredentialExpired, mutate: func(r *http.Request) { r.Header.Del("Authorization") }},

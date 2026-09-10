@@ -42,18 +42,18 @@ type attachmentTestTB interface {
 	Fatalf(format string, args ...any)
 }
 
-func TestAttachmentV3RegistryIsUnavailableBoundedAndSeparate(t *testing.T) {
+func TestAttachmentV3RegistryIsAvailableBoundedAndSeparate(t *testing.T) {
 	definitions := RegistryV3()
-	if RegistrySHA256V3() != "437d6b5a3fe5b10a7f771b1cc2d8d15930cba7c902b1e19264c9e28fd5d21cd7" ||
+	if RegistrySHA256V3() != "cd0958b86413618d5cfc28b98943943d27d06cca05c9ab9880b60024a2240253" ||
 		ExecutionSchemaSHA256V3() != "5da402d39bb41fe7c9dece70f01413f5ac378b67208715f6f7efdf30ee04c626" ||
 		DiscoverySchemaSHA256V4() != "12a706d61423bcd74898d80ef87529c855f0ea14e387addb7f3f108333c1caf9" {
 		t.Fatalf("execution-v3 contract bytes changed: %s/%s/%s", RegistrySHA256V3(), ExecutionSchemaSHA256V3(), DiscoverySchemaSHA256V4())
 	}
-	if len(definitions) != 1 || len(AvailableDefinitionsV3()) != 0 || !validDigest(RegistrySHA256V3()) || !validDigest(ExecutionSchemaSHA256V3()) {
+	if len(definitions) != 1 || len(AvailableDefinitionsV3()) != 1 || !validDigest(RegistrySHA256V3()) || !validDigest(ExecutionSchemaSHA256V3()) {
 		t.Fatalf("definitions=%+v available=%d", definitions, len(AvailableDefinitionsV3()))
 	}
 	definition := definitions[0]
-	if definition.Definition.Available || !definition.Definition.Streaming || definition.Definition.ID != domain.BrokerOperationJiraAttachmentDownload || definition.MaxMetadataItems != 10_000 ||
+	if !definition.Definition.Available || !definition.Definition.Streaming || definition.Definition.ID != domain.BrokerOperationJiraAttachmentDownload || definition.MaxMetadataItems != 10_000 ||
 		definition.Definition.Limits.MaxResources != 2 || definition.Definition.Limits.MaxFields != 0 || definition.Definition.Limits.MaxStreamChunks != 16 ||
 		definition.MaxJiraAttempts != 19 || definition.MaxAuthenticationAttempts != 17 || definition.MaxDecisionAttempts != 37 || definition.MaxTotalHostOutboundAttempts != 73 ||
 		definition.MaxCommandHostOutboundAttempts != 76 ||

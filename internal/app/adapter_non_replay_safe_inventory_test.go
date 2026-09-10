@@ -102,7 +102,7 @@ func collectAdapterNonReplaySafeRequests(t *testing.T) (map[string]adapterReques
 		"CloseIdleConnections": true,
 		"Do":                   true, "DoStream": true, "DoStreamSized": true,
 		"DoWithBodyLimit": true, "GetJSON": true, "GetJSONUseNumber": true,
-		"GetStream": true, "ResolveGET": true, "SendJSON": true,
+		"GetStream": true, "GetStreamBefore": true, "ResolveGET": true, "SendJSON": true,
 	}
 	packages := []struct {
 		name, directory string

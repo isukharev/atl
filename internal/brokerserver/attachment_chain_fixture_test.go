@@ -27,17 +27,23 @@ const (
 )
 
 type attachmentChainFixture struct {
-	mu            sync.Mutex
-	counts        map[string]int
-	nonces        map[string]bool
-	violations    int
-	verified      domain.BrokerVerifiedContext
-	issuer        string
-	payload       []byte
-	denyRelease   int
-	metadataDrift int
-	handler       *Handler
-	request       domain.BrokerAttachmentRequestV3
+	mu                   sync.Mutex
+	counts               map[string]int
+	nonces               map[string]bool
+	violations           int
+	verified             domain.BrokerVerifiedContext
+	issuer               string
+	payload              []byte
+	denyRelease          int
+	metadataDrift        int
+	sourceMode           string
+	bodyEntered          chan struct{}
+	bodyCancelled        chan struct{}
+	revokeAuthentication int
+	expireAuthentication int
+	releaseHook          func(int)
+	handler              *Handler
+	request              domain.BrokerAttachmentRequestV3
 }
 
 func newAttachmentChainFixture(t *testing.T, payload []byte) *attachmentChainFixture {
@@ -137,7 +143,34 @@ func (f *attachmentChainFixture) serveJira(writer http.ResponseWriter, request *
 	case "/jira/secure/attachment/7/example.bin":
 		f.bump("body")
 		writer.Header().Set("Content-Type", "application/octet-stream")
-		_, _ = writer.Write(f.payload)
+		switch f.sourceMode {
+		case "":
+			_, _ = writer.Write(f.payload)
+		case "short":
+			_, _ = writer.Write(f.payload[:len(f.payload)-1])
+		case "extra":
+			_, _ = writer.Write(f.payload)
+			_, _ = writer.Write([]byte{'x'})
+		case "redirect":
+			writer.Header().Set("Location", "/jira/redirect-trap")
+			writer.WriteHeader(http.StatusTemporaryRedirect)
+		case "failure":
+			writer.WriteHeader(http.StatusServiceUnavailable)
+		case "blocked":
+			writer.WriteHeader(http.StatusOK)
+			if err := http.NewResponseController(writer).Flush(); err != nil {
+				f.reject(writer)
+				return
+			}
+			close(f.bodyEntered)
+			<-request.Context().Done()
+			close(f.bodyCancelled)
+		default:
+			f.reject(writer)
+		}
+	case "/jira/redirect-trap":
+		f.bump("redirect")
+		writer.WriteHeader(http.StatusForbidden)
 	default:
 		f.reject(writer)
 	}
@@ -174,7 +207,14 @@ func (f *attachmentChainFixture) serveAuthority(writer http.ResponseWriter, requ
 			f.reject(writer)
 			return
 		}
-		f.bump("authentication")
+		index := f.bump("authentication")
+		if index == f.revokeAuthentication {
+			writer.WriteHeader(http.StatusForbidden)
+			return
+		}
+		if index == f.expireAuthentication {
+			now = now.Add(-5 * time.Second)
+		}
 		encoded, err = brokertransport.EncodeAuthenticationResponseV1(brokertransport.AuthenticationResponse{SchemaVersion: 1, Nonce: value.Nonce, CredentialSHA256: value.CredentialSHA256, IssuerSHA256: f.issuer,
 			IssuedAtMillis: now.UnixMilli(), ExpiresAtMillis: now.Add(4 * time.Second).UnixMilli(), Context: f.verified})
 	case brokertransport.DiscoveryPathV4:
@@ -220,6 +260,9 @@ func (f *attachmentChainFixture) serveAuthority(writer http.ResponseWriter, requ
 			return
 		}
 		index := f.bump("operation_" + string(value.Phase))
+		if value.Phase == domain.BrokerAttachmentOperationRelease && f.releaseHook != nil {
+			f.releaseHook(index)
+		}
 		decision := attachmentChainOperation(value, now)
 		if value.Phase == domain.BrokerAttachmentOperationRelease && index == f.denyRelease {
 			decision.Status, decision.Reason = domain.BrokerDecisionDenied, domain.BrokerReasonDenied
